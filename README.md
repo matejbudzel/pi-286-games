@@ -2,6 +2,9 @@
 
 Minimal Raspberry Pi DOS gaming appliance for a small curated set of games.
 
+The visual and performance target is a late 286/EGA DOS PC. See
+[the target-platform notes](docs/target-platform.md).
+
 The repository contains the launcher, host configuration, DOSBox configuration, input mappings, and deployment helpers. Game binaries and assets are intentionally kept outside Git.
 
 ## Runtime model
@@ -52,3 +55,21 @@ While DOSBox is running, a separate host-level panic input is monitored. It is c
 ## Game definitions
 
 Each subdirectory in `games/` represents one game and contains metadata plus optional DOSBox-specific files. The launcher does not require the referenced executable to exist while discovering the menu. Missing game data is handled only when the user launches that title.
+
+## DietPi / Debian setup
+
+Run this as the autologin user after cloning the repository:
+
+```sh
+./scripts/install-dietpi.sh
+```
+
+The script installs DOSBox when needed, copies the host configuration, grants
+only the shutdown command through sudo, and starts the launcher on local tty1
+when that user logs in (never over SSH). Configure `panic_device` to a readable
+`/dev/input/event*` device for panic handling while DOSBox owns the display.
+The install script adds the user to the usual `input` group; log out and back
+in once for that new group membership to take effect.
+
+The included definitions expect `GPEGA.EXE`, `PREHIST.EXE`, and `PRINCE.EXE`.
+Change `exe` in the relevant `game.conf` if your lawful copy uses another name.

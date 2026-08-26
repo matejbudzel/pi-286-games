@@ -9,6 +9,14 @@ game_data_root=/opt/pi-286-games-data
 # Raspberry Pi deployment: set this to the chosen dance-mat control.
 panic_key=F1
 
+# Linux event device for panic_key. This is the reliable path while DOSBox has
+# the display (example: /dev/input/event0). Empty means all readable event
+# devices are watched, which is convenient for UTM. The user must be in input.
+panic_device=
+
+# Debian's package installs this command.
+dosbox_command=dosbox
+
 # Logical launcher controls.
 up_key=UP
 down_key=DOWN
