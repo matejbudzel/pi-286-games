@@ -71,5 +71,20 @@ when that user logs in (never over SSH). Configure `panic_device` to a readable
 The install script adds the user to the usual `input` group; log out and back
 in once for that new group membership to take effect.
 
+### Larger console font
+
+The launcher is a Linux-console TUI, so its text size comes from the system
+console font. On the local DietPi console, configure a larger persistent font:
+
+```sh
+sudo dpkg-reconfigure console-setup
+sudo setupcon
+```
+
+Choose UTF-8, the `Lat2` codeset (for Slovak characters), and `TerminusBold`.
+`14x28` is a good starting size; use `16x32` for a more prominent appliance
+menu if the display resolution leaves enough room. This affects virtual
+consoles such as tty1, not SSH terminals.
+
 The included definitions expect `GPEGA.EXE`, `PREHIST.EXE`, and `PRINCE.EXE`.
 Change `exe` in the relevant `game.conf` if your lawful copy uses another name.
