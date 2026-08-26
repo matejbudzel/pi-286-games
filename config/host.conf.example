@@ -7,6 +7,7 @@ game_data_root=/opt/pi-286-games-data
 # Host-level panic input used while DOSBox is running.
 # Development example: F1
 # Raspberry Pi deployment: set this to the chosen dance-mat control.
+# In the launcher menu, this key displays the Ethernet/Wi-Fi address (or offline).
 panic_key=F1
 
 # Linux event device for panic_key. This is the reliable path while DOSBox has

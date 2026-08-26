@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Minimal terminal UI and DOSBox supervisor for pi-286-games."""
-import argparse, glob, os, select, shlex, shutil, signal, struct, subprocess, sys, tempfile, termios, time, tty, urllib.error, urllib.parse, urllib.request, zipfile
+import argparse, fcntl, glob, os, select, shlex, shutil, signal, socket, struct, subprocess, sys, tempfile, termios, time, tty, urllib.error, urllib.parse, urllib.request, zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -34,6 +34,20 @@ def stop_boot_splash():
     if systemctl:
         subprocess.run(["sudo", "-n", systemctl, "stop", "pi-286-games-splash.service"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
 
+def network_address():
+    """Return the first IPv4 address on Ethernet or Wi-Fi, if available."""
+    names = [name for _, name in socket.if_nameindex()]
+    names.sort(key=lambda name: (not name.startswith(("eth", "en")), name))
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
+        for name in names:
+            if not name.startswith(("eth", "en", "wlan", "wl")): continue
+            try:
+                reply = fcntl.ioctl(probe.fileno(), 0x8915, struct.pack("256s", name.encode()[:15]))
+                return socket.inet_ntoa(reply[20:24])
+            except OSError:
+                pass
+    return "offline"
+
 def discover(directory=ROOT / "games"):
     games = []
     for item in directory.iterdir():
@@ -64,7 +78,7 @@ class Terminal:
         text = text[:available]
         return " " * max(0, (available - len(text)) // 2) + prefix + text
     @staticmethod
-    def draw(lines, color="\x1b[96m"):
+    def draw(lines, color="\x1b[96m", corner=""):
         try: size = os.get_terminal_size(sys.stdout.fileno())
         except OSError: size = shutil.get_terminal_size((80, 24))
         # Raw mode disables the terminal's normal NL-to-CRNL output conversion.
@@ -72,6 +86,8 @@ class Terminal:
         out = ["\x1b[2J\x1b[H", "\r\n" * max(0, (size.lines-len(lines))//2)]
         for text, current in lines:
             out.append((color if current else "\x1b[37m") + Terminal.line(text, current, size.columns) + "\x1b[0m\r\n")
+        if corner:
+            out.append("\x1b[%d;%dH\x1b[90m%s\x1b[0m" % (size.lines, max(1, size.columns - len(corner) + 1), corner[:size.columns]))
         sys.stdout.write("".join(out)); sys.stdout.flush()
 
 def error(term, game, detail, confirm):
@@ -210,15 +226,16 @@ def main():
     args = parser.parse_args(); config = values(ROOT / "config" / "host.conf.example"); config.update(values(args.host_conf))
     games = discover()
     if not games: print("No valid game definitions found.", file=sys.stderr); return 1
-    selected = 0; confirm = config.get("confirm_key", "SPACE").upper()
+    selected = 0; confirm = config.get("confirm_key", "SPACE").upper(); corner = ""
     stop_boot_splash()
     with Terminal() as term:
         while True:
             lines = [(g.name, n == selected) for n, g in enumerate(games)] + [("", False), ("Bye bye!", selected == len(games))]
-            Terminal.draw(lines, "\x1b[91m" if selected == len(games) else ("\x1b[92m", "\x1b[96m", "\x1b[93m")[sum(games[selected].name.encode()) % 3])
+            Terminal.draw(lines, "\x1b[91m" if selected == len(games) else ("\x1b[92m", "\x1b[96m", "\x1b[93m")[sum(games[selected].name.encode()) % 3], corner)
             key = term.key()
             if key == "CTRL_C": return 0
-            if key == config.get("up_key", "UP").upper(): selected = (selected - 1) % (len(games) + 1)
+            if key == config.get("panic_key", "F1").upper(): corner = network_address()
+            elif key == config.get("up_key", "UP").upper(): selected = (selected - 1) % (len(games) + 1)
             elif key == config.get("down_key", "DOWN").upper(): selected = (selected + 1) % (len(games) + 1)
             elif key == confirm:
                 if selected == len(games):
@@ -228,7 +245,9 @@ def main():
                         if not error(term, Game("Systém", "", "", Path(), Path()), "Vypnutie systému zlyhalo.", confirm): return 0
                 else:
                     try:
-                        if run_game(games[selected], config, term) == "failed" and not error(term, games[selected], "DOSBox skončil s chybou.", confirm): return 0
+                        result = run_game(games[selected], config, term)
+                        if result == "panic": corner = network_address()
+                        if result == "failed" and not error(term, games[selected], "DOSBox skončil s chybou.", confirm): return 0
                     except RuntimeError as exc:
                         if not error(term, games[selected], str(exc), confirm): return 0
 if __name__ == "__main__": raise SystemExit(main())

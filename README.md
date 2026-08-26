@@ -93,6 +93,11 @@ The launcher has three logical inputs:
 
 While DOSBox is running, a separate host-level panic input is monitored. It is configured in `config/host.conf` and is intentionally independent of DOSBox mapper files. A development VM can use `F1`; the Raspberry Pi deployment can use a dedicated dance-mat control.
 
+In the launcher menu, pressing that same configured panic control displays the
+first detected Ethernet or Wi-Fi IPv4 address in the bottom-right corner. It
+shows `offline` when neither interface has an address, and also appears after a
+panic return from DOSBox.
+
 ## Game definitions
 
 Each subdirectory in `games/` represents one game and contains metadata plus optional DOSBox-specific files. The launcher does not require the referenced executable to exist while discovering the menu. Missing game data is handled only when the user launches that title.
