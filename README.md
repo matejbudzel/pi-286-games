@@ -154,3 +154,17 @@ consoles such as tty1, not SSH terminals.
 
 The included definitions expect `GPEGA.EXE`, `PREHIST.EXE`, and `PRINCE.EXE`.
 Change `exe` in the relevant `game.conf` if your lawful copy uses another name.
+
+## Health check
+
+Run the read-only health check on the target to inspect the DOSBox and splash
+prerequisites, group membership, service state, framebuffer, and latest launcher
+log:
+
+```sh
+sh scripts/health-check.sh
+```
+
+Add `--smoke-dosbox` to briefly start DOSBox with an immediate `exit` command.
+It writes diagnostics to `/tmp/pi-286-games-dosbox-smoke.log` if the video or
+audio backend cannot initialise.
