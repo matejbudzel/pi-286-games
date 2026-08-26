@@ -29,11 +29,6 @@ def values(path):
 def enabled(value):
     return value.strip().lower() in ("1", "true", "yes", "on")
 
-def stop_boot_splash():
-    systemctl = shutil.which("systemctl")
-    if systemctl:
-        subprocess.run(["sudo", "-n", systemctl, "stop", "pi-286-games-splash.service"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
-
 def network_address():
     """Return the first IPv4 address on Ethernet or Wi-Fi, if available."""
     names = [name for _, name in socket.if_nameindex()]
@@ -135,7 +130,10 @@ def install_assets(game, data, term=None, confirm="SPACE"):
     if term:
         wait_for_install_confirmation(term, game, confirm, "Chýbajú herné dáta", "Stlač %s pre inštaláciu, Esc pre návrat" % confirm)
         install_screen(term, game, "Inštalujem herné dáta", "Pripravujem archív...", 0)
-    data.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        data.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise RuntimeError("Priečinok s hernými dátami sa nedá vytvoriť: %s" % str(exc)) from exc
     with tempfile.TemporaryDirectory(prefix="pi-286-games-", dir=data.parent) as temporary:
         source = game.asset_archive
         source_path = urllib.parse.urlparse(source).path if source.startswith(("http://", "https://")) else source
@@ -159,7 +157,9 @@ def install_assets(game, data, term=None, confirm="SPACE"):
                         if path.is_absolute() or ".." in path.parts or (member.external_attr >> 16) & 0o170000 == 0o120000:
                             raise RuntimeError("Archív obsahuje nebezpečnú cestu.")
                     bundle.extractall(extracted)
-            extracted.rename(data)
+            entries = list(extracted.iterdir())
+            payload = entries[0] if len(entries) == 1 and entries[0].is_dir() else extracted
+            payload.rename(data)
             if term:
                 install_screen(term, game, "Herné dáta sú pripravené", "Stlač %s pre spustenie hry" % confirm, 100)
                 wait_for_install_confirmation(term, game, confirm, "Herné dáta sú pripravené", "Stlač %s pre spustenie hry" % confirm)
@@ -182,7 +182,7 @@ def run_game(game, config, term, no_sound=False):
     dosbox = shutil.which(config.get("dosbox_command", "dosbox"))
     if not dosbox: raise RuntimeError("DOSBox nie je nainštalovaný.")
     generated = game.dosbox_conf.parent / ".launcher-autoexec.conf"
-    sound_config = "\n[mixer]\nnosound=true\n\n[midi]\nmpu401=none\n" if no_sound else ""
+    sound_config = "\n[mixer]\nnosound=true\n\n[midi]\nmpu401=none\nmididevice=none\n" if no_sound else ""
     generated_content = "[sdl]\nmapperfile=%s\n%s\n[autoexec]\nmount c \"%s\"\nc:\n%s\nexit\n" % (game.mapper_file, sound_config, data, command)
     generated.write_text(generated_content, encoding="utf-8")
     Path("/tmp/pi-286-games-dosbox.conf").write_text(generated_content, encoding="utf-8")
@@ -229,7 +229,6 @@ def main():
     games = discover()
     if not games: print("No valid game definitions found.", file=sys.stderr); return 1
     selected = 0; confirm = config.get("confirm_key", "SPACE").upper(); corner = ""
-    stop_boot_splash()
     with Terminal() as term:
         while True:
             lines = [(g.name, n == selected) for n, g in enumerate(games)] + [("", False), ("Bye bye!", selected == len(games))]

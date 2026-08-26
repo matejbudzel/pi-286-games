@@ -14,25 +14,22 @@ pass() { printf 'OK   %s\n' "$1"; }
 fail() { printf 'FAIL %s\n' "$1"; failed=1; }
 
 if command -v dosbox >/dev/null 2>&1; then pass "dosbox: $(dosbox -version 2>&1 | head -n 1)"; else fail "dosbox is not installed"; fi
-if command -v fbi >/dev/null 2>&1; then pass "fbi is installed"; else fail "fbi is not installed"; fi
+if command -v plymouth >/dev/null 2>&1; then pass "plymouth is installed"; else fail "plymouth is not installed"; fi
 if [ -c /dev/fb0 ]; then pass "framebuffer: $(ls -l /dev/fb0)"; else fail "/dev/fb0 is unavailable"; fi
-if [ -r /usr/local/share/pi-286-games/kockovane-hry-splash.png ]; then pass "installed splash image is readable"; else fail "installed splash image is missing"; fi
+theme_dir=/usr/share/plymouth/themes/pi-286-games
+if [ -r "$theme_dir/kockovane-hry-splash.png" ] && [ -r "$theme_dir/pi-286-games.plymouth" ] && [ -r "$theme_dir/pi-286-games.script" ]; then
+    pass "Plymouth splash theme files are readable"
+else
+    fail "Plymouth splash theme files are missing"
+fi
+if command -v plymouth-set-default-theme >/dev/null 2>&1 && [ "$(plymouth-set-default-theme 2>/dev/null)" = pi-286-games ]; then
+    pass "pi-286-games is the active Plymouth theme"
+else
+    fail "pi-286-games is not the active Plymouth theme"
+fi
 
 if id -nG | tr ' ' '\n' | grep -qx video; then pass "current user belongs to video group"; else fail "current user is not in video group"; fi
 if id -nG | tr ' ' '\n' | grep -qx input; then pass "current user belongs to input group"; else fail "current user is not in input group"; fi
-
-if systemctl is-enabled --quiet pi-286-games-splash.service 2>/dev/null; then
-    pass "splash service is enabled"
-else
-    fail "splash service is not enabled"
-fi
-if systemctl is-active --quiet pi-286-games-splash.service 2>/dev/null; then
-    pass "splash service is active"
-elif systemctl is-failed --quiet pi-286-games-splash.service 2>/dev/null; then
-    fail "splash service failed; inspect: sudo journalctl -u pi-286-games-splash.service -b"
-else
-    echo "INFO splash service is inactive (normal after the launcher has started)"
-fi
 
 latest_log=/tmp/pi-286-games-dosbox.log
 if [ -f "$latest_log" ]; then

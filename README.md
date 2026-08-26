@@ -34,14 +34,14 @@ scripts/               Install and local development helpers
 Game binaries are not stored in this repository. The launcher uses a configurable game-data root, for example:
 
 ```text
-/opt/pi-286-games-data/
+~/pi-286-game-files/
   dizzy/
   grand-prix/
   prehistorik/
   prince-of-persia/
 ```
 
-For local UTM development the same layout can live anywhere convenient, for example `~/pi-286-games-data/`.
+For local UTM development this default home-directory layout works directly.
 
 ### Optional first-run asset installation
 
@@ -113,6 +113,11 @@ Run this as the autologin user after cloning the repository:
 ./scripts/install-dietpi.sh
 ```
 
+The default installed `game_data_root` is `~/pi-286-game-files`, which is
+writable by the autologin user. If an older `config/host.conf` still points to
+`/opt/pi-286-games-data`, either change it to that user-owned path or create
+and grant ownership of the `/opt` directory before using archive installation.
+
 The script installs DOSBox when needed, copies the host configuration, grants
 only the shutdown command through sudo, and starts the launcher on local tty1
 when that user logs in (never over SSH). Configure `panic_device` to a readable
@@ -130,13 +135,21 @@ appliance to make that menu item power off the host instead.
 
 ### Boot splash
 
-The installer installs `fbi` and enables an early systemd framebuffer splash on
-tty1. It displays the included rainbow pixel/ASCII-art `KOCKOVANÉ HRY` PNG
-until the launcher starts, then the launcher stops the splash service before it
-draws its menu. The installer also adds `quiet`, `loglevel=0`,
-`vt.global_cursor_default=0`, and `logo.nologo` to the Raspberry Pi kernel
-command line when it finds the active `cmdline.txt`. Re-running the installer
-safely refreshes the image and service and does not duplicate those options.
+The installer installs Plymouth and activates the included static, rainbow
+pixel/ASCII-art `KOCKOVANÉ HRY` PNG as the boot theme. It also rebuilds the
+initramfs, so the image is available early enough to cover the normal boot
+messages.
+
+On current DietPi it adds `quiet splash plymouth.ignore-serial-consoles
+loglevel=3 vt.global_cursor_default=0` to `extraargs=` in
+`/boot/dietpiEnv.txt`. On systems without that file it instead updates the
+first available `/boot/firmware/cmdline.txt` or `/boot/cmdline.txt`. Re-running
+the installer refreshes the theme safely without duplicating the splash option.
+
+The installer deliberately does not mask `getty@tty1.service`: the launcher is
+started from the autologin user's tty1 shell, and masking it would prevent that
+handoff after Plymouth exits. On an existing installation it removes the
+obsolete `fbi` splash service.
 
 ### Larger console font
 
@@ -158,9 +171,8 @@ Change `exe` in the relevant `game.conf` if your lawful copy uses another name.
 
 ## Health check
 
-Run the read-only health check on the target to inspect the DOSBox and splash
-prerequisites, group membership, service state, framebuffer, and latest launcher
-log:
+Run the read-only health check on the target to inspect the DOSBox and Plymouth
+prerequisites, group membership, framebuffer, and latest launcher log:
 
 ```sh
 sh scripts/health-check.sh
@@ -172,10 +184,25 @@ audio backend cannot initialise.
 
 ## No-sound launch mode
 
-Run the launcher with `--no-sound` to disable DOSBox's mixer and MIDI device
-and force SDL's dummy audio backend. This is useful for a development VM without
-an ALSA sound card:
+Run the launcher with `--no-sound` to disable DOSBox's mixer and MIDI output
+device and force SDL's dummy audio backend. This is useful for a development VM
+without an ALSA sound card:
 
 ```sh
 python3 launcher/launcher.py --no-sound
 ```
+
+## Headless x86_64 development viewer
+
+This is development-only and is not needed on the Raspberry Pi. On a Debian or
+DietPi x86_64 VM/container, install Xpra from its official repository together
+with `xpra-html5`, `xpra-audio-server`, and `xterm`. Copy
+`config/host.conf.example` to the ignored `config/host.conf` and set a
+user-writable `game_data_root`.
+
+`scripts/run-xpra-dev.sh` starts the launcher in a virtual X display and serves
+the Xpra HTML5 client. It forwards DOSBox video, browser keyboard input, and
+speaker audio. Set `PI_286_XPRA_BIND` to the host address and start it through
+the supplied `systemd/pi-286-games-xpra.service` unit after adjusting its
+`User`, `WorkingDirectory`, and bind address. The runner creates a password at
+`~/.config/pi-286-games/xpra-password` on first start; keep that file private.

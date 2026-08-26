@@ -1,0 +1,20 @@
+[Unit]
+Description=pi-286-games Xpra development viewer
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=dietpi
+WorkingDirectory=/home/dietpi/pi-286-games
+Environment=HOME=/home/dietpi
+Environment=XDG_RUNTIME_DIR=/run/pi-286-games-xpra
+Environment=PI_286_XPRA_BIND=127.0.0.1:14500
+Environment=PI_286_XPRA_TRUST_TAILSCALE=1
+RuntimeDirectory=pi-286-games-xpra
+RuntimeDirectoryMode=0700
+ExecStart=/home/dietpi/pi-286-games/scripts/run-xpra-dev.sh
+Restart=no
+
+[Install]
+WantedBy=multi-user.target

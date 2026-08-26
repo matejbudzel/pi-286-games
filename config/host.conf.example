@@ -2,7 +2,7 @@
 # Copy this file to config/host.conf and keep host.conf out of Git.
 
 # Root directory containing the actual game binaries and assets.
-game_data_root=/opt/pi-286-games-data
+game_data_root=~/pi-286-game-files
 
 # Host-level panic input used while DOSBox is running.
 # Development example: F1
