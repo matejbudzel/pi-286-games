@@ -42,6 +42,26 @@ Game binaries are not stored in this repository. The launcher uses a configurabl
 
 For local UTM development the same layout can live anywhere convenient, for example `~/pi-286-games-data/`.
 
+### Optional first-run asset installation
+
+A game's `game.conf` can set `asset_zip` to either an HTTPS URL or a local ZIP
+path. If its configured `data_dir` is absent, the launcher downloads or copies
+that archive and extracts it into the data directory. If the directory already
+exists, it is always used as-is: the archive is not fetched, extracted, or used
+to validate its contents.
+
+```ini
+asset_zip=https://example.org/my-lawful-game-copy.zip
+```
+
+The archive must contain the game's files at its top level. Only configure a
+source you are authorised to download and use; game data is still host-local
+and must not be committed to this repository.
+
+The launcher treats an existing or newly extracted data directory as ready to
+use and does not inspect it for the configured executable before starting
+DOSBox. This deliberately avoids overwriting or second-guessing a local copy.
+
 ## Input model
 
 The launcher has three logical inputs:

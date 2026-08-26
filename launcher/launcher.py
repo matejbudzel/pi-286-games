@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Minimal terminal UI and DOSBox supervisor for pi-286-games."""
-import argparse, glob, os, select, shlex, shutil, signal, struct, subprocess, sys, termios, time, tty
+import argparse, glob, os, select, shlex, shutil, signal, struct, subprocess, sys, tempfile, termios, time, tty, urllib.error, urllib.request, zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -12,7 +12,7 @@ KEY_CODES = {"F1": 59, "UP": 103, "DOWN": 108, "LEFT": 105, "RIGHT": 106,
 
 @dataclass(frozen=True)
 class Game:
-    name: str; data_dir: str; command: str; dosbox_conf: Path; mapper_file: Path
+    name: str; data_dir: str; command: str; dosbox_conf: Path; mapper_file: Path; asset_zip: str = ""
 
 def values(path):
     result = {}
@@ -29,7 +29,7 @@ def discover(directory=ROOT / "games"):
         if not item.is_dir() or item.name.startswith("_"): continue
         conf = values(item / "game.conf")
         if all(conf.get(k) for k in ("name", "data_dir", "exe", "dosbox_conf", "mapper_file")):
-            games.append(Game(conf["name"], conf["data_dir"], conf["exe"], item / conf["dosbox_conf"], item / conf["mapper_file"]))
+            games.append(Game(conf["name"], conf["data_dir"], conf["exe"], item / conf["dosbox_conf"], item / conf["mapper_file"], conf.get("asset_zip", "")))
     return sorted(games, key=lambda g: g.name.casefold())
 
 class Terminal:
@@ -46,10 +46,18 @@ class Terminal:
         data = os.read(self.fd, 8)
         return {b"\x03":"CTRL_C", b"\x1b[A":"UP", b"\x1bOA":"UP", b"\x1b[B":"DOWN", b"\x1bOB":"DOWN", b" ":"SPACE", b"\r":"ENTER", b"\x1bOP":"F1"}.get(data, data.decode("utf-8", "ignore").upper())
     @staticmethod
+    def line(text, current, columns):
+        prefix = ("> " if current else "  ") if columns >= 2 else ""
+        available = max(0, columns - len(prefix))
+        text = text[:available]
+        return " " * max(0, (available - len(text)) // 2) + prefix + text
+    @staticmethod
     def draw(lines, color="\x1b[96m"):
-        size = shutil.get_terminal_size((80, 24)); out = ["\x1b[2J\x1b[H", "\n" * max(0, (size.lines-len(lines))//2)]
+        try: size = os.get_terminal_size(sys.stdout.fileno())
+        except OSError: size = shutil.get_terminal_size((80, 24))
+        out = ["\x1b[2J\x1b[H", "\n" * max(0, (size.lines-len(lines))//2)]
         for text, current in lines:
-            out.append((color if current else "\x1b[37m") + " " * max(0, (size.columns-len(text))//2) + ("> " if current else "  ") + text + "\x1b[0m\n")
+            out.append((color if current else "\x1b[37m") + Terminal.line(text, current, size.columns) + "\x1b[0m\n")
         sys.stdout.write("".join(out)); sys.stdout.flush()
 
 def error(term, game, detail, confirm):
@@ -59,13 +67,38 @@ def error(term, game, detail, confirm):
         if key == "CTRL_C": return False
         if key == confirm: return True
 
+def install_assets(game, data):
+    """Install an archive only when the configured game directory is absent."""
+    if data.is_dir(): return
+    if not game.asset_zip: raise RuntimeError("Chýbajú herné dáta.")
+    data.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="pi-286-games-", dir=data.parent) as temporary:
+        archive = Path(temporary) / "game.zip"
+        source = game.asset_zip
+        try:
+            if source.startswith(("http://", "https://")):
+                with urllib.request.urlopen(source, timeout=30) as response, archive.open("wb") as output:
+                    shutil.copyfileobj(response, output)
+            else:
+                shutil.copyfile(Path(source).expanduser(), archive)
+            with zipfile.ZipFile(archive) as bundle:
+                for member in bundle.infolist():
+                    path = Path(member.filename)
+                    if path.is_absolute() or ".." in path.parts or (member.external_attr >> 16) & 0o170000 == 0o120000:
+                        raise RuntimeError("Archív obsahuje nebezpečnú cestu.")
+                extracted = Path(temporary) / "extracted"
+                bundle.extractall(extracted)
+            extracted.rename(data)
+        except (OSError, urllib.error.URLError, zipfile.BadZipFile) as exc:
+            raise RuntimeError("Herné dáta sa nepodarilo nainštalovať: %s" % str(exc)) from exc
+
 def validate(game, root):
     relative = Path(game.data_dir)
     if relative.is_absolute() or ".." in relative.parts: raise RuntimeError("Neplatný priečinok s dátami.")
     data = (root / relative).resolve()
-    if not data.is_dir(): raise RuntimeError("Chýbajú herné dáta.")
+    install_assets(game, data)
     parts = shlex.split(game.command)
-    if not parts or Path(parts[0]).is_absolute() or ".." in Path(parts[0]).parts or not (data / parts[0]).is_file(): raise RuntimeError("Chýba spúšťací súbor hry.")
+    if not parts or Path(parts[0]).is_absolute() or ".." in Path(parts[0]).parts: raise RuntimeError("Neplatný príkaz hry.")
     return data, " ".join([parts[0].replace("/", "\\\\")] + parts[1:])
 
 def run_game(game, config):
