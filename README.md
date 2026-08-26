@@ -51,6 +51,11 @@ or copies that archive and extracts it into the data directory. If the directory
 already exists, it is always used as-is: the archive is not fetched, extracted,
 or used to validate its contents.
 
+When the launcher needs to install an archive, it first asks for Confirm on a
+fullscreen Slovak screen. It then displays transfer and extraction progress,
+and waits for Confirm once more before starting the game. Press Esc to cancel
+before installation starts.
+
 ```ini
 asset_archive=https://example.org/my-lawful-game-copy.zip
 ```

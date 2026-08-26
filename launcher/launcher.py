@@ -10,6 +10,9 @@ EVENT = struct.Struct("llHHI")
 KEY_CODES = {"F1": 59, "UP": 103, "DOWN": 108, "LEFT": 105, "RIGHT": 106,
              "SPACE": 57, "ENTER": 28}
 
+class InstallationCancelled(Exception):
+    pass
+
 @dataclass(frozen=True)
 class Game:
     name: str; data_dir: str; command: str; dosbox_conf: Path; mapper_file: Path; asset_archive: str = ""
@@ -48,7 +51,7 @@ class Terminal:
     def key(self, timeout=None):
         if not select.select([self.fd], [], [], timeout)[0]: return None
         data = os.read(self.fd, 8)
-        return {b"\x03":"CTRL_C", b"\x1b[A":"UP", b"\x1bOA":"UP", b"\x1b[B":"DOWN", b"\x1bOB":"DOWN", b" ":"SPACE", b"\r":"ENTER", b"\x1bOP":"F1"}.get(data, data.decode("utf-8", "ignore").upper())
+        return {b"\x03":"CTRL_C", b"\x1b":"ESC", b"\x1b[A":"UP", b"\x1bOA":"UP", b"\x1b[B":"DOWN", b"\x1bOB":"DOWN", b" ":"SPACE", b"\r":"ENTER", b"\x1bOP":"F1"}.get(data, data.decode("utf-8", "ignore").upper())
     @staticmethod
     def line(text, current, columns):
         prefix = ("> " if current else "  ") if columns >= 2 else ""
@@ -73,22 +76,53 @@ def error(term, game, detail, confirm):
         if key == "CTRL_C": return False
         if key == confirm: return True
 
-def install_assets(game, data):
+def install_screen(term, game, title, detail, percent=None):
+    lines = [(title, False), (game.name, True), ("", False), (detail, False)]
+    if percent is not None:
+        percent = max(0, min(100, percent))
+        width = 24; filled = width * percent // 100
+        lines.extend([("", False), ("[%s%s] %d%%" % ("#" * filled, "-" * (width - filled), percent), False)])
+    Terminal.draw(lines, "\x1b[93m")
+
+def wait_for_install_confirmation(term, game, confirm, title, detail):
+    install_screen(term, game, title, detail)
+    while True:
+        key = term.key()
+        if key in ("ESC", "CTRL_C"): raise InstallationCancelled()
+        if key == confirm: return
+
+def copy_archive(source, archive, game, term):
+    if source.startswith(("http://", "https://")):
+        response = urllib.request.urlopen(source, timeout=30)
+        total = int(response.headers.get("Content-Length", "0"))
+    else:
+        path = Path(source).expanduser()
+        response = path.open("rb")
+        total = path.stat().st_size
+    with response, archive.open("wb") as output:
+        copied = 0
+        while True:
+            block = response.read(65536)
+            if not block: break
+            output.write(block); copied += len(block)
+            if term and total: install_screen(term, game, "Inštalujem herné dáta", "Kopírujem archív...", copied * 50 // total)
+
+def install_assets(game, data, term=None, confirm="SPACE"):
     """Install a ZIP or RAR archive only when the game directory is absent."""
     if data.is_dir(): return
     if not game.asset_archive: raise RuntimeError("Chýbajú herné dáta.")
+    if term:
+        wait_for_install_confirmation(term, game, confirm, "Chýbajú herné dáta", "Stlač %s pre inštaláciu, Esc pre návrat" % confirm)
+        install_screen(term, game, "Inštalujem herné dáta", "Pripravujem archív...", 0)
     data.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="pi-286-games-", dir=data.parent) as temporary:
         source = game.asset_archive
         source_path = urllib.parse.urlparse(source).path if source.startswith(("http://", "https://")) else source
         archive = Path(temporary) / ("game" + Path(source_path).suffix.lower())
         try:
-            if source.startswith(("http://", "https://")):
-                with urllib.request.urlopen(source, timeout=30) as response, archive.open("wb") as output:
-                    shutil.copyfileobj(response, output)
-            else:
-                shutil.copyfile(Path(source).expanduser(), archive)
+            copy_archive(source, archive, game, term)
             extracted = Path(temporary) / "extracted"
+            if term: install_screen(term, game, "Inštalujem herné dáta", "Rozbaľujem archív...", 55)
             if archive.suffix == ".rar":
                 unrar = shutil.which("unrar")
                 if not unrar: raise RuntimeError("Pre RAR archív nainštalujte balík unrar.")
@@ -105,20 +139,24 @@ def install_assets(game, data):
                             raise RuntimeError("Archív obsahuje nebezpečnú cestu.")
                     bundle.extractall(extracted)
             extracted.rename(data)
+            if term:
+                install_screen(term, game, "Herné dáta sú pripravené", "Stlač %s pre spustenie hry" % confirm, 100)
+                wait_for_install_confirmation(term, game, confirm, "Herné dáta sú pripravené", "Stlač %s pre spustenie hry" % confirm)
         except (OSError, subprocess.CalledProcessError, urllib.error.URLError, zipfile.BadZipFile) as exc:
             raise RuntimeError("Herné dáta sa nepodarilo nainštalovať: %s" % str(exc)) from exc
 
-def validate(game, root):
+def validate(game, root, term=None, confirm="SPACE"):
     relative = Path(game.data_dir)
     if relative.is_absolute() or ".." in relative.parts: raise RuntimeError("Neplatný priečinok s dátami.")
     data = (root / relative).resolve()
-    install_assets(game, data)
+    install_assets(game, data, term, confirm)
     parts = shlex.split(game.command)
     if not parts or Path(parts[0]).is_absolute() or ".." in Path(parts[0]).parts: raise RuntimeError("Neplatný príkaz hry.")
     return data, " ".join([parts[0].replace("/", "\\\\")] + parts[1:])
 
-def run_game(game, config):
-    data, command = validate(game, Path(config["game_data_root"]).expanduser())
+def run_game(game, config, term):
+    try: data, command = validate(game, Path(config["game_data_root"]).expanduser(), term, config.get("confirm_key", "SPACE").upper())
+    except InstallationCancelled: return "cancelled"
     if not game.dosbox_conf.is_file() or not game.mapper_file.is_file(): raise RuntimeError("Chýba nastavenie DOSBoxu.")
     dosbox = shutil.which(config.get("dosbox_command", "dosbox"))
     if not dosbox: raise RuntimeError("DOSBox nie je nainštalovaný.")
@@ -177,7 +215,7 @@ def main():
                         if not error(term, Game("Systém", "", "", Path(), Path()), "Vypnutie systému zlyhalo.", confirm): return 0
                 else:
                     try:
-                        if run_game(games[selected], config) == "failed" and not error(term, games[selected], "DOSBox skončil s chybou.", confirm): return 0
+                        if run_game(games[selected], config, term) == "failed" and not error(term, games[selected], "DOSBox skončil s chybou.", confirm): return 0
                     except RuntimeError as exc:
                         if not error(term, games[selected], str(exc), confirm): return 0
 if __name__ == "__main__": raise SystemExit(main())
