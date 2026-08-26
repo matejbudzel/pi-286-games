@@ -113,6 +113,15 @@ By default, selecting `Bye bye!` closes the launcher and returns to the login
 shell. Set `shutdown_on_bye_bye=true` in `config/host.conf` on the Raspberry Pi
 appliance to make that menu item power off the host instead.
 
+### Boot splash
+
+The installer enables a lightweight systemd service that writes a centred,
+rainbow ASCII-art `KOCKOVANÉ HRY` splash to tty1 before the autologin prompt.
+It also adds `quiet`, `loglevel=0`, `vt.global_cursor_default=0`, and
+`logo.nologo` to the Raspberry Pi kernel command line when it finds the active
+`cmdline.txt`. Re-running the installer safely refreshes the service and does
+not duplicate those options.
+
 ### Larger console font
 
 The launcher is a Linux-console TUI, so its text size comes from the system

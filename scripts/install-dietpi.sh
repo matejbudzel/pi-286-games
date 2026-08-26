@@ -13,9 +13,23 @@ if [ ! -f "$repo/config/host.conf" ]; then
 fi
 printf '%s ALL=(root) NOPASSWD: /sbin/shutdown -h now\n' "$user" | sudo tee /etc/sudoers.d/pi-286-games-shutdown >/dev/null
 sudo chmod 0440 /etc/sudoers.d/pi-286-games-shutdown
+sudo install -d -m 0755 /usr/local/lib/pi-286-games
+sudo install -m 0755 "$repo/scripts/boot-splash.sh" /usr/local/lib/pi-286-games/boot-splash.sh
+sudo install -m 0644 "$repo/systemd/pi-286-games-splash.service" /etc/systemd/system/pi-286-games-splash.service
+boot_cmdline=
+for candidate in /boot/firmware/cmdline.txt /boot/cmdline.txt; do
+    if [ -f "$candidate" ]; then boot_cmdline=$candidate; break; fi
+done
+if [ -n "$boot_cmdline" ]; then
+    for option in quiet loglevel=0 vt.global_cursor_default=0 logo.nologo; do
+        grep -qw "$option" "$boot_cmdline" || sudo sed -i "1 s/$/ $option/" "$boot_cmdline"
+    done
+fi
+sudo systemctl daemon-reload
+sudo systemctl enable pi-286-games-splash.service
 marker='# pi-286-games launcher'
 if ! grep -Fqx "$marker" "$home_dir/.profile" 2>/dev/null; then
     printf '\n%s\nif [ -z "${SSH_CONNECTION:-}" ] && [ "$(tty)" = /dev/tty1 ]; then\n    exec "%s/launcher/launcher.py" --host-conf "%s/config/host.conf"\nfi\n' "$marker" "$repo" "$repo" >> "$home_dir/.profile"
 fi
-chmod +x "$repo/launcher/launcher.py"
+chmod +x "$repo/launcher/launcher.py" "$repo/scripts/boot-splash.sh"
 echo "Installed. Put game data under $home_dir/pi-286-games-data and reboot."
