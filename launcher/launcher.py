@@ -29,6 +29,11 @@ def values(path):
 def enabled(value):
     return value.strip().lower() in ("1", "true", "yes", "on")
 
+def stop_boot_splash():
+    systemctl = shutil.which("systemctl")
+    if systemctl:
+        subprocess.run(["sudo", "-n", systemctl, "stop", "pi-286-games-splash.service"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+
 def discover(directory=ROOT / "games"):
     games = []
     for item in directory.iterdir():
@@ -199,6 +204,7 @@ def main():
     games = discover()
     if not games: print("No valid game definitions found.", file=sys.stderr); return 1
     selected = 0; confirm = config.get("confirm_key", "SPACE").upper()
+    stop_boot_splash()
     with Terminal() as term:
         while True:
             lines = [(g.name, n == selected) for n, g in enumerate(games)] + [("", False), ("Bye bye!", selected == len(games))]

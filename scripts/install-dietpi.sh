@@ -5,16 +5,22 @@ set -eu
 repo=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 user=$(id -un)
 home_dir=$(getent passwd "$user" | cut -d: -f6)
-if ! command -v dosbox >/dev/null 2>&1; then sudo apt-get update; sudo apt-get install -y dosbox; fi
+if ! command -v dosbox >/dev/null 2>&1 || ! command -v fbi >/dev/null 2>&1; then
+    sudo apt-get update
+    sudo apt-get install -y dosbox fbi
+fi
 if getent group input >/dev/null 2>&1; then sudo usermod -aG input "$user"; fi
 if [ ! -f "$repo/config/host.conf" ]; then
     cp "$repo/config/host.conf.example" "$repo/config/host.conf"
     sed -i "s|^game_data_root=.*|game_data_root=$home_dir/pi-286-games-data|" "$repo/config/host.conf"
 fi
-printf '%s ALL=(root) NOPASSWD: /sbin/shutdown -h now\n' "$user" | sudo tee /etc/sudoers.d/pi-286-games-shutdown >/dev/null
+systemctl_path=$(command -v systemctl)
+printf '%s ALL=(root) NOPASSWD: /sbin/shutdown -h now, %s stop pi-286-games-splash.service\n' "$user" "$systemctl_path" | sudo tee /etc/sudoers.d/pi-286-games-shutdown >/dev/null
 sudo chmod 0440 /etc/sudoers.d/pi-286-games-shutdown
 sudo install -d -m 0755 /usr/local/lib/pi-286-games
+sudo install -d -m 0755 /usr/local/share/pi-286-games
 sudo install -m 0755 "$repo/scripts/boot-splash.sh" /usr/local/lib/pi-286-games/boot-splash.sh
+sudo install -m 0644 "$repo/assets/kockovane-hry-splash.png" /usr/local/share/pi-286-games/kockovane-hry-splash.png
 sudo install -m 0644 "$repo/systemd/pi-286-games-splash.service" /etc/systemd/system/pi-286-games-splash.service
 boot_cmdline=
 for candidate in /boot/firmware/cmdline.txt /boot/cmdline.txt; do

@@ -115,12 +115,13 @@ appliance to make that menu item power off the host instead.
 
 ### Boot splash
 
-The installer enables a lightweight systemd service that writes a centred,
-rainbow ASCII-art `KOCKOVANÉ HRY` splash to tty1 before the autologin prompt.
-It also adds `quiet`, `loglevel=0`, `vt.global_cursor_default=0`, and
-`logo.nologo` to the Raspberry Pi kernel command line when it finds the active
-`cmdline.txt`. Re-running the installer safely refreshes the service and does
-not duplicate those options.
+The installer installs `fbi` and enables an early systemd framebuffer splash on
+tty1. It displays the included rainbow pixel/ASCII-art `KOCKOVANÉ HRY` PNG
+until the launcher starts, then the launcher stops the splash service before it
+draws its menu. The installer also adds `quiet`, `loglevel=0`,
+`vt.global_cursor_default=0`, and `logo.nologo` to the Raspberry Pi kernel
+command line when it finds the active `cmdline.txt`. Re-running the installer
+safely refreshes the image and service and does not duplicate those options.
 
 ### Larger console font
 

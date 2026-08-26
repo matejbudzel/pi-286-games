@@ -1,7 +1,9 @@
 [Unit]
 Description=pi-286-games console boot splash
+DefaultDependencies=no
 After=systemd-vconsole-setup.service
-Before=getty@tty1.service
+Before=basic.target getty@tty1.service shutdown.target
+Conflicts=shutdown.target
 
 [Service]
 Type=oneshot
@@ -9,4 +11,4 @@ ExecStart=/usr/local/lib/pi-286-games/boot-splash.sh
 RemainAfterExit=yes
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=sysinit.target
