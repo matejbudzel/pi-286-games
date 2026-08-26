@@ -59,9 +59,11 @@ class Terminal:
     def draw(lines, color="\x1b[96m"):
         try: size = os.get_terminal_size(sys.stdout.fileno())
         except OSError: size = shutil.get_terminal_size((80, 24))
-        out = ["\x1b[2J\x1b[H", "\n" * max(0, (size.lines-len(lines))//2)]
+        # Raw mode disables the terminal's normal NL-to-CRNL output conversion.
+        # Use explicit CRLF so every menu row starts in column zero.
+        out = ["\x1b[2J\x1b[H", "\r\n" * max(0, (size.lines-len(lines))//2)]
         for text, current in lines:
-            out.append((color if current else "\x1b[37m") + Terminal.line(text, current, size.columns) + "\x1b[0m\n")
+            out.append((color if current else "\x1b[37m") + Terminal.line(text, current, size.columns) + "\x1b[0m\r\n")
         sys.stdout.write("".join(out)); sys.stdout.flush()
 
 def error(term, game, detail, confirm):
