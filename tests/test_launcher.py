@@ -10,6 +10,11 @@ SPEC.loader.exec_module(launcher)
 
 
 class DiscoveryTests(unittest.TestCase):
+    def test_boolean_host_settings(self):
+        self.assertFalse(launcher.enabled("false"))
+        self.assertTrue(launcher.enabled("true"))
+        self.assertTrue(launcher.enabled("ON"))
+
     def test_renderer_line_never_exceeds_terminal_width(self):
         self.assertEqual(launcher.Terminal.line("A very long title", True, 5), "> A v")
         self.assertLessEqual(len(launcher.Terminal.line("A very long title", True, 5)), 5)

@@ -17,6 +17,10 @@ panic_device=
 # Debian's package installs this command.
 dosbox_command=dosbox
 
+# false closes the launcher and returns to the login shell. Set true on the
+# Raspberry Pi appliance to power off the host from the Bye bye! menu item.
+shutdown_on_bye_bye=false
+
 # Logical launcher controls.
 up_key=UP
 down_key=DOWN

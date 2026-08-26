@@ -23,6 +23,9 @@ def values(path):
                 key, value = line.split("=", 1); result[key.strip()] = value.strip()
     return result
 
+def enabled(value):
+    return value.strip().lower() in ("1", "true", "yes", "on")
+
 def discover(directory=ROOT / "games"):
     games = []
     for item in directory.iterdir():
@@ -155,6 +158,7 @@ def main():
             elif key == config.get("down_key", "DOWN").upper(): selected = (selected + 1) % (len(games) + 1)
             elif key == confirm:
                 if selected == len(games):
+                    if not enabled(config.get("shutdown_on_bye_bye", "false")): return 0
                     try: subprocess.run(["sudo", "-n", "/sbin/shutdown", "-h", "now"], check=True)
                     except (OSError, subprocess.CalledProcessError):
                         if not error(term, Game("Systém", "", "", Path(), Path()), "Vypnutie systému zlyhalo.", confirm): return 0

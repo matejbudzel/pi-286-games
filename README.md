@@ -16,7 +16,8 @@ The repository contains the launcher, host configuration, DOSBox configuration, 
 - The launcher starts DOSBox, waits for it to exit, and then returns to the menu.
 - A host-level panic input can terminate DOSBox independently of the game's mapper.
 - If a game cannot be started or DOSBox exits abnormally, the launcher shows a fullscreen Slovak error screen and waits for the normal confirm input before returning to the menu.
-- The special `Bye bye!` menu entry powers off the host.
+- The special `Bye bye!` menu entry exits the launcher by default and can be
+  configured to power off the host.
 
 ## Repository layout
 
@@ -90,6 +91,10 @@ when that user logs in (never over SSH). Configure `panic_device` to a readable
 `/dev/input/event*` device for panic handling while DOSBox owns the display.
 The install script adds the user to the usual `input` group; log out and back
 in once for that new group membership to take effect.
+
+By default, selecting `Bye bye!` closes the launcher and returns to the login
+shell. Set `shutdown_on_bye_bye=true` in `config/host.conf` on the Raspberry Pi
+appliance to make that menu item power off the host instead.
 
 ### Larger console font
 
