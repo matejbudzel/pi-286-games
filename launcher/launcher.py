@@ -183,7 +183,9 @@ def run_game(game, config, term, no_sound=False):
     if not dosbox: raise RuntimeError("DOSBox nie je nainštalovaný.")
     generated = game.dosbox_conf.parent / ".launcher-autoexec.conf"
     sound_config = "\n[mixer]\nnosound=true\n\n[midi]\nmpu401=none\n" if no_sound else ""
-    generated.write_text("[sdl]\nmapperfile=%s\n%s\n[autoexec]\nmount c \"%s\"\nc:\n%s\nexit\n" % (game.mapper_file, sound_config, data, command), encoding="utf-8")
+    generated_content = "[sdl]\nmapperfile=%s\n%s\n[autoexec]\nmount c \"%s\"\nc:\n%s\nexit\n" % (game.mapper_file, sound_config, data, command)
+    generated.write_text(generated_content, encoding="utf-8")
+    Path("/tmp/pi-286-games-dosbox.conf").write_text(generated_content, encoding="utf-8")
     fds = []
     log = None
     log_path = Path("/tmp/pi-286-games-dosbox.log")
