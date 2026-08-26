@@ -212,10 +212,7 @@ def run_game(game, config, term):
                         except subprocess.TimeoutExpired: os.killpg(proc.pid, signal.SIGKILL); proc.wait()
                         return "panic"
             time.sleep(.05)
-        if proc.returncode == 0:
-            log_path.unlink(missing_ok=True)
-            return "ok"
-        return "failed"
+        return "ok" if proc.returncode == 0 else "failed"
     finally:
         for fd in fds: os.close(fd)
         if log: log.close()
