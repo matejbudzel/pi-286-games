@@ -1,2 +1,0 @@
-# Replace with a DOSBox mapper file for this game.
-# Keep host-level panic input out of DOSBox mappings.

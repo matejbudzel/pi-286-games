@@ -168,3 +168,13 @@ sh scripts/health-check.sh
 Add `--smoke-dosbox` to briefly start DOSBox with an immediate `exit` command.
 It writes diagnostics to `/tmp/pi-286-games-dosbox-smoke.log` if the video or
 audio backend cannot initialise.
+
+## No-sound launch mode
+
+Run the launcher with `--no-sound` to disable DOSBox's mixer and force SDL's
+dummy audio backend. This is useful for a development VM without an ALSA sound
+card:
+
+```sh
+python3 launcher/launcher.py --no-sound
+```

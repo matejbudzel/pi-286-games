@@ -175,14 +175,15 @@ def validate(game, root, term=None, confirm="SPACE"):
     if not parts or Path(parts[0]).is_absolute() or ".." in Path(parts[0]).parts: raise RuntimeError("Neplatný príkaz hry.")
     return data, " ".join([parts[0].replace("/", "\\\\")] + parts[1:])
 
-def run_game(game, config, term):
+def run_game(game, config, term, no_sound=False):
     try: data, command = validate(game, Path(config["game_data_root"]).expanduser(), term, config.get("confirm_key", "SPACE").upper())
     except InstallationCancelled: return "cancelled"
     if not game.dosbox_conf.is_file() or not game.mapper_file.is_file(): raise RuntimeError("Chýba nastavenie DOSBoxu.")
     dosbox = shutil.which(config.get("dosbox_command", "dosbox"))
     if not dosbox: raise RuntimeError("DOSBox nie je nainštalovaný.")
     generated = game.dosbox_conf.parent / ".launcher-autoexec.conf"
-    generated.write_text("[sdl]\nmapperfile=%s\n\n[autoexec]\nmount c \"%s\"\nc:\n%s\nexit\n" % (game.mapper_file, data, command), encoding="utf-8")
+    sound_config = "\n[mixer]\nnosound=true\n" if no_sound else ""
+    generated.write_text("[sdl]\nmapperfile=%s\n%s\n[autoexec]\nmount c \"%s\"\nc:\n%s\nexit\n" % (game.mapper_file, sound_config, data, command), encoding="utf-8")
     fds = []
     log = None
     log_path = Path("/tmp/pi-286-games-dosbox.log")
@@ -196,7 +197,9 @@ def run_game(game, config, term):
             except OSError: pass
         try:
             log = log_path.open("wb")
-            proc = subprocess.Popen([dosbox, "-conf", str(game.dosbox_conf), "-conf", str(generated)], preexec_fn=os.setsid, stdout=log, stderr=subprocess.STDOUT)
+            environment = os.environ.copy()
+            if no_sound: environment["SDL_AUDIODRIVER"] = "dummy"
+            proc = subprocess.Popen([dosbox, "-conf", str(game.dosbox_conf), "-conf", str(generated)], preexec_fn=os.setsid, stdout=log, stderr=subprocess.STDOUT, env=environment)
         except OSError as exc:
             raise RuntimeError("DOSBox sa nedá spustiť: %s" % exc.strerror) from exc
         wanted = KEY_CODES.get(config.get("panic_key", "F1").upper())
@@ -219,7 +222,7 @@ def run_game(game, config, term):
         generated.unlink(missing_ok=True)
 
 def main():
-    parser = argparse.ArgumentParser(); parser.add_argument("--host-conf", type=Path, default=ROOT / "config" / "host.conf")
+    parser = argparse.ArgumentParser(); parser.add_argument("--host-conf", type=Path, default=ROOT / "config" / "host.conf"); parser.add_argument("--no-sound", action="store_true", help="disable DOSBox and SDL audio")
     args = parser.parse_args(); config = values(ROOT / "config" / "host.conf.example"); config.update(values(args.host_conf))
     games = discover()
     if not games: print("No valid game definitions found.", file=sys.stderr); return 1
@@ -242,7 +245,7 @@ def main():
                         if not error(term, Game("Systém", "", "", Path(), Path()), "Vypnutie systému zlyhalo.", confirm): return 0
                 else:
                     try:
-                        result = run_game(games[selected], config, term)
+                        result = run_game(games[selected], config, term, args.no_sound)
                         if result == "panic": corner = network_address()
                         if result == "failed" and not error(term, games[selected], "DOSBox skončil s chybou.", confirm): return 0
                     except RuntimeError as exc:

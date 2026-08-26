@@ -1,6 +1,3 @@
-# DOSBox mapper file. These normal keyboard bindings make the game immediately
-# usable; add dance-mat bindings with Ctrl+F1 and save the complete file here.
-# The launcher panic control is intentionally not mapped here.
 key_up "key 273"
 key_down "key 274"
 key_left "key 276"
