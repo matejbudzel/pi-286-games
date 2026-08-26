@@ -68,6 +68,9 @@ The launcher treats an existing or newly extracted data directory as ready to
 use and does not inspect it for the configured executable before starting
 DOSBox. This deliberately avoids overwriting or second-guessing a local copy.
 
+DOSBox output is kept out of the launcher console. If DOSBox exits with an
+error, its diagnostic output is retained at `/tmp/pi-286-games-dosbox.log`.
+
 ZIP support uses Python's standard library. RAR support requires Debian's
 `unrar` package, which is in the `non-free` repository component:
 

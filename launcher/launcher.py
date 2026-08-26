@@ -168,6 +168,8 @@ def run_game(game, config, term):
     generated = game.dosbox_conf.parent / ".launcher-autoexec.conf"
     generated.write_text("[sdl]\nmapperfile=%s\n\n[autoexec]\nmount c \"%s\"\nc:\n%s\nexit\n" % (game.mapper_file, data, command), encoding="utf-8")
     fds = []
+    log = None
+    log_path = Path("/tmp/pi-286-games-dosbox.log")
     try:
         # An explicit device keeps the deployment deterministic. On a VM the
         # empty default watches readable Linux keyboard event devices instead.
@@ -177,7 +179,8 @@ def run_game(game, config, term):
             try: fds.append(os.open(device, os.O_RDONLY | os.O_NONBLOCK))
             except OSError: pass
         try:
-            proc = subprocess.Popen([dosbox, "-conf", str(game.dosbox_conf), "-conf", str(generated)], preexec_fn=os.setsid)
+            log = log_path.open("wb")
+            proc = subprocess.Popen([dosbox, "-conf", str(game.dosbox_conf), "-conf", str(generated)], preexec_fn=os.setsid, stdout=log, stderr=subprocess.STDOUT)
         except OSError as exc:
             raise RuntimeError("DOSBox sa nedá spustiť: %s" % exc.strerror) from exc
         wanted = KEY_CODES.get(config.get("panic_key", "F1").upper())
@@ -193,9 +196,13 @@ def run_game(game, config, term):
                         except subprocess.TimeoutExpired: os.killpg(proc.pid, signal.SIGKILL); proc.wait()
                         return "panic"
             time.sleep(.05)
-        return "ok" if proc.returncode == 0 else "failed"
+        if proc.returncode == 0:
+            log_path.unlink(missing_ok=True)
+            return "ok"
+        return "failed"
     finally:
         for fd in fds: os.close(fd)
+        if log: log.close()
         generated.unlink(missing_ok=True)
 
 def main():
