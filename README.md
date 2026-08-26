@@ -171,9 +171,9 @@ audio backend cannot initialise.
 
 ## No-sound launch mode
 
-Run the launcher with `--no-sound` to disable DOSBox's mixer and force SDL's
-dummy audio backend. This is useful for a development VM without an ALSA sound
-card:
+Run the launcher with `--no-sound` to disable DOSBox's mixer and MIDI device
+and force SDL's dummy audio backend. This is useful for a development VM without
+an ALSA sound card:
 
 ```sh
 python3 launcher/launcher.py --no-sound
