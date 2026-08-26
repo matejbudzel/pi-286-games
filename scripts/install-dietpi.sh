@@ -35,7 +35,11 @@ sudo systemctl daemon-reload
 sudo systemctl enable pi-286-games-splash.service
 marker='# pi-286-games launcher'
 if ! grep -Fqx "$marker" "$home_dir/.profile" 2>/dev/null; then
-    printf '\n%s\nif [ -z "${SSH_CONNECTION:-}" ] && [ "$(tty)" = /dev/tty1 ]; then\n    exec "%s/launcher/launcher.py" --host-conf "%s/config/host.conf"\nfi\n' "$marker" "$repo" "$repo" >> "$home_dir/.profile"
+    printf '\n%s\nif [ -z "${SSH_CONNECTION:-}" ] && [ "$(tty)" = /dev/tty1 ]; then\n    "%s/launcher/launcher.py" --host-conf "%s/config/host.conf"\nfi\n' "$marker" "$repo" "$repo" >> "$home_dir/.profile"
+else
+    # Upgrade profiles created by older installer versions that used exec and
+    # consequently caused agetty to autologin and restart the launcher again.
+    sed -i '/^[[:space:]]*exec ".*\/launcher\/launcher.py" --host-conf /s/^[[:space:]]*exec /    /' "$home_dir/.profile"
 fi
 chmod +x "$repo/launcher/launcher.py" "$repo/scripts/boot-splash.sh"
 echo "Installed. Put game data under $home_dir/pi-286-games-data and reboot."

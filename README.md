@@ -109,6 +109,10 @@ when that user logs in (never over SSH). Configure `panic_device` to a readable
 The install script adds the user to the usual `input` group; log out and back
 in once for that new group membership to take effect.
 
+The launcher is started once as a child of the autologin shell. Closing it with
+Ctrl-C or the default `Bye bye!` returns to the tty1 shell prompt instead of
+triggering another launcher session.
+
 By default, selecting `Bye bye!` closes the launcher and returns to the login
 shell. Set `shutdown_on_bye_bye=true` in `config/host.conf` on the Raspberry Pi
 appliance to make that menu item power off the host instead.
