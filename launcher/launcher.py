@@ -44,7 +44,7 @@ class Terminal:
     def key(self, timeout=None):
         if not select.select([self.fd], [], [], timeout)[0]: return None
         data = os.read(self.fd, 8)
-        return {b"\x1b[A":"UP", b"\x1bOA":"UP", b"\x1b[B":"DOWN", b"\x1bOB":"DOWN", b" ":"SPACE", b"\r":"ENTER", b"\x1bOP":"F1"}.get(data, data.decode("utf-8", "ignore").upper())
+        return {b"\x03":"CTRL_C", b"\x1b[A":"UP", b"\x1bOA":"UP", b"\x1b[B":"DOWN", b"\x1bOB":"DOWN", b" ":"SPACE", b"\r":"ENTER", b"\x1bOP":"F1"}.get(data, data.decode("utf-8", "ignore").upper())
     @staticmethod
     def draw(lines, color="\x1b[96m"):
         size = shutil.get_terminal_size((80, 24)); out = ["\x1b[2J\x1b[H", "\n" * max(0, (size.lines-len(lines))//2)]
@@ -54,7 +54,10 @@ class Terminal:
 
 def error(term, game, detail, confirm):
     Terminal.draw([("Nepodarilo sa spustiť hru", False), (game.name, True), ("", False), (detail, False), ("", False), ("Stlač %s pre návrat" % confirm, False)], "\x1b[91m")
-    while term.key() != confirm: pass
+    while True:
+        key = term.key()
+        if key == "CTRL_C": return False
+        if key == confirm: return True
 
 def validate(game, root):
     relative = Path(game.data_dir)
@@ -114,14 +117,17 @@ def main():
             lines = [(g.name, n == selected) for n, g in enumerate(games)] + [("", False), ("Bye bye!", selected == len(games))]
             Terminal.draw(lines, "\x1b[91m" if selected == len(games) else ("\x1b[92m", "\x1b[96m", "\x1b[93m")[sum(games[selected].name.encode()) % 3])
             key = term.key()
+            if key == "CTRL_C": return 0
             if key == config.get("up_key", "UP").upper(): selected = (selected - 1) % (len(games) + 1)
             elif key == config.get("down_key", "DOWN").upper(): selected = (selected + 1) % (len(games) + 1)
             elif key == confirm:
                 if selected == len(games):
                     try: subprocess.run(["sudo", "-n", "/sbin/shutdown", "-h", "now"], check=True)
-                    except (OSError, subprocess.CalledProcessError): error(term, Game("Systém", "", "", Path(), Path()), "Vypnutie systému zlyhalo.", confirm)
+                    except (OSError, subprocess.CalledProcessError):
+                        if not error(term, Game("Systém", "", "", Path(), Path()), "Vypnutie systému zlyhalo.", confirm): return 0
                 else:
                     try:
-                        if run_game(games[selected], config) == "failed": error(term, games[selected], "DOSBox skončil s chybou.", confirm)
-                    except RuntimeError as exc: error(term, games[selected], str(exc), confirm)
+                        if run_game(games[selected], config) == "failed" and not error(term, games[selected], "DOSBox skončil s chybou.", confirm): return 0
+                    except RuntimeError as exc:
+                        if not error(term, games[selected], str(exc), confirm): return 0
 if __name__ == "__main__": raise SystemExit(main())
