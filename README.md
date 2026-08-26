@@ -45,14 +45,14 @@ For local UTM development the same layout can live anywhere convenient, for exam
 
 ### Optional first-run asset installation
 
-A game's `game.conf` can set `asset_zip` to either an HTTPS URL or a local ZIP
-path. If its configured `data_dir` is absent, the launcher downloads or copies
-that archive and extracts it into the data directory. If the directory already
-exists, it is always used as-is: the archive is not fetched, extracted, or used
-to validate its contents.
+A game's `game.conf` can set `asset_archive` to either an HTTPS URL or a local
+ZIP or RAR path. If its configured `data_dir` is absent, the launcher downloads
+or copies that archive and extracts it into the data directory. If the directory
+already exists, it is always used as-is: the archive is not fetched, extracted,
+or used to validate its contents.
 
 ```ini
-asset_zip=https://example.org/my-lawful-game-copy.zip
+asset_archive=https://example.org/my-lawful-game-copy.zip
 ```
 
 The archive must contain the game's files at its top level. Only configure a
@@ -62,6 +62,18 @@ and must not be committed to this repository.
 The launcher treats an existing or newly extracted data directory as ready to
 use and does not inspect it for the configured executable before starting
 DOSBox. This deliberately avoids overwriting or second-guessing a local copy.
+
+ZIP support uses Python's standard library. RAR support requires Debian's
+`unrar` package, which is in the `non-free` repository component:
+
+```sh
+sudo apt update
+sudo apt install unrar
+```
+
+If `apt` cannot find the package, enable `non-free` in the Debian/DietPi APT
+sources, run `sudo apt update`, and install it again. The launcher shows a
+clear error instead of attempting a RAR extraction when `unrar` is absent.
 
 ## Input model
 

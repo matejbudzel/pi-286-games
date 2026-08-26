@@ -47,6 +47,14 @@ class DiscoveryTests(unittest.TestCase):
             self.assertEqual(command, "GAME.EXE")
             self.assertTrue((data / "GAME.EXE").is_file())
 
+    def test_asset_zip_remains_a_supported_setting_name(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            folder = root / "game"
+            folder.mkdir()
+            (folder / "game.conf").write_text("name=Test\ndata_dir=data\nexe=GAME.EXE\ndosbox_conf=dosbox.conf\nmapper_file=mapper.txt\nasset_zip=legacy.zip\n")
+            self.assertEqual(launcher.discover(root)[0].asset_archive, "legacy.zip")
+
     def test_existing_data_directory_is_used_without_executable_check(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

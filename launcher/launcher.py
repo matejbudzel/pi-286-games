@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Minimal terminal UI and DOSBox supervisor for pi-286-games."""
-import argparse, glob, os, select, shlex, shutil, signal, struct, subprocess, sys, tempfile, termios, time, tty, urllib.error, urllib.request, zipfile
+import argparse, glob, os, select, shlex, shutil, signal, struct, subprocess, sys, tempfile, termios, time, tty, urllib.error, urllib.parse, urllib.request, zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -12,7 +12,7 @@ KEY_CODES = {"F1": 59, "UP": 103, "DOWN": 108, "LEFT": 105, "RIGHT": 106,
 
 @dataclass(frozen=True)
 class Game:
-    name: str; data_dir: str; command: str; dosbox_conf: Path; mapper_file: Path; asset_zip: str = ""
+    name: str; data_dir: str; command: str; dosbox_conf: Path; mapper_file: Path; asset_archive: str = ""
 
 def values(path):
     result = {}
@@ -32,7 +32,8 @@ def discover(directory=ROOT / "games"):
         if not item.is_dir() or item.name.startswith("_"): continue
         conf = values(item / "game.conf")
         if all(conf.get(k) for k in ("name", "data_dir", "exe", "dosbox_conf", "mapper_file")):
-            games.append(Game(conf["name"], conf["data_dir"], conf["exe"], item / conf["dosbox_conf"], item / conf["mapper_file"], conf.get("asset_zip", "")))
+            archive = conf.get("asset_archive", conf.get("asset_zip", ""))
+            games.append(Game(conf["name"], conf["data_dir"], conf["exe"], item / conf["dosbox_conf"], item / conf["mapper_file"], archive))
     return sorted(games, key=lambda g: g.name.casefold())
 
 class Terminal:
@@ -71,28 +72,38 @@ def error(term, game, detail, confirm):
         if key == confirm: return True
 
 def install_assets(game, data):
-    """Install an archive only when the configured game directory is absent."""
+    """Install a ZIP or RAR archive only when the game directory is absent."""
     if data.is_dir(): return
-    if not game.asset_zip: raise RuntimeError("Chýbajú herné dáta.")
+    if not game.asset_archive: raise RuntimeError("Chýbajú herné dáta.")
     data.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="pi-286-games-", dir=data.parent) as temporary:
-        archive = Path(temporary) / "game.zip"
-        source = game.asset_zip
+        source = game.asset_archive
+        source_path = urllib.parse.urlparse(source).path if source.startswith(("http://", "https://")) else source
+        archive = Path(temporary) / ("game" + Path(source_path).suffix.lower())
         try:
             if source.startswith(("http://", "https://")):
                 with urllib.request.urlopen(source, timeout=30) as response, archive.open("wb") as output:
                     shutil.copyfileobj(response, output)
             else:
                 shutil.copyfile(Path(source).expanduser(), archive)
-            with zipfile.ZipFile(archive) as bundle:
-                for member in bundle.infolist():
-                    path = Path(member.filename)
-                    if path.is_absolute() or ".." in path.parts or (member.external_attr >> 16) & 0o170000 == 0o120000:
-                        raise RuntimeError("Archív obsahuje nebezpečnú cestu.")
-                extracted = Path(temporary) / "extracted"
-                bundle.extractall(extracted)
+            extracted = Path(temporary) / "extracted"
+            if archive.suffix == ".rar":
+                unrar = shutil.which("unrar")
+                if not unrar: raise RuntimeError("Pre RAR archív nainštalujte balík unrar.")
+                listing = subprocess.run([unrar, "lb", str(archive)], check=True, capture_output=True, text=True).stdout.splitlines()
+                if any(Path(name).is_absolute() or ".." in Path(name).parts for name in listing):
+                    raise RuntimeError("Archív obsahuje nebezpečnú cestu.")
+                extracted.mkdir()
+                subprocess.run([unrar, "x", "-idq", "-o-", str(archive), str(extracted)], check=True, capture_output=True)
+            else:
+                with zipfile.ZipFile(archive) as bundle:
+                    for member in bundle.infolist():
+                        path = Path(member.filename)
+                        if path.is_absolute() or ".." in path.parts or (member.external_attr >> 16) & 0o170000 == 0o120000:
+                            raise RuntimeError("Archív obsahuje nebezpečnú cestu.")
+                    bundle.extractall(extracted)
             extracted.rename(data)
-        except (OSError, urllib.error.URLError, zipfile.BadZipFile) as exc:
+        except (OSError, subprocess.CalledProcessError, urllib.error.URLError, zipfile.BadZipFile) as exc:
             raise RuntimeError("Herné dáta sa nepodarilo nainštalovať: %s" % str(exc)) from exc
 
 def validate(game, root):
