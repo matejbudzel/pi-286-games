@@ -1,0 +1,5 @@
+config/host.conf
+pi-286-games-data/
+__pycache__/
+*.pyc
+.venv/
