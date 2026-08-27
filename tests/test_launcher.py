@@ -43,6 +43,14 @@ class DiscoveryTests(unittest.TestCase):
                 )
             self.assertEqual([game.name for game in launcher.discover(root)], ["Alpha", "zebra"])
 
+    def test_included_games_use_the_target_archive_location(self):
+        games = launcher.discover(Path(__file__).parents[1] / "games")
+        expected = {"Barbarian", "Blockout", "Grand Prix Circuit: Cycles", "Tetris", "Zany Golf"}
+        self.assertTrue(expected.issubset({game.name for game in games}))
+        for game in games:
+            if game.asset_archive:
+                self.assertTrue(game.asset_archive.startswith("/home/dietpi/pi-286-games/"))
+
     def test_discovery_does_not_require_the_executable(self):
         games = launcher.discover(Path(__file__).parents[1] / "games")
         self.assertGreaterEqual(len(games), 3)

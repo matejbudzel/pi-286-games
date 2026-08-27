@@ -170,7 +170,7 @@ Choose UTF-8, the `Lat2` codeset (for Slovak characters), and `TerminusBold`.
 menu if the display resolution leaves enough room. This affects virtual
 consoles such as tty1, not SSH terminals.
 
-The included definitions expect `GPEGA.EXE`, `PREHIST.EXE`, and `PRINCE.EXE`.
+The included definitions expect `GPEGA.EXE`, `PREHISTO.COM`, and `PRINCE.EXE`.
 Change `exe` in the relevant `game.conf` if your lawful copy uses another name.
 
 ## Health check
