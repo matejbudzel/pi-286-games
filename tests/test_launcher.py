@@ -1,4 +1,5 @@
 import importlib.util
+import inspect
 import tempfile
 import unittest
 import zipfile
@@ -58,8 +59,11 @@ class DiscoveryTests(unittest.TestCase):
         self.assertIn("cycles=fixed 3000", combined)
         self.assertIn("scaler=none", combined)
 
-    def test_dosbox_uses_a_process_group_without_dropping_tty1(self):
-        self.assertIs(launcher.dosbox_process_group(), launcher.os.setpgrp)
+    def test_dosbox_launch_does_not_detach_from_tty1(self):
+        source = inspect.getsource(launcher.run_game)
+        self.assertNotIn("preexec_fn=", source)
+        self.assertNotIn("setsid", source)
+        self.assertNotIn("setpgrp", source)
 
     def test_discovers_and_sorts_valid_non_helper_games(self):
         with tempfile.TemporaryDirectory() as temporary:
