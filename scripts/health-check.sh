@@ -43,6 +43,16 @@ if command -v dosbox >/dev/null 2>&1; then
     pass "dosbox: $(dosbox -version 2>&1 | head -n 1)"
 else fail "dosbox is not installed"; fi
 if command -v plymouth >/dev/null 2>&1; then pass "plymouth is installed"; else fail "plymouth is not installed"; fi
+if command -v plymouth-set-default-theme >/dev/null 2>&1; then
+    plymouth_theme_command=$(command -v plymouth-set-default-theme)
+elif [ -x "$(host_path /usr/sbin/plymouth-set-default-theme)" ]; then
+    # /usr/sbin is commonly omitted from an unprivileged DietPi user's PATH.
+    plymouth_theme_command=$(host_path /usr/sbin/plymouth-set-default-theme)
+elif [ -x "$(host_path /sbin/plymouth-set-default-theme)" ]; then
+    plymouth_theme_command=$(host_path /sbin/plymouth-set-default-theme)
+else
+    plymouth_theme_command=
+fi
 
 info "display environment: tty=$(tty 2>/dev/null || printf unavailable)"
 if [ -n "${DISPLAY:-}" ]; then pass "DISPLAY is set to $DISPLAY"; else info "DISPLAY is not set (normal on a direct Linux console)"; fi
@@ -110,7 +120,7 @@ fi
 theme_dir=$(host_path /usr/share/plymouth/themes/pi-286-games)
 if [ -r "$theme_dir/kockovane-hry-splash.png" ] && [ -r "$theme_dir/pi-286-games.plymouth" ] && [ -r "$theme_dir/pi-286-games.script" ]; then pass "Plymouth splash theme files are readable"
 else fail "Plymouth splash theme files are missing"; fi
-if command -v plymouth-set-default-theme >/dev/null 2>&1 && [ "$(plymouth-set-default-theme 2>/dev/null)" = pi-286-games ]; then pass "pi-286-games is the active Plymouth theme"
+if [ -n "$plymouth_theme_command" ] && [ "$("$plymouth_theme_command" 2>/dev/null)" = pi-286-games ]; then pass "pi-286-games is the active Plymouth theme"
 else fail "pi-286-games is not the active Plymouth theme"; fi
 
 latest_log=$runtime_dir/pi-286-games-dosbox.log
