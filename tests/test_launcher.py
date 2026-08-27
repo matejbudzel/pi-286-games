@@ -44,6 +44,20 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(environment["SDL_FBDEV"], "/dev/fb0")
         self.assertEqual(environment["SDL_FB_BROKEN_MODES"], "1")
 
+    def test_generated_dosbox_config_has_the_appliance_safe_video_values(self):
+        config = launcher.generated_dosbox_config(Path("mapper.txt"), Path("/games/test"), "GAME.EXE")
+        for line in ("fullscreen=true", "fulldouble=false", "fullresolution=640x480", "output=surface", "frameskip=0", "aspect=false", "scaler=none"):
+            self.assertIn(line, config)
+
+    def test_generated_dosbox_config_only_adds_overrides_to_game_config(self):
+        game_config = (Path(__file__).parents[1] / "games" / "barbarian" / "dosbox.conf").read_text()
+        generated = launcher.generated_dosbox_config(Path("mapper.txt"), Path("/games/test"), "GAME.EXE")
+        combined = game_config + "\n" + generated
+        self.assertIn("machine=ega", combined)
+        self.assertIn("memsize=8", combined)
+        self.assertIn("cycles=fixed 3000", combined)
+        self.assertIn("scaler=none", combined)
+
     def test_discovers_and_sorts_valid_non_helper_games(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

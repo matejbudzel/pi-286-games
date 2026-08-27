@@ -1,7 +1,7 @@
 # Project conventions
 
 This repository is a small, self-contained DOS gaming appliance for DietPi and
-a Raspberry Pi Model B+ (ARMv6, 256 MB RAM). Keep changes lightweight and
+a Raspberry Pi Model B/Model B+ (ARMv6, 256 MB RAM). Keep changes lightweight and
 deployment-friendly.
 
 - Prefer the Python standard library and direct Linux facilities. Do not add
@@ -25,3 +25,8 @@ deployment-friendly.
 The README documents installation and operation. Existing launcher behaviour
 is implemented code, not a pending implementation checklist; do not replace or
 rework it unless the requested change requires doing so.
+
+For the 256 MB target, direct-console video is deliberately classic SDL 1.2
+fbcon through `/opt/sdl12-fbcon`, `/dev/fb0`, and the legacy BCM2708
+framebuffer. Do not replace it with sdl12-compat, X11, Wayland, KMS, or FKMS;
+`SDL_FB_BROKEN_MODES=1` is required for the known-good display path.

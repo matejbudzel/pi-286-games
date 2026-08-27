@@ -127,12 +127,13 @@ handling while DOSBox owns the display. The install script adds the user to the
 usual `input` group; log out and back in once for that new group membership to
 take effect.
 
-On the ARMv6 Raspberry Pi B+, a local SDL 1.2 build with framebuffer support
-can be installed under `/opt/sdl12-fbcon/lib`. When that directory exists, the
-installer configures DOSBox alone to use it with `SDL_VIDEODRIVER=fbcon`,
-`SDL_FBDEV=/dev/fb0`, and `SDL_FB_BROKEN_MODES=1`. The corresponding
-`dosbox_*` settings in `config/host.conf` are intentionally empty on other
-hosts, so the development VM continues to use its normal SDL libraries.
+On the ARMv6 256 MB Pi target, the installer builds pinned classic SDL 1.2.16
+under `/opt/sdl12-fbcon` and configures DOSBox alone to use its fbcon backend.
+It also manages the real 640×480 HDMI/framebuffer boot mode; reboot after
+installation. This avoids Debian's SDL 1.2 compatibility layer and does not
+install X11 or enable KMS/FKMS. The corresponding `dosbox_*` settings in
+`config/host.conf` are intentionally empty on development hosts. See
+[the legacy framebuffer display guide](docs/legacy-fbcon-display.md).
 
 The launcher service temporarily conflicts with `getty@tty1.service`. When the
 launcher exits through Ctrl-C or the default `Bye bye!`, it starts the existing
@@ -193,12 +194,12 @@ environment, graphics-stack indicators, SDL linkage, and latest launcher log:
 sh scripts/health-check.sh
 ```
 
-Add `--smoke-dosbox` to run the original immediate-exit test plus short,
-SDL-version-appropriate backend probes. It retains baseline output in
-`/tmp/pi-286-games-dosbox-smoke.log` and each probe in an adjacent
-`pi-286-games-dosbox-smoke-<backend>.log`. This is intended for diagnosing a
-blank HDMI display from tty1; it does not install or configure X11, KMS, or any
-other backend.
+Add `--smoke-dosbox` for a short custom-classic-SDL fbcon DOSBox test. It uses
+the same custom SDL and framebuffer environment as the appliance and retains
+its output in `/tmp/pi-286-games-dosbox-smoke.log`; it may briefly take over
+tty1. For an SDL-only rendering check, run
+`sh scripts/run-sdl-fbcon-self-test.sh`. Neither command installs X11 nor
+configures KMS/FKMS.
 
 ## No-sound launch mode
 

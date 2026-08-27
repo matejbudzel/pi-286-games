@@ -195,6 +195,23 @@ def dosbox_environment(config, no_sound=False):
     if no_sound: environment["SDL_AUDIODRIVER"] = "dummy"
     return environment
 
+FRAMEBUFFER_DOSBOX_CONFIG = """[sdl]
+fullscreen=true
+fulldouble=false
+fullresolution=640x480
+output=surface
+
+[render]
+frameskip=0
+aspect=false
+scaler=none
+"""
+
+def generated_dosbox_config(mapper_file, data, command, no_sound=False):
+    """Compose the final -conf file; DOSBox does not reliably inherit ~/.dosbox."""
+    sound_config = "\n[mixer]\nnosound=true\n\n[midi]\nmpu401=none\nmididevice=none\n" if no_sound else ""
+    return "%s\n[sdl]\nmapperfile=%s\n%s\n[autoexec]\nmount c \"%s\"\nc:\n%s\nexit\n" % (FRAMEBUFFER_DOSBOX_CONFIG, mapper_file, sound_config, data, command)
+
 def run_game(game, config, term, no_sound=False):
     try: data, command = validate(game, Path(config["game_data_root"]).expanduser(), term, config.get("confirm_key", "SPACE").upper())
     except InstallationCancelled: return "cancelled"
@@ -202,8 +219,7 @@ def run_game(game, config, term, no_sound=False):
     dosbox = shutil.which(config.get("dosbox_command", "dosbox"))
     if not dosbox: raise RuntimeError("DOSBox nie je nainštalovaný.")
     generated = game.dosbox_conf.parent / ".launcher-autoexec.conf"
-    sound_config = "\n[mixer]\nnosound=true\n\n[midi]\nmpu401=none\nmididevice=none\n" if no_sound else ""
-    generated_content = "[sdl]\nmapperfile=%s\n%s\n[autoexec]\nmount c \"%s\"\nc:\n%s\nexit\n" % (game.mapper_file, sound_config, data, command)
+    generated_content = generated_dosbox_config(game.mapper_file, data, command, no_sound)
     generated.write_text(generated_content, encoding="utf-8")
     Path("/tmp/pi-286-games-dosbox.conf").write_text(generated_content, encoding="utf-8")
     fds = []
