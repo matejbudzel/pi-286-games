@@ -1,7 +1,6 @@
 [Unit]
 Description=pi-286-games launcher on tty1
-Wants=plymouth-quit-wait.service
-After=plymouth-quit-wait.service systemd-user-sessions.service
+After=systemd-user-sessions.service
 Conflicts=getty@tty1.service
 Before=getty@tty1.service
 

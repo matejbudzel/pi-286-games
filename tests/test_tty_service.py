@@ -11,10 +11,15 @@ class TtyServiceTests(unittest.TestCase):
         self.assertIn('"$(uname -m)" = armv6l', installer)
         self.assertIn("Raspberry Pi Model B Rev 1", installer)
 
+    def test_installer_removes_plymouth_instead_of_installing_it(self):
+        installer = (ROOT / "scripts" / "install-dietpi.sh").read_text()
+        self.assertIn("apt-get purge -y plymouth plymouth-themes", installer)
+        self.assertNotIn("install -y dosbox plymouth", installer)
+
     def test_service_owns_tty1_then_restores_getty(self):
         template = (ROOT / "systemd" / "pi-286-games.service.in").read_text()
         rendered = template.replace("@USER@", "dietpi").replace("@HOME@", "/home/dietpi").replace("@REPO@", "/home/dietpi/pi-286-games")
-        self.assertIn("After=plymouth-quit-wait.service", rendered)
+        self.assertNotIn("plymouth", rendered)
         self.assertIn("Conflicts=getty@tty1.service", rendered)
         self.assertIn("TTYPath=/dev/tty1", rendered)
         self.assertIn("ExecStopPost=+/usr/bin/systemctl --no-block start getty@tty1.service", rendered)

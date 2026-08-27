@@ -119,8 +119,8 @@ and grant ownership of the `/opt` directory before using archive installation.
 
 The script installs DOSBox when needed, copies the host configuration, grants
 only the shutdown command through sudo, and installs a dedicated systemd
-service which owns local tty1 after Plymouth exits. This avoids exposing the
-DietPi login banner or shell startup text between the boot splash and launcher.
+service which owns local tty1 after DietPi boots. Normal DietPi boot messages
+remain visible; this is intentionally a text-only appliance.
 Configure `panic_device` to a readable `/dev/input/event*` device for panic
 handling while DOSBox owns the display. The install script adds the user to the
 usual `input` group; log out and back in once for that new group membership to
@@ -144,26 +144,16 @@ By default, selecting `Bye bye!` closes the launcher and returns to the login
 shell. Set `shutdown_on_bye_bye=true` in `config/host.conf` on the Raspberry Pi
 appliance to make that menu item power off the host instead.
 
-### Boot splash
+### Direct console boot
 
-The installer installs Plymouth and activates the included static, rainbow
-pixel/ASCII-art `KOCKOVANÉ HRY` PNG as the boot theme. It also rebuilds the
-initramfs, so the image is available early enough to cover the normal boot
-messages.
+Plymouth is deliberately not used. It starts too late on this Pi 1 and adds a
+graphical element to an otherwise text-only appliance. The installer removes
+the project Plymouth theme, disables related units, purges Plymouth when
+installed, and removes the project-added quiet/splash kernel arguments. DietPi
+boot text remains visible until the launcher takes ownership of tty1.
 
-The splash asset is 640×480, matching the fixed HDMI mode used by the target
-Pi; any panel upscaling is handled by the display.
-
-On current DietPi it adds `quiet splash plymouth.ignore-serial-consoles
-loglevel=3 vt.global_cursor_default=0` to `extraargs=` in
-`/boot/dietpiEnv.txt`. On systems without that file it instead updates the
-first available `/boot/firmware/cmdline.txt` or `/boot/cmdline.txt`. Re-running
-the installer refreshes the theme safely without duplicating the splash option.
-
-The installer deliberately does not mask `getty@tty1.service`; it temporarily
-stops it while the launcher service is active and restores it when the launcher
-exits. On an existing installation it removes the obsolete `fbi` splash
-service.
+The launcher service deliberately does not mask `getty@tty1.service`; it
+temporarily stops it while active and restores it when the launcher exits.
 
 ### Larger console font
 
@@ -185,9 +175,9 @@ Change `exe` in the relevant `game.conf` if your lawful copy uses another name.
 
 ## Health check
 
-Run the read-only health check on the target to inspect the DOSBox and Plymouth
-prerequisites, group membership, framebuffer/DRM permissions, console display
-environment, graphics-stack indicators, SDL linkage, and latest launcher log:
+Run the read-only health check on the target to inspect DOSBox, framebuffer/DRM
+permissions, console display environment, SDL linkage, boot configuration, and
+latest launcher log:
 
 ```sh
 sh scripts/health-check.sh

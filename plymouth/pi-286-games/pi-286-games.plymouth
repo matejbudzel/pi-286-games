@@ -1,8 +1,0 @@
-[Plymouth Theme]
-Name=pi-286-games
-Description=Static KOCKOVANE HRY boot splash
-ModuleName=script
-
-[script]
-ImageDir=/usr/share/plymouth/themes/pi-286-games
-ScriptFile=/usr/share/plymouth/themes/pi-286-games/pi-286-games.script

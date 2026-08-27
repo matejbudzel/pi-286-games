@@ -3,7 +3,7 @@
 This appliance is proven on a Raspberry Pi Model B Rev 1 (ARMv6, 256 MB RAM;
 about 226424 kB visible), DietPi/Raspbian trixie armhf, and the Raspberry Pi
 `rpi-v6` kernel. It intentionally runs directly on the Linux console: no X11
-desktop and no Wayland compositor are installed.
+desktop, Wayland compositor, or Plymouth boot splash is installed.
 
 ## Why this needs a custom SDL
 

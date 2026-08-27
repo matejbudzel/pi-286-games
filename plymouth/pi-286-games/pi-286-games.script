@@ -1,4 +1,0 @@
-image = Image("kockovane-hry-splash.png");
-sprite = Sprite(image);
-sprite.SetX((Window.GetWidth() - image.GetWidth()) / 2);
-sprite.SetY((Window.GetHeight() - image.GetHeight()) / 2);
