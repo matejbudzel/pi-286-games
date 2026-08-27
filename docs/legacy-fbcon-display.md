@@ -43,10 +43,12 @@ It warns, without removing anything, if KMS/FKMS is already configured.
 
 The physical HDMI signal is 640×480. A 1920×1080 monitor performs panel
 scaling; the Pi does not software-scale a small DOS image inside a 1080p
-framebuffer. Every generated per-game DOSBox override supplies fullscreen,
-`fullresolution=640x480`, `output=surface`, `fulldouble=false`, and render
-`frameskip=0`, `aspect=false`, `scaler=none`. Game configs still supply their
-machine, CPU, memory, and other game-specific settings.
+framebuffer. Every generated per-game DOSBox override forces that 640×480
+fullscreen surface (`fullfixed=true`) so DOSBox expands the EGA image to the
+appliance framebuffer, and enables `usescancodes=true` for the fbcon keyboard.
+It also supplies `fulldouble=false`, `output=surface`, and render `frameskip=0`,
+`aspect=false`, `scaler=none`. Game configs still supply their machine, CPU,
+memory, and other game-specific settings.
 
 ## Verification and diagnosis
 

@@ -198,8 +198,10 @@ def dosbox_environment(config, no_sound=False):
 FRAMEBUFFER_DOSBOX_CONFIG = """[sdl]
 fullscreen=true
 fulldouble=false
+fullfixed=true
 fullresolution=640x480
 output=surface
+usescancodes=true
 
 [render]
 frameskip=0
