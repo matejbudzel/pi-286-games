@@ -172,15 +172,19 @@ Change `exe` in the relevant `game.conf` if your lawful copy uses another name.
 ## Health check
 
 Run the read-only health check on the target to inspect the DOSBox and Plymouth
-prerequisites, group membership, framebuffer, and latest launcher log:
+prerequisites, group membership, framebuffer/DRM permissions, console display
+environment, graphics-stack indicators, SDL linkage, and latest launcher log:
 
 ```sh
 sh scripts/health-check.sh
 ```
 
-Add `--smoke-dosbox` to briefly start DOSBox with an immediate `exit` command.
-It writes diagnostics to `/tmp/pi-286-games-dosbox-smoke.log` if the video or
-audio backend cannot initialise.
+Add `--smoke-dosbox` to run the original immediate-exit test plus short,
+SDL-version-appropriate backend probes. It retains baseline output in
+`/tmp/pi-286-games-dosbox-smoke.log` and each probe in an adjacent
+`pi-286-games-dosbox-smoke-<backend>.log`. This is intended for diagnosing a
+blank HDMI display from tty1; it does not install or configure X11, KMS, or any
+other backend.
 
 ## No-sound launch mode
 
