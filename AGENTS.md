@@ -1,7 +1,7 @@
 # Project conventions
 
 This repository is a small, self-contained DOS gaming appliance for DietPi and
-a Raspberry Pi Model B/Model B+ (ARMv6, 256 MB RAM). Keep changes lightweight and
+a Raspberry Pi Model B Rev 1 (ARMv6, 256 MB RAM). Keep changes lightweight and
 deployment-friendly.
 
 - Prefer the Python standard library and direct Linux facilities. Do not add
@@ -19,8 +19,9 @@ deployment-friendly.
   real requirement.
 - Keep user-facing launcher and error text in Slovak when changing that UI.
   Keep code comments and documentation in English.
-- Keep the launcher testable in a DietPi UTM VM and avoid dependencies that are
-  unsuitable for ARMv6.
+- The appliance is intentionally target-specific. Do not add fallback display
+  stacks, desktop modes, VM support, or modern-hardware abstractions unless the
+  project scope is explicitly broadened.
 
 The README documents installation and operation. Existing launcher behaviour
 is implemented code, not a pending implementation checklist; do not replace or

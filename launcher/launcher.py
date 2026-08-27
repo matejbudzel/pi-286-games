@@ -226,7 +226,7 @@ def run_game(game, config, term, no_sound=False):
     log = None
     log_path = Path("/tmp/pi-286-games-dosbox.log")
     try:
-        # An explicit device keeps the deployment deterministic. On a VM the
+        # An explicit device keeps the appliance deployment deterministic. The
         # empty default watches readable Linux keyboard event devices instead.
         configured = config.get("panic_device", "")
         devices = [configured] if configured else glob.glob("/dev/input/event*")

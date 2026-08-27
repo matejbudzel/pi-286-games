@@ -5,6 +5,8 @@ set -eu
 repo=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 user=$(id -un)
 home_dir=$(getent passwd "$user" | cut -d: -f6)
+[ "$(uname -m)" = armv6l ] || { echo "This installer supports only the ARMv6 Raspberry Pi Model B Rev 1 appliance." >&2; exit 1; }
+[ -r /proc/device-tree/model ] && grep -aq 'Raspberry Pi Model B Rev 1' /proc/device-tree/model || { echo "This installer supports only Raspberry Pi Model B Rev 1." >&2; exit 1; }
 if ! command -v dosbox >/dev/null 2>&1 || { [ ! -x /usr/sbin/plymouth-set-default-theme ] && ! command -v plymouth-set-default-theme >/dev/null 2>&1; }; then
     sudo apt-get update
     sudo apt-get install -y dosbox plymouth plymouth-themes
@@ -16,9 +18,7 @@ fi
 if getent group input >/dev/null 2>&1; then sudo usermod -aG input "$user"; fi
 # The Pi 1 legacy framebuffer path needs real SDL 1.2, not Debian's
 # sdl12-compat. Build it before writing the host runtime environment.
-if [ "$(uname -m)" = armv6l ]; then
-    "$repo/scripts/build-sdl12-fbcon.sh"
-fi
+"$repo/scripts/build-sdl12-fbcon.sh"
 if [ ! -f "$repo/config/host.conf" ]; then
     cp "$repo/config/host.conf.example" "$repo/config/host.conf"
     sed -i "s|^game_data_root=.*|game_data_root=$home_dir/pi-286-game-files|" "$repo/config/host.conf"

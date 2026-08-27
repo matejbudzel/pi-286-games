@@ -6,6 +6,11 @@ ROOT = Path(__file__).parents[1]
 
 
 class TtyServiceTests(unittest.TestCase):
+    def test_installer_is_locked_to_the_known_pi1_target(self):
+        installer = (ROOT / "scripts" / "install-dietpi.sh").read_text()
+        self.assertIn('"$(uname -m)" = armv6l', installer)
+        self.assertIn("Raspberry Pi Model B Rev 1", installer)
+
     def test_service_owns_tty1_then_restores_getty(self):
         template = (ROOT / "systemd" / "pi-286-games.service.in").read_text()
         rendered = template.replace("@USER@", "dietpi").replace("@HOME@", "/home/dietpi").replace("@REPO@", "/home/dietpi/pi-286-games")

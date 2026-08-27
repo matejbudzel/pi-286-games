@@ -3,7 +3,7 @@
 The intended experience is a late 286 PC with EGA graphics, reflecting the
 original family hardware rather than the most capable mode DOSBox can emulate.
 
-The launcher runs on a Raspberry Pi Model B+ (ARMv6, single-core 700 MHz,
+The launcher runs only on a Raspberry Pi Model B Rev 1 (ARMv6, single-core 700 MHz,
 256 MB RAM). Per-game DOSBox profiles therefore use `machine=ega` and a fixed,
 modest cycle count instead of SVGA and unconstrained automatic cycles. This
 keeps the emulation workload predictable and is appropriate for this curated

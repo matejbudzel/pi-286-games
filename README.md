@@ -26,7 +26,7 @@ launcher/              Launcher implementation
 config/                Host-specific launcher configuration examples
 games/                 Per-game metadata, DOSBox configs and mapper files
 systemd/               Boot-time service definition
-scripts/               Install and local development helpers
+scripts/               Installation, diagnostics, and appliance helpers
 ```
 
 ## Game data
@@ -41,7 +41,6 @@ Game binaries are not stored in this repository. The launcher uses a configurabl
   prince-of-persia/
 ```
 
-For local UTM development this default home-directory layout works directly.
 
 ### Optional first-run asset installation
 
@@ -94,7 +93,7 @@ The launcher has three logical inputs:
 - Down
 - Confirm (`Space` / dance-mat middle)
 
-While DOSBox is running, a separate host-level panic input is monitored. It is configured in `config/host.conf` and is intentionally independent of DOSBox mapper files. A development VM can use `F1`; the Raspberry Pi deployment can use a dedicated dance-mat control.
+While DOSBox is running, a separate host-level panic input is monitored. It is configured in `config/host.conf` and is intentionally independent of DOSBox mapper files. Configure it for the appliance's dedicated dance-mat control.
 
 In the launcher menu, pressing that same configured panic control displays the
 first detected Ethernet or Wi-Fi IPv4 address in the bottom-right corner. It
@@ -132,7 +131,7 @@ under `/opt/sdl12-fbcon` and configures DOSBox alone to use its fbcon backend.
 It also manages the real 640×480 HDMI/framebuffer boot mode; reboot after
 installation. This avoids Debian's SDL 1.2 compatibility layer and does not
 install X11 or enable KMS/FKMS. The corresponding `dosbox_*` settings in
-`config/host.conf` are intentionally empty on development hosts. See
+`config/host.conf` are fixed for this appliance. See
 [the legacy framebuffer display guide](docs/legacy-fbcon-display.md).
 
 The launcher service temporarily conflicts with `getty@tty1.service`. When the
@@ -204,24 +203,9 @@ configures KMS/FKMS.
 ## No-sound launch mode
 
 Run the launcher with `--no-sound` to disable DOSBox's mixer and MIDI output
-device and force SDL's dummy audio backend. This is useful for a development VM
-without an ALSA sound card:
+device and force SDL's dummy audio backend while the appliance has no usable
+ALSA default card:
 
 ```sh
 python3 launcher/launcher.py --no-sound
 ```
-
-## Headless x86_64 development viewer
-
-This is development-only and is not needed on the Raspberry Pi. On a Debian or
-DietPi x86_64 VM/container, install Xpra from its official repository together
-with `xpra-html5`, `xpra-audio-server`, and `xterm`. Copy
-`config/host.conf.example` to the ignored `config/host.conf` and set a
-user-writable `game_data_root`.
-
-`scripts/run-xpra-dev.sh` starts the launcher in a virtual X display and serves
-the Xpra HTML5 client. It forwards DOSBox video, browser keyboard input, and
-speaker audio. Set `PI_286_XPRA_BIND` to the host address and start it through
-the supplied `systemd/pi-286-games-xpra.service` unit after adjusting its
-`User`, `WorkingDirectory`, and bind address. The runner creates a password at
-`~/.config/pi-286-games/xpra-password` on first start; keep that file private.
