@@ -119,15 +119,19 @@ writable by the autologin user. If an older `config/host.conf` still points to
 and grant ownership of the `/opt` directory before using archive installation.
 
 The script installs DOSBox when needed, copies the host configuration, grants
-only the shutdown command through sudo, and starts the launcher on local tty1
-when that user logs in (never over SSH). Configure `panic_device` to a readable
-`/dev/input/event*` device for panic handling while DOSBox owns the display.
-The install script adds the user to the usual `input` group; log out and back
-in once for that new group membership to take effect.
+only the shutdown command through sudo, and installs a dedicated systemd
+service which owns local tty1 after Plymouth exits. This avoids exposing the
+DietPi login banner or shell startup text between the boot splash and launcher.
+Configure `panic_device` to a readable `/dev/input/event*` device for panic
+handling while DOSBox owns the display. The install script adds the user to the
+usual `input` group; log out and back in once for that new group membership to
+take effect.
 
-The launcher is started once as a child of the autologin shell. Closing it with
-Ctrl-C or the default `Bye bye!` returns to the tty1 shell prompt instead of
-triggering another launcher session.
+The launcher service temporarily conflicts with `getty@tty1.service`. When the
+launcher exits through Ctrl-C or the default `Bye bye!`, it starts the existing
+tty1 getty again, returning to the usual autologin maintenance shell instead
+of launching the application again. Set `shutdown_on_bye_bye=true` in the
+appliance configuration to make that menu entry power off the host instead.
 
 By default, selecting `Bye bye!` closes the launcher and returns to the login
 shell. Set `shutdown_on_bye_bye=true` in `config/host.conf` on the Raspberry Pi
@@ -146,10 +150,10 @@ loglevel=3 vt.global_cursor_default=0` to `extraargs=` in
 first available `/boot/firmware/cmdline.txt` or `/boot/cmdline.txt`. Re-running
 the installer refreshes the theme safely without duplicating the splash option.
 
-The installer deliberately does not mask `getty@tty1.service`: the launcher is
-started from the autologin user's tty1 shell, and masking it would prevent that
-handoff after Plymouth exits. On an existing installation it removes the
-obsolete `fbi` splash service.
+The installer deliberately does not mask `getty@tty1.service`; it temporarily
+stops it while the launcher service is active and restores it when the launcher
+exits. On an existing installation it removes the obsolete `fbi` splash
+service.
 
 ### Larger console font
 

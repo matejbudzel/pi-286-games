@@ -5,7 +5,7 @@ set -eu
 repo=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 user=$(id -un)
 home_dir=$(getent passwd "$user" | cut -d: -f6)
-if ! command -v dosbox >/dev/null 2>&1 || ! command -v plymouth-set-default-theme >/dev/null 2>&1; then
+if ! command -v dosbox >/dev/null 2>&1 || { [ ! -x /usr/sbin/plymouth-set-default-theme ] && ! command -v plymouth-set-default-theme >/dev/null 2>&1; }; then
     sudo apt-get update
     sudo apt-get install -y dosbox plymouth plymouth-themes
 fi
@@ -51,15 +51,19 @@ else
         echo "WARNING: no DietPi boot configuration was found; add '$boot_args' manually." >&2
     fi
 fi
-sudo plymouth-set-default-theme -R pi-286-games
+if [ -x /usr/sbin/plymouth-set-default-theme ]; then
+    plymouth_theme_command=/usr/sbin/plymouth-set-default-theme
+else
+    plymouth_theme_command=$(command -v plymouth-set-default-theme)
+fi
+sudo "$plymouth_theme_command" -R pi-286-games
 sudo systemctl daemon-reload
 marker='# pi-286-games launcher'
-if ! grep -Fqx "$marker" "$home_dir/.profile" 2>/dev/null; then
-    printf '\n%s\nif [ -z "${SSH_CONNECTION:-}" ] && [ "$(tty)" = /dev/tty1 ]; then\n    python3 "%s/launcher/launcher.py" --host-conf "%s/config/host.conf"\nfi\n' "$marker" "$repo" "$repo" >> "$home_dir/.profile"
-else
-    # Upgrade profiles created by older installer versions that used exec and
-    # consequently caused agetty to autologin and restart the launcher again.
-    sed -i '/^[[:space:]]*exec ".*\/launcher\/launcher.py" --host-conf /s/^[[:space:]]*exec /    /' "$home_dir/.profile"
-    sed -i '/launcher\/launcher.py/ s|^\([[:space:]]*\)"|\1python3 "|' "$home_dir/.profile"
-fi
-echo "Installed. Put game data under $home_dir/pi-286-game-files and reboot to see the Plymouth splash."
+# Remove the previous tty1 login-shell hook. The marker and closing fi belong
+# to this installer, so this does not affect unrelated profile settings.
+sed -i "/^$marker$/,/^fi$/d" "$home_dir/.profile"
+service=/etc/systemd/system/pi-286-games.service
+sed -e "s|@USER@|$user|g" -e "s|@HOME@|$home_dir|g" -e "s|@REPO@|$repo|g" "$repo/systemd/pi-286-games.service.in" | sudo tee "$service" >/dev/null
+sudo systemctl daemon-reload
+sudo systemctl enable pi-286-games.service
+echo "Installed. Put game data under $home_dir/pi-286-game-files and reboot for the Plymouth-to-launcher handoff."
