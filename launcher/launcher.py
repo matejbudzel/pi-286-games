@@ -92,6 +92,11 @@ def error(term, game, detail, confirm):
         if key == "CTRL_C": return False
         if key == confirm: return True
 
+def game_running_screen(game, panic):
+    """Keep a meaningful console screen visible until DOSBox takes it over."""
+    Terminal.draw([("Je spustená hra", False), (game.name, True), ("", False),
+                   ("Ak ju chceš ukončiť, stlač %s." % panic, False)], "\x1b[92m")
+
 def install_screen(term, game, title, detail, percent=None):
     lines = [(title, False), (game.name, True), ("", False), (detail, False)]
     if percent is not None:
@@ -201,6 +206,7 @@ def run_game(game, config, term, no_sound=False):
             log = log_path.open("wb")
             environment = os.environ.copy()
             if no_sound: environment["SDL_AUDIODRIVER"] = "dummy"
+            game_running_screen(game, config.get("panic_key", "F1").upper())
             proc = subprocess.Popen([dosbox, "-conf", str(game.dosbox_conf), "-conf", str(generated)], preexec_fn=os.setsid, stdout=log, stderr=subprocess.STDOUT, env=environment)
         except OSError as exc:
             raise RuntimeError("DOSBox sa nedá spustiť: %s" % exc.strerror) from exc

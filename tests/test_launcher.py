@@ -20,6 +20,18 @@ class DiscoveryTests(unittest.TestCase):
         self.assertLessEqual(len(launcher.Terminal.line("A very long title", True, 5)), 5)
         self.assertLessEqual(len(launcher.Terminal.line("A very long title", False, 1)), 1)
 
+    def test_game_running_screen_names_game_and_panic_key(self):
+        captured = []
+        original = launcher.Terminal.draw
+        launcher.Terminal.draw = lambda lines, color="\x1b[96m", corner="": captured.extend(lines)
+        try:
+            launcher.game_running_screen(launcher.Game("Prince of Persia", "", "", Path(), Path()), "F1")
+        finally:
+            launcher.Terminal.draw = original
+        self.assertIn(("Je spustená hra", False), captured)
+        self.assertIn(("Prince of Persia", True), captured)
+        self.assertIn(("Ak ju chceš ukončiť, stlač F1.", False), captured)
+
     def test_discovers_and_sorts_valid_non_helper_games(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
