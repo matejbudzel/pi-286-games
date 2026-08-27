@@ -147,10 +147,8 @@ appliance to make that menu item power off the host instead.
 ### Direct console boot
 
 Plymouth is deliberately not used. It starts too late on this Pi 1 and adds a
-graphical element to an otherwise text-only appliance. The installer removes
-the project Plymouth theme, disables related units, purges Plymouth when
-installed, and removes the project-added quiet/splash kernel arguments. DietPi
-boot text remains visible until the launcher takes ownership of tty1.
+graphical element to an otherwise text-only appliance. DietPi boot text remains
+visible until the launcher takes ownership of tty1.
 
 The launcher service deliberately does not mask `getty@tty1.service`; it
 temporarily stops it while active and restores it when the launcher exits.

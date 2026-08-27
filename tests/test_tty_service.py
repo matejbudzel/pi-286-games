@@ -11,10 +11,9 @@ class TtyServiceTests(unittest.TestCase):
         self.assertIn('"$(uname -m)" = armv6l', installer)
         self.assertIn("Raspberry Pi Model B Rev 1", installer)
 
-    def test_installer_removes_plymouth_instead_of_installing_it(self):
+    def test_installer_does_not_manage_plymouth(self):
         installer = (ROOT / "scripts" / "install-dietpi.sh").read_text()
-        self.assertIn("apt-get purge -y plymouth plymouth-themes", installer)
-        self.assertNotIn("install -y dosbox plymouth", installer)
+        self.assertNotIn("plymouth", installer.lower())
 
     def test_service_owns_tty1_then_restores_getty(self):
         template = (ROOT / "systemd" / "pi-286-games.service.in").read_text()
