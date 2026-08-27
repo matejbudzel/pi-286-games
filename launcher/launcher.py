@@ -97,6 +97,11 @@ def game_running_screen(game, panic):
     Terminal.draw([("Je spustená hra", False), (game.name, True), ("", False),
                    ("Ak ju chceš ukončiť, stlač %s." % panic, False)], "\x1b[92m")
 
+def restore_console_display():
+    """Discard a framebuffer game's last image before returning to the tty UI."""
+    sys.stdout.write("\x1bc")
+    sys.stdout.flush()
+
 def install_screen(term, game, title, detail, percent=None):
     lines = [(title, False), (game.name, True), ("", False), (detail, False)]
     if percent is not None:
@@ -245,6 +250,7 @@ def run_game(game, config, term, no_sound=False):
         except OSError as exc:
             raise RuntimeError("DOSBox sa nedá spustiť: %s" % exc.strerror) from exc
         wanted = KEY_CODES.get(config.get("panic_key", "F1").upper())
+        panicked = False
         while proc.poll() is None:
             for fd in fds:
                 try: raw = os.read(fd, EVENT.size * 8)
@@ -255,8 +261,12 @@ def run_game(game, config, term, no_sound=False):
                         proc.terminate()
                         try: proc.wait(timeout=3)
                         except subprocess.TimeoutExpired: proc.kill(); proc.wait()
-                        return "panic"
+                        panicked = True
+                        break
+            if panicked: break
             time.sleep(.05)
+        restore_console_display()
+        if panicked: return "panic"
         return "ok" if proc.returncode == 0 else "failed"
     finally:
         for fd in fds: os.close(fd)

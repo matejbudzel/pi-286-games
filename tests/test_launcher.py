@@ -33,6 +33,17 @@ class DiscoveryTests(unittest.TestCase):
         self.assertIn(("Prince of Persia", True), captured)
         self.assertIn(("Ak ju chceš ukončiť, stlač F1.", False), captured)
 
+    def test_console_reset_discards_a_framebuffer_games_last_frame(self):
+        captured = []
+        original_write, original_flush = launcher.sys.stdout.write, launcher.sys.stdout.flush
+        launcher.sys.stdout.write = captured.append
+        launcher.sys.stdout.flush = lambda: None
+        try:
+            launcher.restore_console_display()
+        finally:
+            launcher.sys.stdout.write, launcher.sys.stdout.flush = original_write, original_flush
+        self.assertEqual(captured, ["\x1bc"])
+
     def test_dosbox_environment_can_select_the_rpi_fbcon_sdl_build(self):
         environment = launcher.dosbox_environment({
             "dosbox_ld_library_path": "/opt/sdl12-fbcon/lib",
