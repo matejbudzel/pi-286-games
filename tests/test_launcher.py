@@ -49,7 +49,7 @@ class DiscoveryTests(unittest.TestCase):
         self.assertTrue(expected.issubset({game.name for game in games}))
         for game in games:
             if game.asset_archive:
-                self.assertTrue(game.asset_archive.startswith("/home/dietpi/pi-286-games/"))
+                self.assertTrue(game.asset_archive.startswith("/home/dietpi/pi-286-game-assets/"))
 
     def test_discovery_does_not_require_the_executable(self):
         games = launcher.discover(Path(__file__).parents[1] / "games")
