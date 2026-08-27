@@ -16,6 +16,10 @@ class HealthCheckTests(unittest.TestCase):
     def appliance(self, temporary, with_custom=True, kms=False, resolution="640 480 640 480 16"):
         root = temporary / "host"
         (root / "dev").mkdir(parents=True); (root / "boot/firmware").mkdir(parents=True); (root / "proc/device-tree").mkdir(parents=True)
+        theme = root / "usr/share/plymouth/themes/pi-286-games"
+        theme.mkdir(parents=True)
+        for name in ("kockovane-hry-splash.png", "pi-286-games.plymouth", "pi-286-games.script"):
+            (theme / name).touch()
         (root / "proc/device-tree/model").write_text("Raspberry Pi Model B Rev 1")
         (root / "proc/meminfo").write_text("MemTotal:         226424 kB\n")
         (root / "dev/fb0").symlink_to("/dev/null")
@@ -30,6 +34,7 @@ class HealthCheckTests(unittest.TestCase):
         commands = temporary / "bin"; commands.mkdir()
         self.write_command(commands, "dosbox", "if [ \"${1:-}\" = -version ]; then echo 'DOSBox version 0.74-3'; exit 0; fi\n[ \"${LD_LIBRARY_PATH:-}\" = \"$HEALTH_CHECK_ROOT/opt/sdl12-fbcon/lib\" ] || exit 1\n[ \"${SDL_VIDEODRIVER:-}\" = fbcon ] || exit 1\n[ \"${SDL_FBDEV:-}\" = /dev/fb0 ] || exit 1\n[ \"${SDL_FB_BROKEN_MODES:-}\" = 1 ] || exit 1\nexit 0")
         self.write_command(commands, "plymouth", "exit 0")
+        self.write_command(commands, "plymouth-set-default-theme", "echo pi-286-games")
         self.write_command(commands, "ldd", "if [ \"${LD_LIBRARY_PATH:-}\" = \"$HEALTH_CHECK_ROOT/opt/sdl12-fbcon/lib\" ]; then echo \"libSDL-1.2.so.0 => $HEALTH_CHECK_ROOT/opt/sdl12-fbcon/lib/libSDL-1.2.so.0\"; else echo 'libSDL-1.2.so.0 => /lib/libSDL-1.2.so.0'; echo 'libSDL2-2.0.so.0 => /lib/libSDL2-2.0.so.0'; fi")
         self.write_command(commands, "fbset", "echo '    geometry " + resolution + "'; echo '    Name        : BCM2708 FB'; echo '    LineLength  : 1280'")
         return root, host_conf, commands

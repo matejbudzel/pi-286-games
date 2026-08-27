@@ -82,7 +82,10 @@ if [ -x /usr/sbin/plymouth-set-default-theme ]; then
 else
     plymouth_theme_command=$(command -v plymouth-set-default-theme)
 fi
-sudo "$plymouth_theme_command" -R pi-286-games
+if ! sudo "$plymouth_theme_command" -R pi-286-games; then
+    echo "ERROR: could not activate and rebuild the pi-286-games Plymouth theme." >&2
+    exit 1
+fi
 sudo systemctl daemon-reload
 marker='# pi-286-games launcher'
 # Remove the previous tty1 login-shell hook. The marker and closing fi belong

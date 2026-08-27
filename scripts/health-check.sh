@@ -20,6 +20,20 @@ mem=$(sed -n 's/^MemTotal:[[:space:]]*\([0-9]*\) kB.*/\1/p' "$(host_path /proc/m
 info "architecture: $(uname -m)"
 if command -v dosbox >/dev/null 2>&1; then dosbox_path=$(command -v dosbox); pass "dosbox: $(dosbox -version 2>&1 | head -n 1)"; else fail "dosbox is not installed"; fi
 if command -v plymouth >/dev/null 2>&1; then pass "plymouth is installed"; else fail "plymouth is not installed"; fi
+theme_dir=$(host_path /usr/share/plymouth/themes/pi-286-games)
+if [ -r "$theme_dir/kockovane-hry-splash.png" ] && [ -r "$theme_dir/pi-286-games.plymouth" ] && [ -r "$theme_dir/pi-286-games.script" ]; then
+    pass "pi-286-games Plymouth theme files are installed"
+else
+    fail "pi-286-games Plymouth theme files are missing"
+fi
+if command -v plymouth-set-default-theme >/dev/null 2>&1; then theme_command=$(command -v plymouth-set-default-theme)
+elif [ -x "$(host_path /usr/sbin/plymouth-set-default-theme)" ]; then theme_command=$(host_path /usr/sbin/plymouth-set-default-theme)
+else theme_command=; fi
+if [ -n "$theme_command" ]; then
+    [ "$("$theme_command" 2>/dev/null)" = pi-286-games ] && pass "pi-286-games is the active Plymouth theme" || fail "pi-286-games is not the active Plymouth theme (default spinner may appear)"
+else
+    fail "plymouth-set-default-theme is unavailable"
+fi
 info "display environment: tty=$(tty 2>/dev/null || printf unavailable)"
 [ -n "${DISPLAY:-}" ] && info "DISPLAY is set to $DISPLAY" || info "DISPLAY is not set (normal on a direct Linux console)"
 
