@@ -151,6 +151,9 @@ pixel/ASCII-art `KOCKOVANÉ HRY` PNG as the boot theme. It also rebuilds the
 initramfs, so the image is available early enough to cover the normal boot
 messages.
 
+The splash asset is 640×480, matching the fixed HDMI mode used by the target
+Pi; any panel upscaling is handled by the display.
+
 On current DietPi it adds `quiet splash plymouth.ignore-serial-consoles
 loglevel=3 vt.global_cursor_default=0` to `extraargs=` in
 `/boot/dietpiEnv.txt`. On systems without that file it instead updates the
