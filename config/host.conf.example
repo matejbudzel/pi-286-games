@@ -18,6 +18,14 @@ panic_device=
 # Debian's package installs this command.
 dosbox_command=dosbox
 
+# Raspberry Pi B+ direct-console SDL 1.2 build. Leave these empty on a
+# development VM or another host. When set, they are passed only to DOSBox.
+# The DietPi installer fills these values when /opt/sdl12-fbcon/lib exists.
+dosbox_ld_library_path=
+dosbox_sdl_videodriver=
+dosbox_sdl_fbdev=
+dosbox_sdl_fb_broken_modes=
+
 # false closes the launcher and returns to the login shell. Set true on the
 # Raspberry Pi appliance to power off the host from the Bye bye! menu item.
 shutdown_on_bye_bye=false

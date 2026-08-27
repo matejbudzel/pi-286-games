@@ -14,6 +14,20 @@ if [ ! -f "$repo/config/host.conf" ]; then
     cp "$repo/config/host.conf.example" "$repo/config/host.conf"
     sed -i "s|^game_data_root=.*|game_data_root=$home_dir/pi-286-game-files|" "$repo/config/host.conf"
 fi
+if [ -d /opt/sdl12-fbcon/lib ]; then
+    for setting in \
+        'dosbox_ld_library_path=/opt/sdl12-fbcon/lib' \
+        'dosbox_sdl_videodriver=fbcon' \
+        'dosbox_sdl_fbdev=/dev/fb0' \
+        'dosbox_sdl_fb_broken_modes=1'; do
+        key=${setting%%=*}
+        if grep -q "^$key=$" "$repo/config/host.conf"; then
+            sed -i "s|^$key=$|$setting|" "$repo/config/host.conf"
+        elif ! grep -q "^$key=" "$repo/config/host.conf"; then
+            printf '%s\n' "$setting" >> "$repo/config/host.conf"
+        fi
+    done
+fi
 printf '%s ALL=(root) NOPASSWD: /sbin/shutdown -h now\n' "$user" | sudo tee /etc/sudoers.d/pi-286-games-shutdown >/dev/null
 sudo chmod 0440 /etc/sudoers.d/pi-286-games-shutdown
 

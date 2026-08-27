@@ -32,6 +32,18 @@ class DiscoveryTests(unittest.TestCase):
         self.assertIn(("Prince of Persia", True), captured)
         self.assertIn(("Ak ju chceš ukončiť, stlač F1.", False), captured)
 
+    def test_dosbox_environment_can_select_the_rpi_fbcon_sdl_build(self):
+        environment = launcher.dosbox_environment({
+            "dosbox_ld_library_path": "/opt/sdl12-fbcon/lib",
+            "dosbox_sdl_videodriver": "fbcon",
+            "dosbox_sdl_fbdev": "/dev/fb0",
+            "dosbox_sdl_fb_broken_modes": "1",
+        })
+        self.assertEqual(environment["LD_LIBRARY_PATH"], "/opt/sdl12-fbcon/lib")
+        self.assertEqual(environment["SDL_VIDEODRIVER"], "fbcon")
+        self.assertEqual(environment["SDL_FBDEV"], "/dev/fb0")
+        self.assertEqual(environment["SDL_FB_BROKEN_MODES"], "1")
+
     def test_discovers_and_sorts_valid_non_helper_games(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

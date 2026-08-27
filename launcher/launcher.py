@@ -180,6 +180,21 @@ def validate(game, root, term=None, confirm="SPACE"):
     if not parts or Path(parts[0]).is_absolute() or ".." in Path(parts[0]).parts: raise RuntimeError("Neplatný príkaz hry.")
     return data, " ".join([parts[0].replace("/", "\\\\")] + parts[1:])
 
+def dosbox_environment(config, no_sound=False):
+    """Build DOSBox's environment from optional host-specific SDL settings."""
+    environment = os.environ.copy()
+    variables = {
+        "dosbox_ld_library_path": "LD_LIBRARY_PATH",
+        "dosbox_sdl_videodriver": "SDL_VIDEODRIVER",
+        "dosbox_sdl_fbdev": "SDL_FBDEV",
+        "dosbox_sdl_fb_broken_modes": "SDL_FB_BROKEN_MODES",
+    }
+    for setting, variable in variables.items():
+        value = config.get(setting, "")
+        if value: environment[variable] = value
+    if no_sound: environment["SDL_AUDIODRIVER"] = "dummy"
+    return environment
+
 def run_game(game, config, term, no_sound=False):
     try: data, command = validate(game, Path(config["game_data_root"]).expanduser(), term, config.get("confirm_key", "SPACE").upper())
     except InstallationCancelled: return "cancelled"
@@ -204,8 +219,7 @@ def run_game(game, config, term, no_sound=False):
             except OSError: pass
         try:
             log = log_path.open("wb")
-            environment = os.environ.copy()
-            if no_sound: environment["SDL_AUDIODRIVER"] = "dummy"
+            environment = dosbox_environment(config, no_sound)
             game_running_screen(game, config.get("panic_key", "F1").upper())
             proc = subprocess.Popen([dosbox, "-conf", str(game.dosbox_conf), "-conf", str(generated)], preexec_fn=os.setsid, stdout=log, stderr=subprocess.STDOUT, env=environment)
         except OSError as exc:

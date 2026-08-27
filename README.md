@@ -127,6 +127,13 @@ handling while DOSBox owns the display. The install script adds the user to the
 usual `input` group; log out and back in once for that new group membership to
 take effect.
 
+On the ARMv6 Raspberry Pi B+, a local SDL 1.2 build with framebuffer support
+can be installed under `/opt/sdl12-fbcon/lib`. When that directory exists, the
+installer configures DOSBox alone to use it with `SDL_VIDEODRIVER=fbcon`,
+`SDL_FBDEV=/dev/fb0`, and `SDL_FB_BROKEN_MODES=1`. The corresponding
+`dosbox_*` settings in `config/host.conf` are intentionally empty on other
+hosts, so the development VM continues to use its normal SDL libraries.
+
 The launcher service temporarily conflicts with `getty@tty1.service`. When the
 launcher exits through Ctrl-C or the default `Bye bye!`, it starts the existing
 tty1 getty again, returning to the usual autologin maintenance shell instead
