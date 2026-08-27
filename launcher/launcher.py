@@ -212,6 +212,10 @@ def generated_dosbox_config(mapper_file, data, command, no_sound=False):
     sound_config = "\n[mixer]\nnosound=true\n\n[midi]\nmpu401=none\nmididevice=none\n" if no_sound else ""
     return "%s\n[sdl]\nmapperfile=%s\n%s\n[autoexec]\nmount c \"%s\"\nc:\n%s\nexit\n" % (FRAMEBUFFER_DOSBOX_CONFIG, mapper_file, sound_config, data, command)
 
+def dosbox_process_group():
+    """Keep tty1 as the controlling terminal while isolating DOSBox for panic kill."""
+    return os.setpgrp
+
 def run_game(game, config, term, no_sound=False):
     try: data, command = validate(game, Path(config["game_data_root"]).expanduser(), term, config.get("confirm_key", "SPACE").upper())
     except InstallationCancelled: return "cancelled"
@@ -237,7 +241,7 @@ def run_game(game, config, term, no_sound=False):
             log = log_path.open("wb")
             environment = dosbox_environment(config, no_sound)
             game_running_screen(game, config.get("panic_key", "F1").upper())
-            proc = subprocess.Popen([dosbox, "-conf", str(game.dosbox_conf), "-conf", str(generated)], preexec_fn=os.setsid, stdout=log, stderr=subprocess.STDOUT, env=environment)
+            proc = subprocess.Popen([dosbox, "-conf", str(game.dosbox_conf), "-conf", str(generated)], preexec_fn=dosbox_process_group(), stdout=log, stderr=subprocess.STDOUT, env=environment)
         except OSError as exc:
             raise RuntimeError("DOSBox sa nedá spustiť: %s" % exc.strerror) from exc
         wanted = KEY_CODES.get(config.get("panic_key", "F1").upper())

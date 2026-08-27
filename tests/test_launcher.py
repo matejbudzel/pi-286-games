@@ -58,6 +58,9 @@ class DiscoveryTests(unittest.TestCase):
         self.assertIn("cycles=fixed 3000", combined)
         self.assertIn("scaler=none", combined)
 
+    def test_dosbox_uses_a_process_group_without_dropping_tty1(self):
+        self.assertIs(launcher.dosbox_process_group(), launcher.os.setpgrp)
+
     def test_discovers_and_sorts_valid_non_helper_games(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
