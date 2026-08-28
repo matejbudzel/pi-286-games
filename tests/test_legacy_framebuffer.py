@@ -104,3 +104,9 @@ class LegacyFramebufferTests(unittest.TestCase):
         self.assertIn("SDL_OpenAudio", source)
         self.assertIn("SDL_AUDIODRIVER=alsa", runner)
         self.assertIn("AUDIODEV=plughw:0,0", runner)
+
+    def test_sdl_framebuffer_self_test_has_a_magenta_canvas_shortcut(self):
+        runner = (ROOT / "scripts" / "run-sdl-fbcon-self-test.sh").read_text()
+        self.assertIn("--sdl-canvas-magenta", runner)
+        self.assertIn("PI286_SDL_FB_CANVAS_COLOR=\"$canvas_color\"", runner)
+        self.assertIn("canvas_color=ff00ff", runner)

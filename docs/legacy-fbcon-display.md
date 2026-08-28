@@ -83,6 +83,9 @@ configured canvas color. `sh scripts/health-check.sh` reports
 logical/physical geometry, stride, state, and calculated horizontal and
 vertical canvas borders.
 
+For the fixed magenta wire-path diagnostic without typing an environment
+variable, run `sh scripts/run-sdl-fbcon-self-test.sh --sdl-canvas-magenta`.
+
 `scripts/build-sdl12-fbcon.sh` builds upstream `libsdl-org/SDL-1.2` commit
 `7bf353eca59cb503f43b86e3867dc4fc4e45f2e3` (SDL 1.2.16) with fbcon and audio,
 but without X11 or OpenGL. Its persistent source and build directory is
