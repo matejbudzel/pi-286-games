@@ -218,6 +218,10 @@ tty1. For an SDL-only rendering check, run
 `sh scripts/run-sdl-fbcon-self-test.sh`. Neither command installs X11 nor
 configures KMS/FKMS.
 
+To isolate the custom SDL audio backend from DOSBox, run
+`sh scripts/run-sdl-audio-self-test.sh`. It plays a two-second tone through the
+same verified HDMI PCM (`hw:0,0`) and does not take over tty1.
+
 ## No-sound launch mode
 
 Run the launcher with `--no-sound` to disable DOSBox's mixer and MIDI output

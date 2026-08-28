@@ -63,3 +63,11 @@ class LegacyFramebufferTests(unittest.TestCase):
         self.assertIn("--enable-audio", source)
         self.assertIn("make -j\"$jobs\"", source)
         self.assertNotIn("--disable-audio", source)
+
+    def test_sdl_audio_self_test_uses_the_custom_library_and_verified_pcm(self):
+        source = (ROOT / "scripts" / "sdl-audio-self-test.c").read_text()
+        runner = (ROOT / "scripts" / "run-sdl-audio-self-test.sh").read_text()
+        self.assertIn("SDL_INIT_AUDIO", source)
+        self.assertIn("SDL_OpenAudio", source)
+        self.assertIn("SDL_AUDIODRIVER=alsa", runner)
+        self.assertIn("AUDIODEV=hw:0,0", runner)

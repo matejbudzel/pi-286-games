@@ -67,6 +67,7 @@ LD_LIBRARY_PATH=/opt/sdl12-fbcon/lib ldd "$(command -v dosbox)" | grep libSDL-1.
 sh scripts/health-check.sh
 sh scripts/health-check.sh --smoke-dosbox
 sh scripts/run-sdl-fbcon-self-test.sh
+sh scripts/run-sdl-audio-self-test.sh
 ```
 
 The self-test compiles against `/opt/sdl12-fbcon`, fills the screen blue for
@@ -74,6 +75,11 @@ three seconds, then exits. It is intentionally manual because it takes over
 the active tty. Expected framebuffer facts are `BCM2708 FB`, 640×480, 16 bpp,
 stride 1280, and a 614400-byte framebuffer. `/dev/fb0` should normally be
 readable and writable by the `video` group. No `/dev/dri` is expected here.
+
+The audio self-test uses the same `/opt/sdl12-fbcon` library and explicit
+`hw:0,0` ALSA variables as DOSBox, but does not initialise video. It emits a
+two-second tone and prints the selected SDL audio driver. This separates a
+working ALSA device from a working classic-SDL audio backend.
 
 | Symptom | Diagnosis / action |
 | --- | --- |
@@ -84,6 +90,7 @@ readable and writable by the `video` group. No `/dev/dri` is expected here.
 | A small centered 640×480 image in 1080p | The actual HDMI/framebuffer remains 1080p; correct the boot settings and reboot. |
 | `/dev/fb0` exists but `/dev/dri` does not | Expected for this legacy path, not an error. |
 | `ALSA cannot find card '0'` / `Unknown PCM default` | Check `snd_bcm2835`, `/dev/snd`, audio-group membership, and `/etc/asound.conf`; this is separate from video. |
+| `SDL_OpenAudio: ...` from the SDL audio self-test | The custom classic SDL audio backend cannot open the verified PCM; inspect or rebuild `/opt/sdl12-fbcon` before changing DOSBox. |
 
 ## HDMI audio
 
