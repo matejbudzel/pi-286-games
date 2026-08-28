@@ -36,10 +36,11 @@ if [ -x /opt/sdl12-fbcon/bin/sdl-config ] && [ "$(/opt/sdl12-fbcon/bin/sdl-confi
             printf '%s\n' "$setting" >> "$repo/config/host.conf"
         fi
     done
+    grep -q '^dosbox_sdl_fb_pillarbox=' "$repo/config/host.conf" || printf '%s\n' 'dosbox_sdl_fb_pillarbox=0' >> "$repo/config/host.conf"
 else
     echo "INFO: custom classic SDL is not installed; leaving DOSBox SDL settings unchanged."
 fi
-sudo "$repo/scripts/configure-legacy-framebuffer.sh"
+sudo HOST_CONF="$repo/config/host.conf" "$repo/scripts/configure-legacy-framebuffer.sh"
 sudo "$repo/scripts/configure-appliance-audio.sh"
 printf '%s ALL=(root) NOPASSWD: /sbin/shutdown -h now, /usr/bin/systemctl stop pi-286-games.service, /usr/bin/systemctl stop getty@tty1.service, /usr/bin/systemctl start pi-286-games.service\n' "$user" | sudo tee /etc/sudoers.d/pi-286-games-shutdown >/dev/null
 sudo chmod 0440 /etc/sudoers.d/pi-286-games-shutdown

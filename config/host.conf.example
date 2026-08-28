@@ -13,6 +13,21 @@ dosbox_ld_library_path=/opt/sdl12-fbcon/lib
 dosbox_sdl_videodriver=fbcon
 dosbox_sdl_fbdev=/dev/fb0
 dosbox_sdl_fb_broken_modes=1
+# Optional compatibility mode for monitors that stretch a 4:3 HDMI signal.
+# Keep 0 for the normal 640x480 path.  With 1, set the physical framebuffer
+# settings below to a wider 480-high HDMI mode supported by the monitor.
+dosbox_sdl_fb_pillarbox=0
+
+# Raspberry Pi legacy physical framebuffer/HDMI mode.  The launcher still
+# always gives stock DOSBox a logical 640x480 SDL surface.
+framebuffer_hdmi_group=2
+framebuffer_hdmi_mode=4
+# For a custom legacy HDMI mode (normally mode 87), uncomment and provide the
+# Raspberry Pi hdmi_cvt parameters validated for the connected monitor.
+# framebuffer_hdmi_cvt=854 480 60 3 0 0 0
+framebuffer_width=640
+framebuffer_height=480
+framebuffer_depth=16
 
 # Logical launcher controls.
 up_key=UP

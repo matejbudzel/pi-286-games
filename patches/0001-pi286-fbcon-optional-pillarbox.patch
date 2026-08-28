@@ -1,0 +1,191 @@
+diff --git a/src/video/fbcon/SDL_fbvideo.c b/src/video/fbcon/SDL_fbvideo.c
+index 5e58809..082cb52 100644
+--- a/src/video/fbcon/SDL_fbvideo.c
++++ b/src/video/fbcon/SDL_fbvideo.c
+@@ -819,6 +819,7 @@ static SDL_Rect **FB_ListModes(_THIS, SDL_PixelFormat *format, Uint32 flags)
+ 
+ /* Various screen update functions available */
+ static void FB_DirectUpdate(_THIS, int numrects, SDL_Rect *rects);
++static void FB_PillarboxUpdate(_THIS, int numrects, SDL_Rect *rects);
+ #ifdef VGA16_FBCON_SUPPORT
+ static void FB_VGA16Update(_THIS, int numrects, SDL_Rect *rects);
+ #endif
+@@ -1006,6 +1007,8 @@ static SDL_Surface *FB_SetVideoMode(_THIS, SDL_Surface *current,
+ 	Uint32 Bmask;
+ 	char *surfaces_mem;
+ 	int surfaces_len;
++	const char *pillarbox;
++	int use_pillarbox = 0;
+ 
+ 	/* Set the terminal into graphics mode */
+ 	if ( FB_EnterGraphicsMode(this) < 0 ) {
+@@ -1020,6 +1023,16 @@ static SDL_Surface *FB_SetVideoMode(_THIS, SDL_Surface *current,
+ 		SDL_SetError("Couldn't get console screen info");
+ 		return(NULL);
+ 	}
++	pillarbox = SDL_getenv("PI286_SDL_FB_PILLARBOX");
++	if (pillarbox && SDL_strcmp(pillarbox, "0") != 0) {
++		if (rotate != FBCON_ROTATE_NONE || bpp != 16 ||
++		    vinfo.bits_per_pixel != 16 || height != (int)vinfo.yres ||
++		    width > (int)vinfo.xres) {
++			SDL_SetError("PI286_SDL_FB_PILLARBOX requires unrotated 16 bpp logical %dx%d in physical framebuffer at least %dx%d (found %dx%d, %d bpp)", width, height, width, height, vinfo.xres, vinfo.yres, vinfo.bits_per_pixel);
++			return(NULL);
++		}
++		use_pillarbox = 1;
++	}
+ #ifdef FBCON_DEBUG
+ 	fprintf(stderr, "Printing original vinfo:\n");
+ 	print_vinfo(&vinfo);
+@@ -1029,7 +1042,7 @@ static SDL_Surface *FB_SetVideoMode(_THIS, SDL_Surface *current,
+ 		flags &= ~SDL_DOUBLEBUF;
+ 	}
+ 
+-	if ( (vinfo.xres != width) || (vinfo.yres != height) ||
++	if ( !use_pillarbox && ((vinfo.xres != width) || (vinfo.yres != height) ||
+ 	     (vinfo.bits_per_pixel != bpp) || (flags & SDL_DOUBLEBUF) ) {
+ 		vinfo.activate = FB_ACTIVATE_NOW;
+ 		vinfo.accel_flags = 0;
+@@ -1063,7 +1076,7 @@ static SDL_Surface *FB_SetVideoMode(_THIS, SDL_Surface *current,
+ 				return(NULL);
+ 			}
+ 		}
+-	} else {
++	} else if (!use_pillarbox) {
+ 		int maxheight;
+ 
+ 		/* Figure out how much video memory is available */
+@@ -1077,6 +1090,8 @@ static SDL_Surface *FB_SetVideoMode(_THIS, SDL_Surface *current,
+ 		}
+ 	}
+ 	cache_vinfo = vinfo;
++	pillarbox_fb = use_pillarbox;
++	pillarbox_x = use_pillarbox ? ((int)vinfo.xres - width) / 2 : 0;
+ #ifdef FBCON_DEBUG
+ 	fprintf(stderr, "Printing actual vinfo:\n");
+ 	print_vinfo(&vinfo);
+@@ -1112,7 +1127,7 @@ static SDL_Surface *FB_SetVideoMode(_THIS, SDL_Surface *current,
+ 	/* Save hardware palette, if needed */
+ 	FB_SavePalette(this, &finfo, &vinfo);
+ 
+-	if (shadow_fb) {
++	if (shadow_fb || pillarbox_fb) {
+ 		if (vinfo.bits_per_pixel == 16) {
+ 			blitFunc = (rotate == FBCON_ROTATE_NONE ||
+ 					rotate == FBCON_ROTATE_UD) ?
+@@ -1131,15 +1146,22 @@ static SDL_Surface *FB_SetVideoMode(_THIS, SDL_Surface *current,
+ 
+ 	/* Set up the new mode framebuffer */
+ 	current->flags &= SDL_FULLSCREEN;
+-	if (shadow_fb) {
++	if (shadow_fb || pillarbox_fb) {
+ 		current->flags |= SDL_SWSURFACE;
+ 	} else {
+ 		current->flags |= SDL_HWSURFACE;
+ 	}
+-	current->w = vinfo.xres;
+-	current->h = vinfo.yres;
+-	if (shadow_fb) {
++	current->w = pillarbox_fb ? width : vinfo.xres;
++	current->h = pillarbox_fb ? height : vinfo.yres;
++	if (shadow_fb || pillarbox_fb) {
+ 		current->pitch = current->w * ((vinfo.bits_per_pixel + 7) / 8);
++		if (pillarbox_fb && shadow_mem == NULL) {
++			shadow_mem = (char *)SDL_malloc(mapped_memlen);
++			if (shadow_mem == NULL) {
++				SDL_SetError("No memory for PI286_SDL_FB_PILLARBOX shadow");
++				return(NULL);
++			}
++		}
+ 		current->pixels = shadow_mem;
+ 		physlinebytes = finfo.line_length;
+ 	} else {
+@@ -1150,7 +1172,7 @@ static SDL_Surface *FB_SetVideoMode(_THIS, SDL_Surface *current,
+ 	/* Set up the information for hardware surfaces */
+ 	surfaces_mem = (char *)current->pixels +
+ 		vinfo.yres_virtual*current->pitch;
+-	surfaces_len = (shadow_fb) ?
++	surfaces_len = (shadow_fb || pillarbox_fb) ?
+ 		0 : (mapped_memlen-(surfaces_mem-mapped_mem));
+ 
+ 	FB_FreeHWSurfaces(this);
+@@ -1166,7 +1188,7 @@ static SDL_Surface *FB_SetVideoMode(_THIS, SDL_Surface *current,
+ 	}
+ 
+ 	/* Update for double-buffering, if we can */
+-	if ( flags & SDL_DOUBLEBUF ) {
++	if ( (flags & SDL_DOUBLEBUF) && !pillarbox_fb ) {
+ 		if ( vinfo.yres_virtual == (height*2) ) {
+ 			current->flags |= SDL_DOUBLEBUF;
+ 			flip_page = 0;
+@@ -1180,7 +1202,11 @@ static SDL_Surface *FB_SetVideoMode(_THIS, SDL_Surface *current,
+ 	}
+ 
+ 	/* Set the update rectangle function */
+-	this->UpdateRects = FB_DirectUpdate;
++	this->UpdateRects = pillarbox_fb ? FB_PillarboxUpdate : FB_DirectUpdate;
++	if (pillarbox_fb) {
++		SDL_memset(mapped_mem + mapped_offset, 0,
++		           finfo.line_length * vinfo.yres);
++	}
+ 
+ 	/* We're done */
+ 	return(current);
+@@ -1607,6 +1633,36 @@ static void FB_DirectUpdate(_THIS, int numrects, SDL_Rect *rects)
+ 	}
+ }
+ 
++/* PI286_SDL_FB_PILLARBOX is deliberately limited to a same-height RGB565
++   shadow copy.  It is not a general scaling facility. */
++static void FB_PillarboxUpdate(_THIS, int numrects, SDL_Rect *rects)
++{
++	SDL_Surface *screen = this->screen;
++	int i;
++
++	if (switched_away) {
++		return;
++	}
++	for (i = 0; i < numrects; ++i) {
++		int x1 = rects[i].x;
++		int y1 = rects[i].y;
++		int x2 = x1 + rects[i].w;
++		int y2 = y1 + rects[i].h;
++		int y;
++		if (x1 < 0) x1 = 0;
++		if (y1 < 0) y1 = 0;
++		if (x2 > screen->w) x2 = screen->w;
++		if (y2 > screen->h) y2 = screen->h;
++		if (x2 <= x1 || y2 <= y1) continue;
++		for (y = y1; y < y2; ++y) {
++			SDL_memcpy(mapped_mem + mapped_offset + y * physlinebytes +
++			           (pillarbox_x + x1) * 2,
++			           (Uint8 *)screen->pixels + y * screen->pitch + x1 * 2,
++			           (x2 - x1) * 2);
++		}
++	}
++}
++
+ #ifdef VGA16_FBCON_SUPPORT
+ /* Code adapted with thanks from the XFree86 VGA16 driver! :) */
+ #define writeGr(index, value) \
+diff --git a/src/video/fbcon/SDL_fbvideo.h b/src/video/fbcon/SDL_fbvideo.h
+index 1443d2b..1326853 100644
+--- a/src/video/fbcon/SDL_fbvideo.h
++++ b/src/video/fbcon/SDL_fbvideo.h
+@@ -86,6 +86,8 @@ struct SDL_PrivateVideoData {
+ 	char *flip_address[2];
+ 	int rotate;
+ 	int shadow_fb;				/* Tells whether a shadow is being used. */
++	int pillarbox_fb;			/* Appliance-specific centered shadow copy. */
++	int pillarbox_x;			/* Physical pixel offset of the logical surface. */
+ 	FB_bitBlit *blitFunc;
+ 	int physlinebytes;			/* Length of a line in bytes in physical fb */
+ 
+@@ -132,6 +134,8 @@ struct SDL_PrivateVideoData {
+ #define flip_address		(this->hidden->flip_address)
+ #define rotate			(this->hidden->rotate)
+ #define shadow_fb		(this->hidden->shadow_fb)
++#define pillarbox_fb		(this->hidden->pillarbox_fb)
++#define pillarbox_x		(this->hidden->pillarbox_x)
+ #define blitFunc		(this->hidden->blitFunc)
+ #define physlinebytes		(this->hidden->physlinebytes)
+ #define SDL_nummodes		(this->hidden->SDL_nummodes)

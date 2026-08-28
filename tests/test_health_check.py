@@ -13,7 +13,7 @@ class HealthCheckTests(unittest.TestCase):
         path.write_text("#!/bin/sh\n" + body)
         path.chmod(0o755)
 
-    def appliance(self, temporary, with_custom=True, kms=False, resolution="640 480 640 480 16"):
+    def appliance(self, temporary, with_custom=True, kms=False, resolution="640 480 640 480 16", pillarbox=False):
         root = temporary / "host"
         (root / "dev/snd").mkdir(parents=True); (root / "boot/firmware").mkdir(parents=True); (root / "proc/device-tree").mkdir(parents=True); (root / "proc/asound").mkdir(parents=True)
         (root / "proc/device-tree/model").write_text("Raspberry Pi Model B Rev 1")
@@ -24,17 +24,19 @@ class HealthCheckTests(unittest.TestCase):
         (root / "etc").mkdir()
         (root / "etc/asound.conf").write_text('pcm.!default { type plug slave.pcm { type hw card "HDMI" device 0 } }\n')
         overlay = "dtoverlay=vc4-kms-v3d\n" if kms else ""
-        (root / "boot/firmware/config.txt").write_text(overlay + "hdmi_force_hotplug=1\nhdmi_drive=2\nhdmi_blanking=0\ndisable_overscan=1\nhdmi_group=2\nhdmi_mode=4\nframebuffer_width=640\nframebuffer_height=480\nframebuffer_depth=16\ndtparam=audio=on\n")
+        width, height, _, _, depth = resolution.split()
+        mode = "87" if pillarbox else "4"
+        (root / "boot/firmware/config.txt").write_text(overlay + f"hdmi_force_hotplug=1\nhdmi_drive=2\nhdmi_blanking=0\ndisable_overscan=1\nhdmi_group=2\nhdmi_mode={mode}\nframebuffer_width={width}\nframebuffer_height={height}\nframebuffer_depth={depth}\ndtparam=audio=on\n")
         if with_custom:
             (root / "opt/sdl12-fbcon/bin").mkdir(parents=True); (root / "opt/sdl12-fbcon/lib").mkdir()
             (root / "opt/sdl12-fbcon/lib/libSDL-1.2.so.0").touch()
             self.write_command(root / "opt/sdl12-fbcon/bin", "sdl-config", "echo 1.2.16")
         host_conf = temporary / "host.conf"
-        host_conf.write_text("dosbox_ld_library_path=/opt/sdl12-fbcon/lib\ndosbox_sdl_videodriver=fbcon\ndosbox_sdl_fbdev=/dev/fb0\ndosbox_sdl_fb_broken_modes=1\n")
+        host_conf.write_text("dosbox_ld_library_path=/opt/sdl12-fbcon/lib\ndosbox_sdl_videodriver=fbcon\ndosbox_sdl_fbdev=/dev/fb0\ndosbox_sdl_fb_broken_modes=1\n" + (f"dosbox_sdl_fb_pillarbox=1\nframebuffer_hdmi_group=2\nframebuffer_hdmi_mode=87\nframebuffer_width={width}\nframebuffer_height={height}\nframebuffer_depth={depth}\n" if pillarbox else ""))
         commands = temporary / "bin"; commands.mkdir()
         self.write_command(commands, "dosbox", "if [ \"${1:-}\" = -version ]; then echo 'DOSBox version 0.74-3'; exit 0; fi\n[ \"${LD_LIBRARY_PATH:-}\" = \"$HEALTH_CHECK_ROOT/opt/sdl12-fbcon/lib\" ] || exit 1\n[ \"${SDL_VIDEODRIVER:-}\" = fbcon ] || exit 1\n[ \"${SDL_FBDEV:-}\" = /dev/fb0 ] || exit 1\n[ \"${SDL_FB_BROKEN_MODES:-}\" = 1 ] || exit 1\nexit 0")
         self.write_command(commands, "ldd", "case \"$*\" in *\"$HEALTH_CHECK_ROOT/opt/sdl12-fbcon/lib/libSDL-1.2.so.0\"*) echo 'libasound.so.2 => /lib/libasound.so.2' ;; esac\nif [ \"${LD_LIBRARY_PATH:-}\" = \"$HEALTH_CHECK_ROOT/opt/sdl12-fbcon/lib\" ]; then echo \"libSDL-1.2.so.0 => $HEALTH_CHECK_ROOT/opt/sdl12-fbcon/lib/libSDL-1.2.so.0\"; else echo 'libSDL-1.2.so.0 => /lib/libSDL-1.2.so.0'; echo 'libSDL2-2.0.so.0 => /lib/libSDL2-2.0.so.0'; fi")
-        self.write_command(commands, "fbset", "echo '    geometry " + resolution + "'; echo '    Name        : BCM2708 FB'; echo '    LineLength  : 1280'")
+        self.write_command(commands, "fbset", "echo '    geometry " + resolution + "'; echo '    Name        : BCM2708 FB'; echo '    LineLength  : " + str(int(width) * 2) + "'")
         self.write_command(commands, "lsmod", "echo 'Module Size Used by'; echo 'snd_bcm2835 1 0'")
         self.write_command(commands, "id", "[ \"${1:-}\" = -nG ] && echo 'video input audio'")
         return root, host_conf, commands
@@ -71,3 +73,12 @@ class HealthCheckTests(unittest.TestCase):
             self.assertIn("KMS/FKMS is configured", result.stdout)
             self.assertIn("KMS/FKMS is configured but no /dev/dri", result.stdout)
             self.assertIn("expected 640x480x16", result.stdout)
+
+    def test_accepts_wider_same_height_pillarbox_framebuffer(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            result = self.run_check(Path(temporary), resolution="854 480 854 480 16", pillarbox=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("logical DOSBox target resolution: 640x480", result.stdout)
+            self.assertIn("PI286 SDL fbcon pillarbox: enabled", result.stdout)
+            self.assertIn("horizontal pillarbox width: 107 pixels per side", result.stdout)
+            self.assertIn("pillarbox physical height matches logical height", result.stdout)

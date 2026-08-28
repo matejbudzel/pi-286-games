@@ -18,15 +18,59 @@ The supported video path is:
 DOSBox → classic SDL 1.2 → fbcon → /dev/fb0 → BCM2708 framebuffer → HDMI
 ```
 
+## Optional widescreen pillarbox compatibility
+
+The normal appliance path remains a real 640×480 HDMI/framebuffer mode with
+`dosbox_sdl_fb_pillarbox=0`. Use it whenever the monitor preserves 4:3.
+
+Some target monitors stretch every 4:3 HDMI signal to the full 16:9 panel.
+For those displays only, configure a supported wider, 480-high legacy HDMI
+mode in `config/host.conf`, set its `framebuffer_width`, `framebuffer_height`,
+and HDMI group/mode values, then set `dosbox_sdl_fb_pillarbox=1` and rerun the
+installer before rebooting. The physical mode is deliberately host-configured;
+854×480 is one candidate, not a hardcoded requirement.
+
+For an initial custom-timing experiment, the Pi legacy firmware's DMT custom
+mode 87 with `framebuffer_hdmi_cvt=854 480 60 3 0 0 0` is a reasonable value
+to validate on the specific monitor. Keep it only if the monitor accepts it
+and reports the expected 854×480 framebuffer; other supported 480-high timing
+values can be substituted without changing SDL.
+
+```text
+stock DOSBox logical SDL surface: 640x480
+                 |
+custom SDL fbcon: centered RGB565 dirty-rectangle copy
+                 v
++----------------------------------+
+| black |      640x480 DOS     | black |
++----------------------------------+
+ physical wider framebuffer, same 480 height
+                 |
+ monitor stretches the whole widescreen HDMI signal
+```
+
+This is pillarboxing, not scaling: SDL copies logical pixels unchanged and
+clears the side areas black. DOSBox stays the distro binary and never sees the
+physical framebuffer dimensions. The custom SDL validates unrotated RGB565,
+equal logical/physical height, and physical width at least the logical width;
+otherwise `SDL_SetVideoMode` fails with a diagnostic. The normal direct-mmap
+640×480 path is unchanged when the variable is absent or `0`.
+
+Run `sh scripts/run-sdl-fbcon-self-test.sh --pillarbox` after selecting and
+rebooting into the wider physical mode. It draws a blue 640×480 area with a
+white border and yellow center line; the left and right framebuffer areas must
+be black. `sh scripts/health-check.sh` reports logical/physical geometry,
+stride, state, and calculated pillar width.
+
 `scripts/build-sdl12-fbcon.sh` builds upstream `libsdl-org/SDL-1.2` commit
 `7bf353eca59cb503f43b86e3867dc4fc4e45f2e3` (SDL 1.2.16) with fbcon and audio,
 but without X11 or OpenGL. It installs only under `/opt/sdl12-fbcon`; it never
 replaces Debian's SDL. It defaults to `make -j1` for Pi 1 memory pressure and
-skips an existing build only when it is 1.2.16 and links `libasound`. A future
-ARMv6 package or release artifact could avoid local compilation, but source
-builds remain authoritative.
+skips an existing build only when it is 1.2.16, links `libasound`, and has the
+installed pillarbox patch marker. A future ARMv6 package or release artifact
+could avoid local compilation, but source builds remain authoritative.
 
-The launcher reads the four `dosbox_*` values in `config/host.conf` and passes
+The launcher reads the `dosbox_*` values in `config/host.conf` and passes
 them only to DOSBox: `LD_LIBRARY_PATH=/opt/sdl12-fbcon/lib`,
 `SDL_VIDEODRIVER=fbcon`, `SDL_FBDEV=/dev/fb0`, and
 `SDL_FB_BROKEN_MODES=1`. The last setting is essential: without it fbcon can

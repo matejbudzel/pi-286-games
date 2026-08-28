@@ -1,6 +1,15 @@
 #!/bin/sh
 # Idempotently maintain the legacy HDMI/framebuffer values for the Pi 1 appliance.
 set -eu
+host_conf=${HOST_CONF:-}
+host_setting() { if [ -n "$host_conf" ]; then sed -n "s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*//p" "$host_conf" 2>/dev/null | tail -n 1; fi; }
+setting_or_default() { value=$(host_setting "$1"); [ -n "$value" ] && printf '%s\n' "$value" || printf '%s\n' "$2"; }
+hdmi_group=$(setting_or_default framebuffer_hdmi_group 2)
+hdmi_mode=$(setting_or_default framebuffer_hdmi_mode 4)
+framebuffer_width=$(setting_or_default framebuffer_width 640)
+framebuffer_height=$(setting_or_default framebuffer_height 480)
+framebuffer_depth=$(setting_or_default framebuffer_depth 16)
+hdmi_cvt=$(host_setting framebuffer_hdmi_cvt)
 boot_config=${BOOT_CONFIG:-}
 if [ -z "$boot_config" ]; then
     for candidate in /boot/firmware/config.txt /boot/config.txt; do
@@ -24,11 +33,12 @@ set_value hdmi_force_hotplug 1
 set_value hdmi_drive 2
 set_value hdmi_blanking 0
 set_value disable_overscan 1
-set_value hdmi_group 2
-set_value hdmi_mode 4
-set_value framebuffer_width 640
-set_value framebuffer_height 480
-set_value framebuffer_depth 16
+set_value hdmi_group "$hdmi_group"
+set_value hdmi_mode "$hdmi_mode"
+[ -z "$hdmi_cvt" ] || set_value hdmi_cvt "$hdmi_cvt"
+set_value framebuffer_width "$framebuffer_width"
+set_value framebuffer_height "$framebuffer_height"
+set_value framebuffer_depth "$framebuffer_depth"
 set_audio() {
     if grep -Eq '^[[:space:]]*dtparam[[:space:]]*=[[:space:]]*audio=' "$boot_config"; then
         sed -i 's|^[[:space:]]*dtparam[[:space:]]*=[[:space:]]*audio=.*|dtparam=audio=on|' "$boot_config"
@@ -37,4 +47,4 @@ set_audio() {
     fi
 }
 set_audio
-echo "Configured legacy 640x480 HDMI/framebuffer settings in $boot_config. Reboot is required."
+echo "Configured legacy ${framebuffer_width}x${framebuffer_height} HDMI/framebuffer settings in $boot_config. Reboot is required."

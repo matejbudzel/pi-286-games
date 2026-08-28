@@ -141,6 +141,11 @@ install X11 or enable KMS/FKMS. The corresponding `dosbox_*` settings in
 `config/host.conf` are fixed for this appliance. See
 [the legacy framebuffer display guide](docs/legacy-fbcon-display.md).
 
+For a monitor that forcibly stretches 4:3 HDMI to 16:9, an optional custom-SDL
+pillarbox mode can send a wider physical 480-high framebuffer with a centered,
+unscaled 640×480 DOS image. It is disabled by default; see the
+[legacy framebuffer display guide](docs/legacy-fbcon-display.md).
+
 The installer also enables the verified BCM2835 HDMI audio path, persists the
 `snd_bcm2835` module, adds the appliance user to `audio`, and writes an ALSA
 default for the detected bcm2835 HDMI card name. DOSBox is explicitly run with

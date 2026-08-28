@@ -55,11 +55,25 @@ class LegacyFramebufferTests(unittest.TestCase):
             self.assertIn("dtparam=sd_poll_once", result)
             self.assertNotIn("dtparam=audio=off", result)
 
+    def test_boot_framebuffer_dimensions_come_from_host_config(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            config = root / "config.txt"
+            host = root / "host.conf"
+            config.write_text("")
+            host.write_text("framebuffer_hdmi_group=2\nframebuffer_hdmi_mode=87\nframebuffer_hdmi_cvt=854 480 60 3 0 0 0\nframebuffer_width=854\nframebuffer_height=480\nframebuffer_depth=16\n")
+            subprocess.run(["sh", str(HELPER)], check=True, env=os.environ | {"BOOT_CONFIG": str(config), "HOST_CONF": str(host)}, capture_output=True, text=True)
+            result = config.read_text()
+            for line in ("hdmi_mode=87", "hdmi_cvt=854 480 60 3 0 0 0", "framebuffer_width=854", "framebuffer_height=480", "framebuffer_depth=16"):
+                self.assertIn(line, result)
+
     def test_build_script_pins_classic_sdl_116_and_uses_one_job(self):
         source = BUILD.read_text()
         self.assertIn("source_commit=7bf353eca59cb503f43b86e3867dc4fc4e45f2e3", source)
         self.assertIn("--enable-video-fbcon", source)
         self.assertIn("--disable-video-x11", source)
+        self.assertIn("git apply \"$pillarbox_patch\"", source)
+        self.assertIn(".pi286-sdl-fbcon-pillarbox", source)
         self.assertIn("--enable-audio", source)
         self.assertIn("--enable-alsa", source)
         self.assertIn("--disable-alsa-shared", source)
