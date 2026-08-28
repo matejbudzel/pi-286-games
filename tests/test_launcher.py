@@ -82,13 +82,14 @@ class DiscoveryTests(unittest.TestCase):
             original = launcher.Path
             try:
                 launcher.Path = lambda value: Path(temporary) / Path(value).name if value == "/tmp/pi-286-games-dosbox-command.sh" else original(value)
-                written = launcher.write_dosbox_replay("/usr/bin/dosbox", Path("base.conf"), Path("game.conf"), Path("/tmp/pi-286-games-dosbox.conf"), {"LD_LIBRARY_PATH": "/opt/sdl12-fbcon/lib", "SDL_VIDEODRIVER": "fbcon", "SDL_FBDEV": "/dev/fb0", "SDL_FB_BROKEN_MODES": "1", "AUDIODEV": "plughw:0,0", "SDL_PATH_DSP": "plughw:0,0"})
+                written = launcher.write_dosbox_replay("/usr/bin/dosbox", Path("base.conf"), Path("game.conf"), Path("/tmp/pi-286-games-dosbox.conf"), {"LD_LIBRARY_PATH": "/opt/sdl12-fbcon/lib", "SDL_VIDEODRIVER": "fbcon", "SDL_FBDEV": "/dev/fb0", "SDL_FB_BROKEN_MODES": "1", "AUDIODEV": "plughw:0,0", "SDL_PATH_DSP": "plughw:0,0", "SDL_DSP_NOSELECT": "1"})
             finally:
                 launcher.Path = original
             content = written.read_text()
             self.assertIn("SDL_VIDEODRIVER=fbcon", content)
             self.assertIn("AUDIODEV=plughw:0,0", content)
             self.assertIn("SDL_PATH_DSP=plughw:0,0", content)
+            self.assertIn("SDL_DSP_NOSELECT=1", content)
             self.assertIn("-conf base.conf", content)
             self.assertIn("-conf game.conf", content)
             self.assertIn("-conf /tmp/pi-286-games-dosbox.conf", content)
@@ -111,6 +112,7 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(environment["SDL_AUDIODRIVER"], "alsa")
         self.assertEqual(environment["AUDIODEV"], "plughw:0,0")
         self.assertEqual(environment["SDL_PATH_DSP"], launcher.HDMI_PCM)
+        self.assertEqual(environment["SDL_DSP_NOSELECT"], "1")
 
     def test_effective_dosbox_config_has_the_appliance_safe_video_values(self):
         for game_dir in ("blockout", "grand-prix", "prince-of-persia"):
@@ -134,8 +136,8 @@ class DiscoveryTests(unittest.TestCase):
         config = (Path(__file__).parents[1] / "games" / "grand-prix" / "dosbox.conf").read_text()
         self.assertIn("[mixer]", config)
         self.assertIn("rate=22050", config)
-        self.assertIn("blocksize=1024", config)
-        self.assertIn("prebuffer=60", config)
+        self.assertIn("blocksize=2048", config)
+        self.assertIn("prebuffer=100", config)
 
     def test_dosbox_launch_does_not_detach_from_tty1(self):
         source = inspect.getsource(launcher.run_game)
