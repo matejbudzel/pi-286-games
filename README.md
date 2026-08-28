@@ -186,6 +186,20 @@ consoles such as tty1, not SSH terminals.
 The included definitions expect `GPEGA.EXE`, `PREHISTO.COM`, and `PRINCE.EXE`.
 Change `exe` in the relevant `game.conf` if your lawful copy uses another name.
 
+### Console commands
+
+The installer maintains these aliases in the appliance user's `.bashrc`:
+
+```sh
+pg-install             # Run the DietPi appliance installer.
+pg-start --no-sound    # Start the launcher; any launcher option may follow.
+pg-update              # Fast-forward the repository, then reinstall it.
+pg-check --smoke-dosbox # Run health checks; optional smoke test.
+```
+
+Open a new Bash shell after installation, or run `source ~/.bashrc` once, for
+the aliases to become available.
+
 ## Health check
 
 Run the read-only health check on the target to inspect DOSBox, framebuffer/DRM

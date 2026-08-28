@@ -51,10 +51,25 @@ marker='# pi-286-games launcher'
 # Remove the previous tty1 login-shell hook. The marker and closing fi belong
 # to this installer, so this does not affect unrelated profile settings.
 sed -i "/^$marker$/,/^fi$/d" "$home_dir/.profile"
+# Keep the appliance maintenance commands available after every interactive
+# Bash login without changing unrelated shell customisation.
+bashrc="$home_dir/.bashrc"
+aliases_begin='# pi-286-games aliases'
+aliases_end='# end pi-286-games aliases'
+touch "$bashrc"
+sed -i "/^$aliases_begin$/,/^$aliases_end$/d" "$bashrc"
+{
+    printf '%s\n' "$aliases_begin"
+    printf "alias pg-install='cd %s && ./scripts/install-dietpi.sh'\n" "$repo"
+    printf "alias pg-start='cd %s && python3 launcher/launcher.py'\n" "$repo"
+    printf "alias pg-update='cd %s && git pull --ff-only && ./scripts/install-dietpi.sh'\n" "$repo"
+    printf "alias pg-check='cd %s && sh scripts/health-check.sh'\n" "$repo"
+    printf '%s\n' "$aliases_end"
+} >> "$bashrc"
 service=/etc/systemd/system/pi-286-games.service
 sed -e "s|@USER@|$user|g" -e "s|@HOME@|$home_dir|g" -e "s|@REPO@|$repo|g" "$repo/systemd/pi-286-games.service.in" | sudo tee "$service" >/dev/null
 sudo install -m 0644 "$repo/systemd/pi-286-games-audio.service" /etc/systemd/system/pi-286-games-audio.service
 sudo systemctl daemon-reload
 sudo systemctl enable pi-286-games-audio.service
 sudo systemctl enable pi-286-games.service
-echo "Installed. Put game data under $home_dir/pi-286-game-files and reboot for the direct DietPi-console-to-launcher handoff."
+echo "Installed. Put game data under $home_dir/pi-286-game-files and reboot for the direct DietPi-console-to-launcher handoff. Run 'source $bashrc' to use the pg-* aliases now."

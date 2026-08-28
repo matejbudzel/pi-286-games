@@ -31,6 +31,13 @@ class TtyServiceTests(unittest.TestCase):
         self.assertIn("systemctl enable pi-286-games.service", installer)
         self.assertIn("systemctl enable pi-286-games-audio.service", installer)
 
+    def test_installer_maintains_the_console_command_aliases(self):
+        installer = (ROOT / "scripts" / "install-dietpi.sh").read_text()
+        self.assertIn("# pi-286-games aliases", installer)
+        for alias in ("pg-install", "pg-start", "pg-update", "pg-check"):
+            self.assertIn("alias " + alias + "=", installer)
+        self.assertIn("git pull --ff-only", installer)
+
     def test_audio_service_loads_the_target_module_before_launcher(self):
         audio_service = (ROOT / "systemd" / "pi-286-games-audio.service").read_text()
         self.assertIn("ExecStart=/sbin/modprobe snd_bcm2835", audio_service)
