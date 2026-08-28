@@ -89,6 +89,7 @@ class LegacyFramebufferTests(unittest.TestCase):
         self.assertIn("sdl12_fbcon_apply_patches", source)
         self.assertIn(".pi286-sdl-fbcon-pillarbox", source)
         self.assertIn("0002-pi286-fbcon-centered-canvas-color.patch", shared)
+        self.assertIn("0003-pi286-fbcon-retain-logical-copy-geometry.patch", shared)
         self.assertIn("--enable-audio", shared)
         self.assertIn("--enable-alsa", shared)
         self.assertIn("--disable-alsa-shared", shared)

@@ -1,0 +1,65 @@
+diff --git a/src/video/fbcon/SDL_fbvideo.c b/src/video/fbcon/SDL_fbvideo.c
+index 85dd047..0000000 100644
+--- a/src/video/fbcon/SDL_fbvideo.c
++++ b/src/video/fbcon/SDL_fbvideo.c
+@@ -1183,6 +1183,11 @@ static SDL_Surface *FB_SetVideoMode(_THIS, SDL_Surface *current,
+ 		}
+ 		current->pixels = shadow_mem;
+ 		physlinebytes = finfo.line_length;
++		if (pillarbox_fb) {
++			pillarbox_width = width;
++			pillarbox_height = height;
++			pillarbox_pitch = current->pitch;
++		}
+ 	} else {
+ 		current->pitch = finfo.line_length;
+ 		current->pixels = mapped_mem+mapped_offset;
+@@ -1681,7 +1686,6 @@ static void FB_PillarboxClear(_THIS)
+ 
+ static void FB_PillarboxUpdate(_THIS, int numrects, SDL_Rect *rects)
+ {
+-	SDL_Surface *screen = this->screen;
+ 	int i;
+ 
+ 	if (switched_away) {
+@@ -1695,14 +1699,14 @@ static void FB_PillarboxUpdate(_THIS, int numrects, SDL_Rect *rects)
+ 		int y;
+ 		if (x1 < 0) x1 = 0;
+ 		if (y1 < 0) y1 = 0;
+-		if (x2 > screen->w) x2 = screen->w;
+-		if (y2 > screen->h) y2 = screen->h;
++		if (x2 > pillarbox_width) x2 = pillarbox_width;
++		if (y2 > pillarbox_height) y2 = pillarbox_height;
+ 		if (x2 <= x1 || y2 <= y1) continue;
+ 		for (y = y1; y < y2; ++y) {
+ 			SDL_memcpy(mapped_mem + mapped_offset +
+ 			           (pillarbox_y + y) * physlinebytes +
+ 			           (pillarbox_x + x1) * 2,
+-			           (Uint8 *)screen->pixels + y * screen->pitch + x1 * 2,
++			           (Uint8 *)shadow_mem + y * pillarbox_pitch + x1 * 2,
+ 			           (x2 - x1) * 2);
+ 		}
+ 	}
+diff --git a/src/video/fbcon/SDL_fbvideo.h b/src/video/fbcon/SDL_fbvideo.h
+index 67da47b..0000000 100644
+--- a/src/video/fbcon/SDL_fbvideo.h
++++ b/src/video/fbcon/SDL_fbvideo.h
+@@ -90,6 +90,9 @@ struct SDL_PrivateVideoData {
+ 	int pillarbox_x;			/* Physical X offset of the logical surface. */
+ 	int pillarbox_y;			/* Physical Y offset of the logical surface. */
+ 	Uint16 pillarbox_fill;		/* RGB565 color for unused physical pixels. */
++	int pillarbox_width;			/* Logical copy width, independent of SDL surface offsets. */
++	int pillarbox_height;		/* Logical copy height, independent of SDL surface offsets. */
++	int pillarbox_pitch;			/* Logical shadow-buffer pitch in bytes. */
+ 	FB_bitBlit *blitFunc;
+ 	int physlinebytes;			/* Length of a line in bytes in physical fb */
+ 
+@@ -140,5 +143,8 @@ struct SDL_PrivateVideoData {
+ #define pillarbox_x		(this->hidden->pillarbox_x)
+ #define pillarbox_y		(this->hidden->pillarbox_y)
+ #define pillarbox_fill		(this->hidden->pillarbox_fill)
++#define pillarbox_width		(this->hidden->pillarbox_width)
++#define pillarbox_height	(this->hidden->pillarbox_height)
++#define pillarbox_pitch		(this->hidden->pillarbox_pitch)
+ #define blitFunc		(this->hidden->blitFunc)
+ #define physlinebytes		(this->hidden->physlinebytes)
