@@ -64,11 +64,13 @@ stride, state, and calculated pillar width.
 
 `scripts/build-sdl12-fbcon.sh` builds upstream `libsdl-org/SDL-1.2` commit
 `7bf353eca59cb503f43b86e3867dc4fc4e45f2e3` (SDL 1.2.16) with fbcon and audio,
-but without X11 or OpenGL. It installs only under `/opt/sdl12-fbcon`; it never
-replaces Debian's SDL. It defaults to `make -j1` for Pi 1 memory pressure and
-skips an existing build only when it is 1.2.16, links `libasound`, and has the
-installed pillarbox patch marker. A future ARMv6 package or release artifact
-could avoid local compilation, but source builds remain authoritative.
+but without X11 or OpenGL. Its persistent source and build directory is
+`/home/dietpi/pi-286-games-sdl12-fbcon`, so later runs reuse the checkout and
+compiled objects. Local SDL changes in that directory are retained. Set
+`SDL12_FBCON_BUILD_DIR` to use another location. It installs only under
+`/opt/sdl12-fbcon`; it never replaces Debian's SDL. It defaults to `make -j1`
+for Pi 1 memory pressure. A future ARMv6 package or release artifact could
+avoid local compilation, but source builds remain authoritative.
 
 The launcher reads the `dosbox_*` values in `config/host.conf` and passes
 them only to DOSBox: `LD_LIBRARY_PATH=/opt/sdl12-fbcon/lib`,
