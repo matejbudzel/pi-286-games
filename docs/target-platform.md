@@ -11,6 +11,8 @@ set of early DOS games.
 
 Use a game's `dosbox.conf` to make a title-specific adjustment only when its
 original release genuinely requires a different graphics adapter or CPU speed.
-Grand Prix also uses a 22050 Hz mixer rate, 2048-sample block size, and 100 ms
-prebuffer to reduce audio underruns on the single-core Pi 1; do not apply that
-override to other games without physical testing.
+The appliance defaults to low-rate PC-speaker audio: Sound Blaster, AdLib/FM,
+MIDI, Tandy, and Disney Sound Source are disabled. DOSBox mixes the PC speaker
+at 22050 Hz with a 2048-sample block and 100 ms prebuffer, reducing audio load
+and underruns on the single-core Pi 1. A game may deliberately override these
+defaults only after physical testing.

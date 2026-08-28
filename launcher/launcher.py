@@ -190,7 +190,11 @@ class Terminal:
     def key(self, timeout=None):
         if not select.select([self.fd], [], [], timeout)[0]: return None
         data = os.read(self.fd, 8)
-        return {b"\x03":"CTRL_C", b"\x1b":"ESC", b"\x1b[A":"UP", b"\x1bOA":"UP", b"\x1b[B":"DOWN", b"\x1bOB":"DOWN", b" ":"SPACE", b"\r":"ENTER", b"\x1bOP":"F1"}.get(data, data.decode("utf-8", "ignore").upper())
+        return self.decode_key(data)
+    @staticmethod
+    def decode_key(data):
+        """Normalise the Linux console's cursor-key escape sequences."""
+        return {b"\x03":"CTRL_C", b"\x1b":"ESC", b"\x1b[A":"UP", b"\x1bOA":"UP", b"\x1b[B":"DOWN", b"\x1bOB":"DOWN", b"\x1b[C":"RIGHT", b"\x1bOC":"RIGHT", b"\x1b[D":"LEFT", b"\x1bOD":"LEFT", b" ":"SPACE", b"\r":"ENTER", b"\x1bOP":"F1"}.get(data, data.decode("utf-8", "ignore").upper())
     @staticmethod
     def line(text, current, columns):
         prefix = ("> " if current else "  ") if columns >= 2 else ""
@@ -398,7 +402,7 @@ def dosbox_environment(config, no_sound=False):
     return environment
 
 # This is the appliance base config. It is loaded first, so a deliberate
-# [sdl] or [render] value in a game's dosbox.conf may override it.
+# value in a game's dosbox.conf may override it.
 APPLIANCE_DOSBOX_BASE_CONFIG = """[sdl]
 fullscreen=true
 fulldouble=false
@@ -411,6 +415,26 @@ usescancodes=false
 frameskip=0
 aspect=true
 scaler=normal2x
+
+[mixer]
+# The Pi 1 is a PC-speaker appliance. Keeping only this low-rate mixer path
+# avoids the emulation cost of FM, Sound Blaster, MIDI, and other sound cards.
+rate=22050
+blocksize=2048
+prebuffer=100
+
+[sblaster]
+sbtype=none
+
+[speaker]
+pcspeaker=true
+pcrate=22050
+tandy=off
+disney=false
+
+[midi]
+mpu401=none
+mididevice=none
 """
 
 def generated_dosbox_config(mapper_file, data, command, no_sound=False):

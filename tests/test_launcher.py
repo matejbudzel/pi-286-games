@@ -76,6 +76,12 @@ class DiscoveryTests(unittest.TestCase):
             self.assertEqual(host.read_text().count("audio_volume_percent="), 1)
             self.assertIn("audio_volume_percent=50", host.read_text())
 
+    def test_terminal_decodes_left_and_right_for_launcher_volume(self):
+        self.assertEqual(launcher.Terminal.decode_key(b"\x1b[D"), "LEFT")
+        self.assertEqual(launcher.Terminal.decode_key(b"\x1bOD"), "LEFT")
+        self.assertEqual(launcher.Terminal.decode_key(b"\x1b[C"), "RIGHT")
+        self.assertEqual(launcher.Terminal.decode_key(b"\x1bOC"), "RIGHT")
+
     def test_replay_script_uses_the_same_fbcon_environment_and_configs(self):
         with tempfile.TemporaryDirectory() as temporary:
             replay = Path("/tmp/pi-286-games-dosbox-command.sh")
@@ -134,12 +140,16 @@ class DiscoveryTests(unittest.TestCase):
         self.assertGreater(combined.rfind("aspect=false"), combined.rfind("aspect=true"))
         self.assertGreater(combined.rfind("scaler=none"), combined.rfind("scaler=normal2x"))
 
-    def test_grand_prix_has_a_low_latency_tolerant_pi1_mixer_override(self):
+    def test_appliance_defaults_to_low_cost_pc_speaker_audio(self):
+        config = launcher.APPLIANCE_DOSBOX_BASE_CONFIG
+        for line in ("rate=22050", "blocksize=2048", "prebuffer=100", "sbtype=none", "pcspeaker=true", "pcrate=22050", "tandy=off", "disney=false", "mpu401=none"):
+            self.assertIn(line, config)
+
+    def test_grand_prix_keeps_its_286_video_and_cpu_override(self):
         config = (Path(__file__).parents[1] / "games" / "grand-prix" / "dosbox.conf").read_text()
-        self.assertIn("[mixer]", config)
-        self.assertIn("rate=22050", config)
-        self.assertIn("blocksize=2048", config)
-        self.assertIn("prebuffer=100", config)
+        self.assertIn("machine=ega", config)
+        self.assertIn("cycles=fixed 3000", config)
+        self.assertNotIn("[mixer]", config)
 
     def test_dosbox_launch_does_not_detach_from_tty1(self):
         source = inspect.getsource(launcher.run_game)

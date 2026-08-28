@@ -240,6 +240,13 @@ adjust audio while a game is running.
 
 ## No-sound launch mode
 
+By default the appliance emulates a modest PC-speaker-only DOS machine. The
+speaker tone is routed through the verified HDMI audio output, while Sound
+Blaster, AdLib/FM music, MIDI, Tandy, and Disney Sound Source are disabled to
+keep the Raspberry Pi 1 responsive. A per-game `dosbox.conf` can explicitly
+override that profile if a game needs richer audio and has been physically
+tested.
+
 Run the launcher with `--no-sound` to disable DOSBox's mixer and MIDI output
 device and force SDL's dummy audio backend for audio troubleshooting:
 
