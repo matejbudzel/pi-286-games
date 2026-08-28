@@ -29,4 +29,12 @@ set_value hdmi_mode 4
 set_value framebuffer_width 640
 set_value framebuffer_height 480
 set_value framebuffer_depth 16
+set_audio() {
+    if grep -Eq '^[[:space:]]*dtparam[[:space:]]*=[[:space:]]*audio=' "$boot_config"; then
+        sed -i 's|^[[:space:]]*dtparam[[:space:]]*=[[:space:]]*audio=.*|dtparam=audio=on|' "$boot_config"
+    else
+        printf 'dtparam=audio=on\n' >> "$boot_config"
+    fi
+}
+set_audio
 echo "Configured legacy 640x480 HDMI/framebuffer settings in $boot_config. Reboot is required."

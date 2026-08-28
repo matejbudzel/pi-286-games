@@ -76,9 +76,19 @@ readable and writable by the `video` group. No `/dev/dri` is expected here.
 | Black screen while DOSBox stays alive | Verify `SDL_FB_BROKEN_MODES=1`; run the standalone SDL self-test to separate SDL from DOSBox. |
 | A small centered 640×480 image in 1080p | The actual HDMI/framebuffer remains 1080p; correct the boot settings and reboot. |
 | `/dev/fb0` exists but `/dev/dri` does not | Expected for this legacy path, not an error. |
-| `ALSA cannot find card '0'` / `Unknown PCM default` | Separate audio issue, not evidence of an emulation or video failure. |
+| `ALSA cannot find card '0'` / `Unknown PCM default` | Check `snd_bcm2835`, `/dev/snd`, audio-group membership, and `/etc/asound.conf`; this is separate from video. |
 
-Audio remains follow-up work. The observed target has `dtparam=audio=off` and
-no usable default ALSA card. SDL audio must stay compiled because disabling it
-makes DOSBox abort during SDL initialization, but successful video checks do
-not claim HDMI audio works.
+## HDMI audio
+
+HDMI audio is verified through the monitor speakers with:
+
+```sh
+speaker-test -D hw:0,0 -c 2 -t sine
+```
+
+The appliance boot configuration sets `dtparam=audio=on`; the installer
+persists `snd_bcm2835` in `/etc/modules-load.d/pi-286-games-audio.conf`, adds
+the user to `audio`, and writes `/etc/asound.conf`. The latter selects the
+detected bcm2835 HDMI ALSA card identifier (normally `HDMI`) rather than
+assuming a particular card number. Audio health warnings remain separate from
+framebuffer/video success, and speaker-test is never run automatically.

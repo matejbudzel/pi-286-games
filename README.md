@@ -134,6 +134,11 @@ install X11 or enable KMS/FKMS. The corresponding `dosbox_*` settings in
 `config/host.conf` are fixed for this appliance. See
 [the legacy framebuffer display guide](docs/legacy-fbcon-display.md).
 
+The installer also enables the verified BCM2835 HDMI audio path, persists the
+`snd_bcm2835` module, adds the appliance user to `audio`, and writes an ALSA
+default for the detected bcm2835 HDMI card name. Log out and back in after the
+new group membership, or reboot after installation.
+
 The launcher service temporarily conflicts with `getty@tty1.service`. When the
 launcher exits through Ctrl-C or the default `Bye bye!`, it starts the existing
 tty1 getty again, returning to the usual autologin maintenance shell instead
@@ -191,8 +196,7 @@ configures KMS/FKMS.
 ## No-sound launch mode
 
 Run the launcher with `--no-sound` to disable DOSBox's mixer and MIDI output
-device and force SDL's dummy audio backend while the appliance has no usable
-ALSA default card:
+device and force SDL's dummy audio backend for audio troubleshooting:
 
 ```sh
 python3 launcher/launcher.py --no-sound

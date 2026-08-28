@@ -8,6 +8,7 @@ from pathlib import Path
 ROOT = Path(__file__).parents[1]
 HELPER = ROOT / "scripts" / "configure-legacy-framebuffer.sh"
 BUILD = ROOT / "scripts" / "build-sdl12-fbcon.sh"
+AUDIO = ROOT / "scripts" / "configure-appliance-audio.sh"
 
 
 class LegacyFramebufferTests(unittest.TestCase):
@@ -22,8 +23,19 @@ class LegacyFramebufferTests(unittest.TestCase):
             self.assertIn("gpu_mem_256=16", result)
             self.assertIn("enable_uart=0", result)
             self.assertEqual(result.count("hdmi_mode="), 1)
-            for line in ("hdmi_mode=4", "framebuffer_width=640", "framebuffer_height=480", "framebuffer_depth=16"):
+            for line in ("hdmi_mode=4", "framebuffer_width=640", "framebuffer_height=480", "framebuffer_depth=16", "dtparam=audio=on"):
                 self.assertEqual(result.count(line), 1)
+
+    def test_audio_config_uses_bcm2835_hdmi_card_id_not_card_number(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "proc/asound").mkdir(parents=True)
+            (root / "proc/asound/cards").write_text(" 0 [HDMI           ]: bcm2835_hdmi - bcm2835 HDMI 1\n")
+            subprocess.run(["sh", str(AUDIO)], check=True, env=os.environ | {"PI286_AUDIO_ROOT": str(root)}, capture_output=True, text=True)
+            self.assertEqual((root / "etc/modules-load.d/pi-286-games-audio.conf").read_text(), "snd_bcm2835\n")
+            config = (root / "etc/asound.conf").read_text()
+            self.assertIn('card "HDMI"', config)
+            self.assertNotIn("card 0", config)
 
     def test_kms_is_warned_about_but_not_removed(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -32,6 +44,16 @@ class LegacyFramebufferTests(unittest.TestCase):
             result = subprocess.run(["sh", str(HELPER)], env=os.environ | {"BOOT_CONFIG": str(config)}, capture_output=True, text=True)
             self.assertIn("KMS/FKMS", result.stderr)
             self.assertIn("dtoverlay=vc4-kms-v3d", config.read_text())
+
+    def test_boot_audio_setting_replaces_only_audio_dtparam(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            config = Path(temporary) / "config.txt"
+            config.write_text("dtparam=audio=off\ndtparam=sd_poll_once\n")
+            subprocess.run(["sh", str(HELPER)], check=True, env=os.environ | {"BOOT_CONFIG": str(config)}, capture_output=True, text=True)
+            result = config.read_text()
+            self.assertIn("dtparam=audio=on", result)
+            self.assertIn("dtparam=sd_poll_once", result)
+            self.assertNotIn("dtparam=audio=off", result)
 
     def test_build_script_pins_classic_sdl_116_and_uses_one_job(self):
         source = BUILD.read_text()

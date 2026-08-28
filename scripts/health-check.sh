@@ -12,6 +12,8 @@ pass() { printf 'OK   %s\n' "$1"; }; warn() { printf 'WARN %s\n' "$1"; }; info()
 yesno() { [ "$1" = true ] && printf yes || printf no; }
 device_access() { device=$1; r=false; w=false; [ -r "$device" ] && r=true; [ -w "$device" ] && w=true; printf 'readable=%s writable=%s' "$(yesno "$r")" "$(yesno "$w")"; }
 host_setting() { sed -n "s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*//p" "$host_conf" 2>/dev/null | tail -n 1; }
+in_group() { id -nG 2>/dev/null | tr ' ' '\n' | grep -qx "$1"; }
+module_loaded() { if command -v lsmod >/dev/null 2>&1; then lsmod | awk 'NR > 1 { print $1 }' | grep -qx "$1"; else grep -q "^$1 " "$(host_path /proc/modules)" 2>/dev/null; fi; }
 
 model=$(sed -n '1p' "$(host_path /proc/device-tree/model)" 2>/dev/null | tr -d '\000')
 [ -n "$model" ] && info "Raspberry Pi model: $model" || info "Raspberry Pi model unavailable"
@@ -40,9 +42,29 @@ kms_found=false; boot_config=
 for candidate in /boot/firmware/config.txt /boot/config.txt; do [ -r "$(host_path "$candidate")" ] && { boot_config=$(host_path "$candidate"); break; }; done
 if [ -n "$boot_config" ]; then
     if grep -Eq '^[[:space:]]*dtoverlay[[:space:]]*=[[:space:]]*vc4-(f)?kms-v3d' "$boot_config"; then kms_found=true; warn "KMS/FKMS is configured in $boot_config; it is not the supported legacy-fbcon path"; fi
-    for setting in hdmi_force_hotplug=1 hdmi_drive=2 hdmi_blanking=0 disable_overscan=1 hdmi_group=2 hdmi_mode=4 framebuffer_width=640 framebuffer_height=480 framebuffer_depth=16; do grep -Eq "^[[:space:]]*$setting[[:space:]]*$" "$boot_config" && pass "boot setting $setting" || warn "boot setting missing: $setting"; done
+    for setting in hdmi_force_hotplug=1 hdmi_drive=2 hdmi_blanking=0 disable_overscan=1 hdmi_group=2 hdmi_mode=4 framebuffer_width=640 framebuffer_height=480 framebuffer_depth=16 dtparam=audio=on; do grep -Eq "^[[:space:]]*$setting[[:space:]]*$" "$boot_config" && pass "boot setting $setting" || warn "boot setting missing: $setting"; done
 else warn "no Raspberry Pi config.txt found"; fi
 [ "$kms_found" = true ] && [ "$drm_found" = false ] && warn "KMS/FKMS is configured but no /dev/dri device exists"
+
+# Audio is intentionally reported independently: no audio fault changes the
+# framebuffer/video result above.
+if module_loaded snd_bcm2835; then pass "snd_bcm2835 kernel module is loaded"; else warn "snd_bcm2835 kernel module is not loaded"; fi
+snd_dir=$(host_path /dev/snd)
+if [ -d "$snd_dir" ]; then
+    snd_access=false
+    for device in "$snd_dir"/*; do [ -e "$device" ] || continue; [ -r "$device" ] && [ -w "$device" ] && snd_access=true; info "sound device $device ($(device_access "$device"))"; done
+    [ "$snd_access" = true ] && pass "/dev/snd has an accessible sound device" || warn "/dev/snd has no accessible sound device"
+else warn "/dev/snd does not exist"; fi
+if in_group audio; then pass "current user belongs to audio group"; else warn "current user is not in audio group"; fi
+alsa_cards=$(host_path /proc/asound/cards)
+hdmi_card=$(sed -n 's/^[[:space:]]*\([0-9][0-9]*\)[[:space:]]*\[\([^]]*\)\].*bcm2835 HDMI.*/\1 \2/p' "$alsa_cards" 2>/dev/null | head -n 1)
+if [ -n "$hdmi_card" ]; then
+    card_number=${hdmi_card%% *}
+    card_id=$(printf '%s' "${hdmi_card#* }" | tr -d '[:space:]')
+    pass "bcm2835 HDMI ALSA card exists: $card_number $card_id"
+    asound=$(host_path /etc/asound.conf)
+    if [ -r "$asound" ] && grep -Fq "card \"$card_id\"" "$asound"; then pass "ALSA default targets bcm2835 HDMI card '$card_id'"; else warn "ALSA default does not target bcm2835 HDMI card '$card_id'"; fi
+else warn "bcm2835 HDMI ALSA card is unavailable"; fi
 
 custom_prefix=$(host_path /opt/sdl12-fbcon)
 if [ -x "$custom_prefix/bin/sdl-config" ] && [ -e "$custom_prefix/lib/libSDL-1.2.so.0" ]; then
@@ -70,5 +92,5 @@ if [ "$smoke" = true ]; then
     fi
 fi
 [ "$custom_sdl" = true ] && [ "$fb_usable" = true ] && info "legacy appliance classification: classic SDL fbcon + /dev/fb0; no /dev/dri is required."
-info "audio is diagnosed separately: ALSA/default-card errors do not invalidate video checks."
+info "audio is diagnosed separately: ALSA/default-card errors do not invalidate video checks. speaker-test is manual only."
 exit "$failed"

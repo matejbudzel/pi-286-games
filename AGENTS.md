@@ -31,3 +31,7 @@ For the 256 MB target, direct-console video is deliberately classic SDL 1.2
 fbcon through `/opt/sdl12-fbcon`, `/dev/fb0`, and the legacy BCM2708
 framebuffer. Do not replace it with sdl12-compat, X11, Wayland, KMS, or FKMS;
 `SDL_FB_BROKEN_MODES=1` is required for the known-good display path.
+
+HDMI audio on this target uses `dtparam=audio=on`, `snd_bcm2835`, and the
+bcm2835 HDMI ALSA card identifier. Preserve the card-name-based ALSA default;
+do not make audio failures invalidate the independent video diagnosis.

@@ -15,12 +15,16 @@ class HealthCheckTests(unittest.TestCase):
 
     def appliance(self, temporary, with_custom=True, kms=False, resolution="640 480 640 480 16"):
         root = temporary / "host"
-        (root / "dev").mkdir(parents=True); (root / "boot/firmware").mkdir(parents=True); (root / "proc/device-tree").mkdir(parents=True)
+        (root / "dev/snd").mkdir(parents=True); (root / "boot/firmware").mkdir(parents=True); (root / "proc/device-tree").mkdir(parents=True); (root / "proc/asound").mkdir(parents=True)
         (root / "proc/device-tree/model").write_text("Raspberry Pi Model B Rev 1")
         (root / "proc/meminfo").write_text("MemTotal:         226424 kB\n")
         (root / "dev/fb0").symlink_to("/dev/null")
+        (root / "dev/snd/controlC0").symlink_to("/dev/null")
+        (root / "proc/asound/cards").write_text(" 0 [HDMI           ]: bcm2835_hdmi - bcm2835 HDMI 1\n")
+        (root / "etc").mkdir()
+        (root / "etc/asound.conf").write_text('pcm.!default { type plug slave.pcm { type hw card "HDMI" device 0 } }\n')
         overlay = "dtoverlay=vc4-kms-v3d\n" if kms else ""
-        (root / "boot/firmware/config.txt").write_text(overlay + "hdmi_force_hotplug=1\nhdmi_drive=2\nhdmi_blanking=0\ndisable_overscan=1\nhdmi_group=2\nhdmi_mode=4\nframebuffer_width=640\nframebuffer_height=480\nframebuffer_depth=16\n")
+        (root / "boot/firmware/config.txt").write_text(overlay + "hdmi_force_hotplug=1\nhdmi_drive=2\nhdmi_blanking=0\ndisable_overscan=1\nhdmi_group=2\nhdmi_mode=4\nframebuffer_width=640\nframebuffer_height=480\nframebuffer_depth=16\ndtparam=audio=on\n")
         if with_custom:
             (root / "opt/sdl12-fbcon/bin").mkdir(parents=True); (root / "opt/sdl12-fbcon/lib").mkdir()
             (root / "opt/sdl12-fbcon/lib/libSDL-1.2.so.0").touch()
@@ -31,6 +35,8 @@ class HealthCheckTests(unittest.TestCase):
         self.write_command(commands, "dosbox", "if [ \"${1:-}\" = -version ]; then echo 'DOSBox version 0.74-3'; exit 0; fi\n[ \"${LD_LIBRARY_PATH:-}\" = \"$HEALTH_CHECK_ROOT/opt/sdl12-fbcon/lib\" ] || exit 1\n[ \"${SDL_VIDEODRIVER:-}\" = fbcon ] || exit 1\n[ \"${SDL_FBDEV:-}\" = /dev/fb0 ] || exit 1\n[ \"${SDL_FB_BROKEN_MODES:-}\" = 1 ] || exit 1\nexit 0")
         self.write_command(commands, "ldd", "if [ \"${LD_LIBRARY_PATH:-}\" = \"$HEALTH_CHECK_ROOT/opt/sdl12-fbcon/lib\" ]; then echo \"libSDL-1.2.so.0 => $HEALTH_CHECK_ROOT/opt/sdl12-fbcon/lib/libSDL-1.2.so.0\"; else echo 'libSDL-1.2.so.0 => /lib/libSDL-1.2.so.0'; echo 'libSDL2-2.0.so.0 => /lib/libSDL2-2.0.so.0'; fi")
         self.write_command(commands, "fbset", "echo '    geometry " + resolution + "'; echo '    Name        : BCM2708 FB'; echo '    LineLength  : 1280'")
+        self.write_command(commands, "lsmod", "echo 'Module Size Used by'; echo 'snd_bcm2835 1 0'")
+        self.write_command(commands, "id", "[ \"${1:-}\" = -nG ] && echo 'video input audio'")
         return root, host_conf, commands
 
     def run_check(self, temporary, **kwargs):
@@ -47,6 +53,9 @@ class HealthCheckTests(unittest.TestCase):
             self.assertIn("no /dev/dri device (expected and acceptable", result.stdout)
             self.assertIn("legacy appliance classification", result.stdout)
             self.assertIn("system SDL 1.2 ABI appears to be sdl12-compat", result.stdout)
+            self.assertIn("snd_bcm2835 kernel module is loaded", result.stdout)
+            self.assertIn("bcm2835 HDMI ALSA card exists: 0 HDMI", result.stdout)
+            self.assertIn("ALSA default targets bcm2835 HDMI card 'HDMI'", result.stdout)
 
     def test_reports_missing_custom_sdl_without_demanding_drm(self):
         with tempfile.TemporaryDirectory() as temporary:

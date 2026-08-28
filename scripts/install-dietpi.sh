@@ -11,11 +11,11 @@ if ! command -v dosbox >/dev/null 2>&1; then
     sudo apt-get update
     sudo apt-get install -y dosbox
 fi
-if ! command -v fbset >/dev/null 2>&1; then
+if ! command -v fbset >/dev/null 2>&1 || ! command -v aplay >/dev/null 2>&1 || ! command -v speaker-test >/dev/null 2>&1; then
     sudo apt-get update
-    sudo apt-get install -y fbset
+    sudo apt-get install -y fbset alsa-utils
 fi
-if getent group input >/dev/null 2>&1; then sudo usermod -aG input "$user"; fi
+for group in input audio; do if getent group "$group" >/dev/null 2>&1; then sudo usermod -aG "$group" "$user"; fi; done
 # The Pi 1 legacy framebuffer path needs real SDL 1.2, not Debian's
 # sdl12-compat. Build it before writing the host runtime environment.
 "$repo/scripts/build-sdl12-fbcon.sh"
@@ -40,6 +40,8 @@ else
     echo "INFO: custom classic SDL is not installed; leaving DOSBox SDL settings unchanged."
 fi
 sudo "$repo/scripts/configure-legacy-framebuffer.sh"
+sudo modprobe snd_bcm2835 || echo "WARNING: snd_bcm2835 could not load until after reboot." >&2
+sudo "$repo/scripts/configure-appliance-audio.sh"
 printf '%s ALL=(root) NOPASSWD: /sbin/shutdown -h now\n' "$user" | sudo tee /etc/sudoers.d/pi-286-games-shutdown >/dev/null
 sudo chmod 0440 /etc/sudoers.d/pi-286-games-shutdown
 
