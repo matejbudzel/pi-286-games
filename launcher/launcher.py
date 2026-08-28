@@ -383,6 +383,10 @@ def dosbox_environment(config, no_sound=False):
     for setting, variable in variables.items():
         value = config.get(setting, "")
         if value: environment[variable] = value
+    # Canvas colour is an SDL framebuffer self-test diagnostic.  A normal
+    # DOSBox launch must create a black physical canvas, which also clears any
+    # test pattern left behind by a preceding standalone SDL test.
+    environment.pop("PI286_SDL_FB_CANVAS_COLOR", None)
     # This appliance has one physically verified HDMI PCM. SDL 1.2 checks
     # SDL_PATH_DSP before AUDIODEV in some audio paths, so pin both explicitly.
     environment["SDL_AUDIODRIVER"] = "dummy" if no_sound else "alsa"

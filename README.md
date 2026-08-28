@@ -201,6 +201,9 @@ pg-start --no-sound    # Start the launcher; any launcher option may follow.
 pg-update              # Fast-forward the repository, then reinstall it.
 pg-check --smoke-dosbox # Run health checks; optional smoke test.
 pg-restart             # Hand tty1 back from getty to the launcher, including over SSH.
+pg-resolution 720p --reboot    # Select standard 720p pillarbox mode and reboot.
+pg-resolution 854x480 --reboot # Select the optional custom 854x480 test mode and reboot.
+pg-resolution 640x480 --reboot # Restore the normal 4:3 framebuffer profile and reboot.
 ```
 
 Open a new Bash shell after installation, or run `source ~/.bashrc` once, for

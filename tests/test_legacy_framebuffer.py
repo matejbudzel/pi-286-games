@@ -9,6 +9,7 @@ ROOT = Path(__file__).parents[1]
 HELPER = ROOT / "scripts" / "configure-legacy-framebuffer.sh"
 BUILD = ROOT / "scripts" / "build-sdl12-fbcon.sh"
 AUDIO = ROOT / "scripts" / "configure-appliance-audio.sh"
+PROFILE = ROOT / "scripts" / "set-framebuffer-profile.sh"
 
 
 class LegacyFramebufferTests(unittest.TestCase):
@@ -78,6 +79,38 @@ class LegacyFramebufferTests(unittest.TestCase):
             result = config.read_text()
             self.assertNotIn("hdmi_cvt=", result)
             for line in ("hdmi_group=1", "hdmi_mode=4", "framebuffer_width=1280", "framebuffer_height=720", "framebuffer_depth=16"):
+                self.assertIn(line, result)
+
+    def test_profile_helper_selects_720p_and_clears_diagnostic_canvas(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            config = root / "config.txt"
+            host = root / "host.conf"
+            config.write_text("hdmi_cvt=854 480 60 3 0 0 0\n")
+            host.write_text("dosbox_sdl_fb_canvas_color=ff00ff\n")
+            env = os.environ | {"BOOT_CONFIG": str(config), "HOST_CONF": str(host), "PI286_NO_SUDO": "1"}
+            subprocess.run(["sh", str(PROFILE), "720p"], check=True, env=env, capture_output=True, text=True)
+            result = host.read_text()
+            self.assertIn("framebuffer_hdmi_group=1", result)
+            self.assertIn("framebuffer_hdmi_mode=4", result)
+            self.assertIn("framebuffer_width=1280", result)
+            self.assertIn("framebuffer_height=720", result)
+            self.assertIn("dosbox_sdl_fb_pillarbox=1", result)
+            self.assertNotIn("framebuffer_hdmi_cvt=", result)
+            self.assertNotIn("dosbox_sdl_fb_canvas_color=", result)
+            self.assertNotIn("hdmi_cvt=", config.read_text())
+
+    def test_profile_helper_selects_custom_854x480(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            config = root / "config.txt"
+            host = root / "host.conf"
+            config.write_text("")
+            host.write_text("")
+            env = os.environ | {"BOOT_CONFIG": str(config), "HOST_CONF": str(host), "PI286_NO_SUDO": "1"}
+            subprocess.run(["sh", str(PROFILE), "854x480"], check=True, env=env, capture_output=True, text=True)
+            result = host.read_text()
+            for line in ("framebuffer_hdmi_group=2", "framebuffer_hdmi_mode=87", "framebuffer_hdmi_cvt=854 480 60 3 0 0 0", "framebuffer_width=854", "framebuffer_height=480", "dosbox_sdl_fb_pillarbox=1"):
                 self.assertIn(line, result)
 
     def test_build_script_pins_classic_sdl_116_and_uses_one_job(self):

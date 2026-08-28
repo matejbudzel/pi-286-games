@@ -86,6 +86,27 @@ vertical canvas borders.
 For the fixed magenta wire-path diagnostic without typing an environment
 variable, run `sh scripts/run-sdl-fbcon-self-test.sh --sdl-canvas-magenta`.
 
+The magenta canvas is a standalone visual-test diagnostic. It is deliberately
+removed from the environment for normal launcher/DOSBox launches, so creating
+the DOSBox SDL surface clears the physical framebuffer to its normal black
+canvas before game pixels are copied.
+
+## Selecting a physical profile
+
+On the appliance, use the installed `pg-resolution` alias (or run
+`sh scripts/set-framebuffer-profile.sh` from the repository). The command
+updates the ignored `config/host.conf`, applies the existing legacy framebuffer
+configuration, and requires a reboot:
+
+```sh
+pg-resolution 640x480 --reboot  # normal monitor path; pillarbox disabled
+pg-resolution 854x480 --reboot  # optional custom 480-high experiment
+pg-resolution 720p --reboot     # standard widescreen compatibility profile
+```
+
+Each profile removes the diagnostic canvas colour. `720p` is the known-safe
+recovery profile for a monitor that rejects the custom 854x480 timing.
+
 `scripts/build-sdl12-fbcon.sh` builds upstream `libsdl-org/SDL-1.2` commit
 `7bf353eca59cb503f43b86e3867dc4fc4e45f2e3` (SDL 1.2.16) with fbcon and audio,
 but without X11 or OpenGL. Its persistent source and build directory is
