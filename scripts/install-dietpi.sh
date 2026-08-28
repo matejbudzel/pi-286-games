@@ -43,7 +43,7 @@ else
 fi
 sudo "$repo/scripts/configure-legacy-framebuffer.sh"
 sudo "$repo/scripts/configure-appliance-audio.sh"
-printf '%s ALL=(root) NOPASSWD: /sbin/shutdown -h now\n' "$user" | sudo tee /etc/sudoers.d/pi-286-games-shutdown >/dev/null
+printf '%s ALL=(root) NOPASSWD: /sbin/shutdown -h now, /usr/bin/systemctl restart pi-286-games.service\n' "$user" | sudo tee /etc/sudoers.d/pi-286-games-shutdown >/dev/null
 sudo chmod 0440 /etc/sudoers.d/pi-286-games-shutdown
 
 sudo systemctl daemon-reload
@@ -64,6 +64,7 @@ sed -i "/^$aliases_begin$/,/^$aliases_end$/d" "$bashrc"
     printf "alias pg-start='cd %s && python3 launcher/launcher.py'\n" "$repo"
     printf "alias pg-update='cd %s && git pull --ff-only && ./scripts/install-dietpi.sh'\n" "$repo"
     printf "alias pg-check='cd %s && sh scripts/health-check.sh'\n" "$repo"
+    printf "alias pg-restart='sudo /usr/bin/systemctl restart pi-286-games.service'\n"
     printf '%s\n' "$aliases_end"
 } >> "$bashrc"
 service=/etc/systemd/system/pi-286-games.service
