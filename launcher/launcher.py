@@ -18,6 +18,7 @@ PANIC_KEY = "F1"
 PAD_ACTIONS = {2: "UP", 1: "DOWN", 0: "LEFT", 3: "RIGHT", 8: "START", 9: "SELECT"}
 PAD_LAYOUT = ((6, "HORE-L"), (2, "HORE"), (7, "HORE-P"), (0, "VĽAVO"), (3, "VPRAVO"), (4, "DOLE-L"), (1, "DOLE"), (5, "DOLE-P"))
 DOSBOX_KEY_ACTIONS = {"UP": "key_up", "DOWN": "key_down", "LEFT": "key_left", "RIGHT": "key_right", "SPACE": "key_space", "ENTER": "key_enter", "ESC": "key_esc", "LSHIFT": "key_lshift", "LCTRL": "key_lctrl"}
+KEY_NAMES = {"UP": "ŠÍPKA HORE", "DOWN": "ŠÍPKA DOLE", "LEFT": "ŠÍPKA VĽAVO", "RIGHT": "ŠÍPKA VPRAVO", "SPACE": "MEDZERNÍK", "ENTER": "ENTER", "ESC": "ESC", "LSHIFT": "ĽAVÝ SHIFT", "LCTRL": "ĽAVÝ CTRL"}
 
 class InstallationCancelled(Exception):
     pass
@@ -87,6 +88,8 @@ class DancePad:
         return self
     def __exit__(self, *_):
         for fd in self.fds: os.close(fd)
+    @property
+    def available(self): return bool(self.fds)
     def buttons(self):
         pressed = []
         for fd in self.fds:
@@ -128,6 +131,13 @@ def ddr_mapper_content(mapper_file, keys):
 def pad_panic(buttons):
     """SELECT is never handed to DOSBox: it always returns to the launcher."""
     return 9 in buttons
+
+def keyboard_available(devices_path=Path("/proc/bus/input/devices")):
+    """Detect a Linux keyboard from input handlers; unknown means keyboard fallback."""
+    try:
+        return any("Handlers=" in block and "kbd" in block for block in devices_path.read_text(encoding="utf-8").split("\n\n"))
+    except OSError:
+        return True
 
 class Terminal:
     def __enter__(self):
@@ -194,20 +204,32 @@ def game_running_screen(game, panic):
     Terminal.draw([("Je spustená hra", False), (game.name, True), ("", False),
                    ("Ukončiť: SELECT alebo %s." % panic, False)], "\x1b[92m")
 
-def pre_game_lines(game, labels):
+def pre_game_lines(game, labels, keys=None, has_pad=True, has_keyboard=True):
     by_button = dict(PAD_LAYOUT)
     def panel(button): return "%s: %s" % (by_button[button], labels[button])
-    return [(game.name, True), ("", False),
-            ("[ %s ]  [ %s ]  [ %s ]" % (panel(6), panel(2), panel(7)), False),
-            ("", False),
-            ("[ %s ]      TY      [ %s ]" % (panel(0), panel(3)), False),
-            ("", False),
-            ("[ %s ]  [ %s ]  [ %s ]" % (panel(4), panel(1), panel(5)), False),
-            ("", False), ("SELECT: späť do menu", False), ("START: %s" % labels[8], False),
-            ("SPACE / START - spustiť hru", False)]
+    lines = [(game.name, True), ("", False)]
+    if has_pad:
+        lines.extend([("[ %s ]  [ %s ]  [ %s ]" % (panel(6), panel(2), panel(7)), False),
+                      ("", False), ("[ %s ]      TY      [ %s ]" % (panel(0), panel(3)), False),
+                      ("", False), ("[ %s ]  [ %s ]  [ %s ]" % (panel(4), panel(1), panel(5)), False),
+                      ("", False), ("SELECT: späť do menu", False), ("START: %s" % labels[8], False)])
+    if has_keyboard:
+        if has_pad: lines.append(("", False))
+        lines.append(("Klávesnica:", False))
+        for button in range(9):
+            key = (keys or {}).get(button, "")
+            if key: lines.append(("%s: %s" % (KEY_NAMES[key], labels[button]), False))
+        lines.append(("ESC: späť do menu", False))
+    lines.append((("SPACE / START - spustiť hru" if has_pad and has_keyboard else "START - spustiť hru" if has_pad else "SPACE - spustiť hru"), False))
+    return lines
 
-def wait_for_game_start(term, pad, game, labels):
-    Terminal.draw(pre_game_lines(game, labels), "\x1b[93m", top_corner=sound_status())
+def wait_for_game_start(term, pad, game, labels, keys=None):
+    has_pad = pad.available
+    has_keyboard = keyboard_available()
+    # A console may not expose /proc input metadata. In that unusual case the
+    # launcher still presents its safe keyboard instructions rather than blank UI.
+    if not has_pad and not has_keyboard: has_keyboard = True
+    Terminal.draw(pre_game_lines(game, labels, keys, has_pad, has_keyboard), "\x1b[93m", top_corner=sound_status())
     while True:
         key = next_input(term, pad)
         if key in ("SPACE", "START", "ENTER"): return True
@@ -449,7 +471,7 @@ def main():
                 else:
                     try:
                         ddr_keys, ddr_labels = load_ddr_mapping(games[selected])
-                        ready = wait_for_game_start(term, pad, games[selected], ddr_labels)
+                        ready = wait_for_game_start(term, pad, games[selected], ddr_labels, ddr_keys)
                         if ready == "exit": return 0
                         if not ready: continue
                         result = run_game(games[selected], config, term, pad, ddr_keys, args.no_sound)

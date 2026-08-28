@@ -33,6 +33,12 @@ are available as left/right, button 8 confirms, and button 9 goes back.
 Selecting a title first opens its full-screen pad layout. Press keyboard Space
 or button 8 to launch, or Escape/button 9 to return to the menu.
 
+The pre-game screen checks the known pad and Linux keyboard handlers. With both
+present it shows the physical pad layout plus the relevant keyboard keys; with
+only one it shows only that device's instructions. If input discovery is
+unavailable or sees neither device, it safely falls back to keyboard-only
+instructions. The pad diagram is not drawn unless the X-PAD is connected.
+
 Button 9 is permanently reserved as SELECT. While DOSBox is running the
 launcher monitors it and terminates that DOSBox child, returning to the menu.
 It is never written into a DOSBox mapper file, so no game action can consume

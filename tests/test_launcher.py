@@ -162,11 +162,39 @@ class DiscoveryTests(unittest.TestCase):
         labels = {button: "nepoužité" for button in range(9)}
         labels.update({2: "Skok", 8: "Streľba"})
         game = launcher.Game("Prehistorik", "", "", Path(), Path())
-        text = "\n".join(line for line, _ in launcher.pre_game_lines(game, labels))
+        keys = {button: "" for button in range(9)}
+        keys.update({2: "UP", 8: "SPACE"})
+        text = "\n".join(line for line, _ in launcher.pre_game_lines(game, labels, keys))
         for physical in ("HORE-L", "HORE: Skok", "HORE-P", "VĽAVO", "VPRAVO", "DOLE-L", "DOLE", "DOLE-P", "TY"):
             self.assertIn(physical, text)
         self.assertIn("SELECT: späť do menu", text)
         self.assertIn("START: Streľba", text)
+        self.assertIn("ŠÍPKA HORE: Skok", text)
+        self.assertIn("MEDZERNÍK: Streľba", text)
+
+    def test_pre_game_screen_adapts_to_available_input_devices(self):
+        labels = {button: "nepoužité" for button in range(9)}
+        labels[8] = "Streľba"
+        keys = {button: "" for button in range(9)}
+        keys[8] = "SPACE"
+        game = launcher.Game("Test", "", "", Path(), Path())
+        pad_only = "\n".join(line for line, _ in launcher.pre_game_lines(game, labels, keys, has_pad=True, has_keyboard=False))
+        keyboard_only = "\n".join(line for line, _ in launcher.pre_game_lines(game, labels, keys, has_pad=False, has_keyboard=True))
+        self.assertIn("HORE-L", pad_only)
+        self.assertNotIn("Klávesnica:", pad_only)
+        self.assertIn("START - spustiť hru", pad_only)
+        self.assertNotIn("HORE-L", keyboard_only)
+        self.assertIn("Klávesnica:", keyboard_only)
+        self.assertIn("SPACE - spustiť hru", keyboard_only)
+
+    def test_keyboard_detection_uses_linux_kbd_handler_and_falls_back_on_error(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            devices = Path(temporary) / "devices"
+            devices.write_text("I: Bus=0003\nH: Handlers=sysrq kbd event0\n")
+            self.assertTrue(launcher.keyboard_available(devices))
+            devices.write_text("I: Bus=0003\nH: Handlers=event1 js0\n")
+            self.assertFalse(launcher.keyboard_available(devices))
+            self.assertTrue(launcher.keyboard_available(Path(temporary) / "missing"))
 
     def test_pre_game_accepts_pad_start_without_keyboard_and_select_goes_back(self):
         class FakeTerm:
@@ -174,6 +202,8 @@ class DiscoveryTests(unittest.TestCase):
             def key(self, timeout=None): return self.events.pop(0) if self.events else None
         class FakePad:
             def __init__(self, events): self.events = events
+            @property
+            def available(self): return True
             def buttons(self): return self.events.pop(0) if self.events else []
         labels = {button: "nepoužité" for button in range(9)}
         game = launcher.Game("Test", "", "", Path(), Path())
