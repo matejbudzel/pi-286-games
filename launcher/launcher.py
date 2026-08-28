@@ -14,11 +14,15 @@ KD_TEXT = 0x00
 # Linux input-event key codes for controls useful on a keyboard or dance mat.
 KEY_CODES = {"F1": 59, "UP": 103, "DOWN": 108, "LEFT": 105, "RIGHT": 106,
              "SPACE": 57, "ENTER": 28}
+PANIC_KEY = "F1"
 PAD_ACTIONS = {2: "UP", 1: "DOWN", 0: "LEFT", 3: "RIGHT", 8: "START", 9: "SELECT"}
 PAD_LAYOUT = ((6, "HORE-L"), (2, "HORE"), (7, "HORE-P"), (0, "VĽAVO"), (3, "VPRAVO"), (4, "DOLE-L"), (1, "DOLE"), (5, "DOLE-P"))
 DOSBOX_KEY_ACTIONS = {"UP": "key_up", "DOWN": "key_down", "LEFT": "key_left", "RIGHT": "key_right", "SPACE": "key_space", "ENTER": "key_enter", "ESC": "key_esc", "LSHIFT": "key_lshift", "LCTRL": "key_lctrl"}
 
 class InstallationCancelled(Exception):
+    pass
+
+class LauncherExit(Exception):
     pass
 
 @dataclass(frozen=True)
@@ -34,8 +38,12 @@ def values(path):
                 key, value = line.split("=", 1); result[key.strip()] = value.strip()
     return result
 
-def enabled(value):
-    return value.strip().lower() in ("1", "true", "yes", "on")
+def is_raspberry_pi(model_path=Path("/proc/device-tree/model")):
+    """Return true for a physical Raspberry Pi, where Bye bye powers off."""
+    try:
+        return model_path.read_text(encoding="utf-8").rstrip("\0").startswith("Raspberry Pi")
+    except OSError:
+        return False
 
 def network_address():
     """Return the first IPv4 address on Ethernet or Wi-Fi, if available."""
@@ -203,7 +211,8 @@ def wait_for_game_start(term, pad, game, labels):
     while True:
         key = next_input(term, pad)
         if key in ("SPACE", "START", "ENTER"): return True
-        if key in ("SELECT", "ESC", "CTRL_C"): return False
+        if key == "CTRL_C": return "exit"
+        if key in ("SELECT", "ESC"): return False
 
 def restore_console_display():
     """Return fbcon to text mode before redrawing the tty launcher UI."""
@@ -226,7 +235,8 @@ def wait_for_install_confirmation(term, game, confirm, title, detail, pad=None):
     install_screen(term, game, title, detail)
     while True:
         key = next_input(term, pad) if pad else term.key()
-        if key in ("ESC", "SELECT", "CTRL_C"): raise InstallationCancelled()
+        if key == "CTRL_C": raise LauncherExit()
+        if key in ("ESC", "SELECT"): raise InstallationCancelled()
         if key in (confirm, "START"): return
 
 def copy_archive(source, archive, game, term):
@@ -352,6 +362,7 @@ def write_dosbox_replay(dosbox, base_conf, game_conf, generated_conf, environmen
 def run_game(game, config, term, pad, ddr_keys, no_sound=False):
     try: data, command = validate(game, Path(config["game_data_root"]).expanduser(), term, config.get("confirm_key", "SPACE").upper(), pad)
     except InstallationCancelled: return "cancelled"
+    except LauncherExit: return "exit"
     if not game.dosbox_conf.is_file() or not game.mapper_file.is_file(): raise RuntimeError("Chýba nastavenie DOSBoxu.")
     dosbox = shutil.which(config.get("dosbox_command", "dosbox"))
     if not dosbox: raise RuntimeError("DOSBox nie je nainštalovaný.")
@@ -368,24 +379,22 @@ def run_game(game, config, term, pad, ddr_keys, no_sound=False):
     log = None
     log_path = Path("/tmp/pi-286-games-dosbox.log")
     try:
-        # An explicit device keeps the appliance deployment deterministic. The
-        # empty default watches readable Linux keyboard event devices instead.
-        configured = config.get("panic_device", "")
-        devices = [configured] if configured else glob.glob("/dev/input/event*")
-        for device in devices:
+        # F1 is always available alongside dance-pad SELECT while DOSBox owns
+        # the display. Watch readable keyboard event devices without host setup.
+        for device in glob.glob("/dev/input/event*"):
             try: fds.append(os.open(device, os.O_RDONLY | os.O_NONBLOCK))
             except OSError: pass
         try:
             log = log_path.open("wb")
             environment = dosbox_environment(config, no_sound)
             write_dosbox_replay(dosbox, base_copy, game.dosbox_conf, generated_copy, environment)
-            game_running_screen(game, config.get("panic_key", "F1").upper())
+            game_running_screen(game, PANIC_KEY)
             # Classic SDL fbcon requires DOSBox to remain in tty1's foreground
             # process group. DOSBox does not need a separate session/group.
             proc = subprocess.Popen([dosbox, "-conf", str(base_copy), "-conf", str(game.dosbox_conf), "-conf", str(generated)], stdout=log, stderr=subprocess.STDOUT, env=environment)
         except OSError as exc:
             raise RuntimeError("DOSBox sa nedá spustiť: %s" % exc.strerror) from exc
-        wanted = KEY_CODES.get(config.get("panic_key", "F1").upper())
+        wanted = KEY_CODES[PANIC_KEY]
         panicked = False
         while proc.poll() is None:
             if pad_panic(pad.buttons()):
@@ -427,21 +436,24 @@ def main():
             Terminal.draw(lines, "\x1b[91m" if selected == len(games) else ("\x1b[92m", "\x1b[96m", "\x1b[93m")[sum(games[selected].name.encode()) % 3], corner, sound_status())
             key = next_input(term, pad)
             if key == "CTRL_C": return 0
-            if key == config.get("panic_key", "F1").upper(): corner = network_address()
+            if key == PANIC_KEY: corner = network_address()
             elif key == "SELECT": continue
             elif key == config.get("up_key", "UP").upper(): selected = (selected - 1) % (len(games) + 1)
             elif key == config.get("down_key", "DOWN").upper(): selected = (selected + 1) % (len(games) + 1)
             elif key in (confirm, "START"):
                 if selected == len(games):
-                    if not enabled(config.get("shutdown_on_bye_bye", "false")): return 0
+                    if not is_raspberry_pi(): return 0
                     try: subprocess.run(["sudo", "-n", "/sbin/shutdown", "-h", "now"], check=True)
                     except (OSError, subprocess.CalledProcessError):
                         if not error(term, pad, Game("Systém", "", "", Path(), Path()), "Vypnutie systému zlyhalo.", confirm): return 0
                 else:
                     try:
                         ddr_keys, ddr_labels = load_ddr_mapping(games[selected])
-                        if not wait_for_game_start(term, pad, games[selected], ddr_labels): continue
+                        ready = wait_for_game_start(term, pad, games[selected], ddr_labels)
+                        if ready == "exit": return 0
+                        if not ready: continue
                         result = run_game(games[selected], config, term, pad, ddr_keys, args.no_sound)
+                        if result == "exit": return 0
                         if result == "panic": corner = network_address()
                         if result == "failed" and not error(term, pad, games[selected], "DOSBox skončil s chybou.", confirm): return 0
                     except RuntimeError as exc:

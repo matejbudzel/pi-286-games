@@ -17,8 +17,7 @@ The repository contains the launcher, host configuration, DOSBox configuration, 
 - DDR SELECT is a host-level panic control that terminates DOSBox independently
   of the game's mapper.
 - If a game cannot be started or DOSBox exits abnormally, the launcher shows a fullscreen Slovak error screen and waits for the normal confirm input before returning to the menu.
-- The special `Bye bye!` menu entry exits the launcher by default and can be
-  configured to power off the host.
+- `Bye bye!` powers off a Raspberry Pi and exits to the console elsewhere.
 
 ## Repository layout
 
@@ -104,8 +103,8 @@ has a small `ddr.conf` which maps buttons 0–8 to the same DOSBox keyboard keys
 and Slovak labels shown on that screen. The normal keyboard bindings remain in
 parallel. See [DDR dance pad setup and mappings](docs/ddr-dance-pad.md).
 
-The configurable keyboard panic key still displays the first detected Ethernet
-or Wi-Fi IPv4 address in the bottom-right corner when pressed in the menu. It
+F1 always displays the first detected Ethernet or Wi-Fi IPv4 address in the
+bottom-right corner when pressed in the menu. It
 shows `offline` when neither interface has an address, and also appears after a
 panic return from DOSBox.
 
@@ -131,8 +130,8 @@ only the shutdown command through sudo, and installs a dedicated systemd
 service which owns local tty1 after DietPi boots. Normal DietPi boot messages
 remain visible; this is intentionally a text-only appliance.
 The installer adds the user to the usual `input` group so it can read the DDR
-pad and retain the keyboard panic fallback. Log out and back in once for that
-new group membership to take effect.
+pad and use F1 as the keyboard panic fallback. Log out and back in once for
+that new group membership to take effect.
 
 On the ARMv6 256 MB Pi target, the installer builds pinned classic SDL 1.2.16
 under `/opt/sdl12-fbcon` and configures DOSBox alone to use its fbcon backend.
@@ -155,14 +154,10 @@ At boot, a root-owned `pi-286-games-audio.service` explicitly loads
 access state.
 
 The launcher service temporarily conflicts with `getty@tty1.service`. When the
-launcher exits through Ctrl-C or the default `Bye bye!`, it starts the existing
-tty1 getty again, returning to the usual autologin maintenance shell instead
-of launching the application again. Set `shutdown_on_bye_bye=true` in the
-appliance configuration to make that menu entry power off the host instead.
-
-By default, selecting `Bye bye!` closes the launcher and returns to the login
-shell. Set `shutdown_on_bye_bye=true` in `config/host.conf` on the Raspberry Pi
-appliance to make that menu item power off the host instead.
+launcher exits through Ctrl-C or `Bye bye!`, it starts the existing tty1 getty
+again, returning to the usual autologin maintenance shell instead of launching
+the application again. On physical Raspberry Pi hardware, `Bye bye!` instead
+requests a shutdown; on any other machine it simply exits to the console.
 
 ### Direct console boot
 

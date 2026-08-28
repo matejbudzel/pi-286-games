@@ -36,8 +36,8 @@ or button 8 to launch, or Escape/button 9 to return to the menu.
 Button 9 is permanently reserved as SELECT. While DOSBox is running the
 launcher monitors it and terminates that DOSBox child, returning to the menu.
 It is never written into a DOSBox mapper file, so no game action can consume
-it. The configured keyboard panic key remains available as a second recovery
-path.
+it. F1 is always available as the keyboard panic control too; it needs no host
+configuration.
 
 ## Per-game configuration
 

@@ -11,10 +11,13 @@ SPEC.loader.exec_module(launcher)
 
 
 class DiscoveryTests(unittest.TestCase):
-    def test_boolean_host_settings(self):
-        self.assertFalse(launcher.enabled("false"))
-        self.assertTrue(launcher.enabled("true"))
-        self.assertTrue(launcher.enabled("ON"))
+    def test_bye_bye_shutdown_is_detected_from_raspberry_pi_hardware(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            model = Path(temporary) / "model"
+            model.write_text("Raspberry Pi Model B Rev 1\0")
+            self.assertTrue(launcher.is_raspberry_pi(model))
+            model.write_text("QEMU Virtual Machine\0")
+            self.assertFalse(launcher.is_raspberry_pi(model))
 
     def test_renderer_line_never_exceeds_terminal_width(self):
         self.assertEqual(launcher.Terminal.line("A very long title", True, 5), "> A v")
@@ -117,6 +120,8 @@ class DiscoveryTests(unittest.TestCase):
         self.assertNotIn("preexec_fn=", source)
         self.assertNotIn("setsid", source)
         self.assertNotIn("setpgrp", source)
+        self.assertNotIn("panic_device", source)
+        self.assertIn("KEY_CODES[PANIC_KEY]", source)
 
     def test_ddr_button_mapping_is_the_known_pad_layout(self):
         self.assertEqual(launcher.PAD_ACTIONS, {2: "UP", 1: "DOWN", 0: "LEFT", 3: "RIGHT", 8: "START", 9: "SELECT"})
@@ -165,7 +170,8 @@ class DiscoveryTests(unittest.TestCase):
 
     def test_pre_game_accepts_pad_start_without_keyboard_and_select_goes_back(self):
         class FakeTerm:
-            def key(self, timeout=None): return None
+            def __init__(self, events=()): self.events = list(events)
+            def key(self, timeout=None): return self.events.pop(0) if self.events else None
         class FakePad:
             def __init__(self, events): self.events = events
             def buttons(self): return self.events.pop(0) if self.events else []
@@ -176,6 +182,7 @@ class DiscoveryTests(unittest.TestCase):
         try:
             self.assertTrue(launcher.wait_for_game_start(FakeTerm(), FakePad([[8]]), game, labels))
             self.assertFalse(launcher.wait_for_game_start(FakeTerm(), FakePad([[9]]), game, labels))
+            self.assertEqual(launcher.wait_for_game_start(FakeTerm(["CTRL_C"]), FakePad([]), game, labels), "exit")
         finally:
             launcher.Terminal.draw = original
 

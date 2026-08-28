@@ -38,6 +38,7 @@ do not make audio failures invalidate the independent video diagnosis.
 
 The supported dance pad is exactly `WiseGroup.,Ltd X-PAD, Extreme Dance Pad`.
 Read its Linux joystick buttons directly; ignore axes. Button 9 (SELECT) is a
-launcher-only DOSBox panic/return control and must never be mapped into a game.
+launcher-only DOSBox panic/return control and must never be mapped into a game;
+F1 is its fixed keyboard equivalent, without host configuration.
 Keep game-specific button-to-key bindings and Slovak labels in each game's
 `ddr.conf`, not in launcher code.

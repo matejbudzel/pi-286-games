@@ -4,16 +4,6 @@
 # Root directory containing the actual game binaries and assets.
 game_data_root=~/pi-286-game-files
 
-# Host-level panic input used while DOSBox is running.
-# Set this to the chosen dance-mat control on the appliance.
-# In the launcher menu, this key displays the Ethernet/Wi-Fi address (or offline).
-panic_key=F1
-
-# Linux event device for panic_key. This is the reliable path while DOSBox has
-# the display (example: /dev/input/event0). Empty means all readable event
-# devices are watched. The user must be in input.
-panic_device=
-
 # Debian's package installs this command.
 dosbox_command=dosbox
 
@@ -27,10 +17,6 @@ dosbox_sdl_audiodriver=alsa
 # SDL 1.2's ALSA backend reads AUDIODEV.  Use the verified HDMI card ID rather
 # than relying on ALSA's default or a changing numeric card order.
 dosbox_sdl_audiodev=hw:HDMI,0
-
-# false closes the launcher and returns to the login shell. Set true on the
-# Raspberry Pi appliance to power off the host from the Bye bye! menu item.
-shutdown_on_bye_bye=false
 
 # Logical launcher controls.
 up_key=UP
