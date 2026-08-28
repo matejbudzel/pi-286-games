@@ -13,6 +13,10 @@ dosbox_ld_library_path=/opt/sdl12-fbcon/lib
 dosbox_sdl_videodriver=fbcon
 dosbox_sdl_fbdev=/dev/fb0
 dosbox_sdl_fb_broken_modes=1
+
+# Persisted HDMI PCM level. The launcher applies it at startup; Left/Right in
+# the launcher menu adjust it in 10% steps.
+audio_volume_percent=96
 # Optional compatibility mode for monitors that stretch a 4:3 HDMI signal.
 # Keep 0 for the normal 640x480 path.  With 1, set the physical framebuffer
 # settings below to a wider 480-high HDMI mode supported by the monitor.

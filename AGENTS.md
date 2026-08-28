@@ -35,6 +35,8 @@ framebuffer. Do not replace it with sdl12-compat, X11, Wayland, KMS, or FKMS;
 HDMI audio on this target uses `dtparam=audio=on`, `snd_bcm2835`, and the
 bcm2835 HDMI ALSA card identifier. Preserve the card-name-based ALSA default;
 do not make audio failures invalidate the independent video diagnosis.
+The launcher controls the verified `PCM` mixer in 10% steps and persists its
+`audio_volume_percent` setting in host-local configuration.
 
 The supported dance pad is exactly `WiseGroup.,Ltd X-PAD, Extreme Dance Pad`.
 Read its Linux joystick buttons directly; ignore axes. Button 9 (SELECT) is a

@@ -20,6 +20,7 @@ PANIC_KEY = "F1"
 # Keep the verified HDMI hardware target, but let ALSA adapt legacy SDL's
 # requested sample format/rate instead of requiring an exact hardware match.
 HDMI_PCM = "plughw:0,0"
+AUDIO_VOLUME_KEY = "audio_volume_percent"
 PAD_ACTIONS = {2: "UP", 1: "DOWN", 0: "LEFT", 3: "RIGHT", 8: "START", 9: "SELECT"}
 PAD_LAYOUT = ((6, "HORE-L"), (2, "HORE"), (7, "HORE-P"), (0, "VĽAVO"), (3, "VPRAVO"), (4, "DOLE-L"), (1, "DOLE"), (5, "DOLE-P"))
 DOSBOX_KEY_ACTIONS = {"UP": "key_up", "DOWN": "key_down", "LEFT": "key_left", "RIGHT": "key_right", "SPACE": "key_space", "ENTER": "key_enter", "ESC": "key_esc", "LSHIFT": "key_lshift", "LCTRL": "key_lctrl"}
@@ -43,6 +44,33 @@ def values(path):
             if line and not line.startswith("#") and "=" in line:
                 key, value = line.split("=", 1); result[key.strip()] = value.strip()
     return result
+
+def save_value(path, key, value):
+    """Replace one simple host setting while preserving all other lines."""
+    lines = path.read_text(encoding="utf-8").splitlines() if path.is_file() else []
+    replacement = "%s=%s" % (key, value)
+    for index, line in enumerate(lines):
+        if line.strip().startswith(key + "="):
+            lines[index] = replacement
+            break
+    else:
+        lines.append(replacement)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+def volume_percent(value):
+    try: return max(0, min(100, int(value)))
+    except (TypeError, ValueError): return 96
+
+def set_audio_volume(percent):
+    """Set the one verified bcm2835 HDMI PCM mixer control."""
+    try:
+        return subprocess.run(["amixer", "-c", "0", "sset", "PCM", "%d%%" % percent], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False).returncode == 0
+    except OSError:
+        return False
+
+def volume_status(percent):
+    filled = max(0, min(10, (percent + 5) // 10))
+    return "Zvuk: [%s%s]" % ("#" * filled, "." * (10 - filled))
 
 def is_raspberry_pi(model_path=Path("/proc/device-tree/model")):
     """Return true for a physical Raspberry Pi, where Bye bye powers off."""
@@ -184,7 +212,7 @@ class Terminal:
             out.append("\x1b[1;%dH\x1b[90m%s\x1b[0m" % (max(1, size.columns - len(top_corner) + 1), top_corner[:size.columns]))
         sys.stdout.write("".join(out)); sys.stdout.flush()
 
-def sound_status():
+def sound_status(percent=None):
     """Return the appliance audio state without treating it as a video failure."""
     try:
         module_loaded = any(line.startswith("snd_bcm2835 ") for line in Path("/proc/modules").read_text().splitlines())
@@ -192,7 +220,8 @@ def sound_status():
         usable = any(os.access(device, os.R_OK | os.W_OK) for device in devices)
     except OSError:
         return "Zvuk: nejde"
-    return "Zvuk: ide" if module_loaded and usable else "Zvuk: nejde"
+    if not module_loaded or not usable: return "Zvuk: nejde"
+    return volume_status(percent) if percent is not None else "Zvuk: ide"
 
 def next_input(term, pad, timeout=.1):
     key = term.key(timeout)
@@ -234,13 +263,13 @@ def pre_game_lines(game, labels, keys=None, has_pad=True, has_keyboard=True):
     lines.extend([("", False), (("SPACE / START - spustiť hru" if has_pad and has_keyboard else "START - spustiť hru" if has_pad else "SPACE - spustiť hru"), True)])
     return lines
 
-def wait_for_game_start(term, pad, game, labels, keys=None):
+def wait_for_game_start(term, pad, game, labels, keys=None, volume=None):
     has_pad = pad.available
     has_keyboard = keyboard_available()
     # A console may not expose /proc input metadata. In that unusual case the
     # launcher still presents its safe keyboard instructions rather than blank UI.
     if not has_pad and not has_keyboard: has_keyboard = True
-    Terminal.draw(pre_game_lines(game, labels, keys, has_pad, has_keyboard), "\x1b[93m", top_corner=sound_status())
+    Terminal.draw(pre_game_lines(game, labels, keys, has_pad, has_keyboard), "\x1b[93m", top_corner=sound_status(volume))
     while True:
         key = next_input(term, pad)
         if key in ("SPACE", "START", "ENTER"): return True
@@ -466,11 +495,12 @@ def main():
     games = discover()
     if not games: print("No valid game definitions found.", file=sys.stderr); return 1
     selected = 0; confirm = config.get("confirm_key", "SPACE").upper(); corner = ""; redraw = True
+    volume = volume_percent(config.get(AUDIO_VOLUME_KEY, "96")); set_audio_volume(volume)
     with Terminal() as term, DancePad() as pad:
         while True:
             if redraw:
                 lines = [(g.name, n == selected) for n, g in enumerate(games)] + [("", False), ("Bye bye!", selected == len(games))]
-                Terminal.draw(lines, "\x1b[91m" if selected == len(games) else ("\x1b[92m", "\x1b[96m", "\x1b[93m")[sum(games[selected].name.encode()) % 3], corner, sound_status())
+                Terminal.draw(lines, "\x1b[91m" if selected == len(games) else ("\x1b[92m", "\x1b[96m", "\x1b[93m")[sum(games[selected].name.encode()) % 3], corner, sound_status(volume))
                 redraw = False
             key = next_input(term, pad)
             if key is None: continue
@@ -480,6 +510,10 @@ def main():
             elif key == "SELECT": continue
             elif key == config.get("up_key", "UP").upper(): selected = (selected - 1) % (len(games) + 1)
             elif key == config.get("down_key", "DOWN").upper(): selected = (selected + 1) % (len(games) + 1)
+            elif key in ("LEFT", "RIGHT"):
+                changed = max(0, min(100, volume + (10 if key == "RIGHT" else -10)))
+                if changed != volume and set_audio_volume(changed):
+                    volume = changed; config[AUDIO_VOLUME_KEY] = str(volume); save_value(args.host_conf, AUDIO_VOLUME_KEY, volume)
             elif key in (confirm, "START"):
                 if selected == len(games):
                     if not is_raspberry_pi(): return 0
@@ -489,7 +523,7 @@ def main():
                 else:
                     try:
                         ddr_keys, ddr_labels = load_ddr_mapping(games[selected])
-                        ready = wait_for_game_start(term, pad, games[selected], ddr_labels, ddr_keys)
+                        ready = wait_for_game_start(term, pad, games[selected], ddr_labels, ddr_keys, volume)
                         if ready == "exit": return 0
                         if not ready: continue
                         result = run_game(games[selected], config, term, pad, ddr_keys, args.no_sound)

@@ -64,6 +64,18 @@ class DiscoveryTests(unittest.TestCase):
         finally:
             launcher.Path, launcher.os.access = original_path, original_access
 
+    def test_volume_is_clamped_persisted_and_shown_in_ten_steps(self):
+        self.assertEqual(launcher.volume_percent("200"), 100)
+        self.assertEqual(launcher.volume_percent("bad"), 96)
+        self.assertEqual(launcher.volume_status(50), "Zvuk: [#####.....]")
+        with tempfile.TemporaryDirectory() as temporary:
+            host = Path(temporary) / "host.conf"
+            host.write_text("game_data_root=games\n# preserved\n")
+            launcher.save_value(host, launcher.AUDIO_VOLUME_KEY, 40)
+            launcher.save_value(host, launcher.AUDIO_VOLUME_KEY, 50)
+            self.assertEqual(host.read_text().count("audio_volume_percent="), 1)
+            self.assertIn("audio_volume_percent=50", host.read_text())
+
     def test_replay_script_uses_the_same_fbcon_environment_and_configs(self):
         with tempfile.TemporaryDirectory() as temporary:
             replay = Path("/tmp/pi-286-games-dosbox-command.sh")

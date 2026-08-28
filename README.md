@@ -227,6 +227,14 @@ To isolate the custom SDL audio backend from DOSBox, run
 `sh scripts/run-sdl-audio-self-test.sh`. It plays a two-second tone through the
 same verified HDMI PCM (`plughw:0,0`) and does not take over tty1.
 
+### Launcher volume
+
+In the launcher menu, Left and Right set the verified HDMI `PCM` mixer level
+in 10% steps. The top-right `Zvuk: [#####.....]` bar has ten segments, and the
+chosen percentage is stored in the ignored `config/host.conf` as
+`audio_volume_percent`, then applied on the next launcher start. This does not
+adjust audio while a game is running.
+
 ## No-sound launch mode
 
 Run the launcher with `--no-sound` to disable DOSBox's mixer and MIDI output
