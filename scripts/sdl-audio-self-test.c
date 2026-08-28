@@ -1,6 +1,7 @@
 #include <SDL.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 
 static void tone(void *unused, Uint8 *stream, int length) {
     static unsigned phase;
@@ -20,7 +21,7 @@ int main(void) {
         fprintf(stderr, "SDL_Init audio: %s\n", SDL_GetError());
         return 1;
     }
-    SDL_zero(wanted);
+    memset(&wanted, 0, sizeof(wanted));
     wanted.freq = 22050;
     wanted.format = AUDIO_S16SYS;
     wanted.channels = 2;
