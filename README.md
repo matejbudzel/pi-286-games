@@ -133,8 +133,9 @@ The installer adds the user to the usual `input` group so it can read the DDR
 pad and use F1 as the keyboard panic fallback. Log out and back in once for
 that new group membership to take effect.
 
-On the ARMv6 256 MB Pi target, the installer builds pinned classic SDL 1.2.16
-under `/opt/sdl12-fbcon` and configures DOSBox alone to use its fbcon backend.
+On the ARMv6 256 MB Pi target, the installer uses the pinned cross-built
+classic SDL 1.2.16 artifact under `/opt/sdl12-fbcon` and configures DOSBox
+alone to use its fbcon backend. It never compiles SDL natively on the Pi.
 It also manages the real 640×480 HDMI/framebuffer boot mode; reboot after
 installation. This avoids Debian's SDL 1.2 compatibility layer and does not
 install X11 or enable KMS/FKMS. The corresponding `dosbox_*` settings in

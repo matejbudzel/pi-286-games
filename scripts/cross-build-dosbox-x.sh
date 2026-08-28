@@ -32,7 +32,7 @@ PATH="$sdl_prefix/bin:$PATH"
 export PATH
 PI286_SYSROOT="$sysroot" \
 CC="$repo/scripts/pi286-armv6-cc.sh" CXX="$repo/scripts/pi286-armv6-cxx.sh" AR="${cross}ar" RANLIB="${cross}ranlib" STRIP="${cross}strip" \
-CFLAGS="$arm_flags -I$sdl_prefix/include/SDL" CXXFLAGS="$arm_flags -I$sdl_prefix/include/SDL" CPPFLAGS="-I$sdl_prefix/include/SDL" LDFLAGS="-L$sdl_prefix/lib" \
+CFLAGS="$arm_flags -I$sdl_prefix/include/SDL -I$sysroot/usr/include/arm-linux-gnueabihf" CXXFLAGS="$arm_flags -I$sdl_prefix/include/SDL -I$sysroot/usr/include/arm-linux-gnueabihf" CPPFLAGS="-I$sdl_prefix/include/SDL -I$sysroot/usr/include/arm-linux-gnueabihf" LDFLAGS="-L$sdl_prefix/lib" \
 ./configure --build="$(gcc -dumpmachine)" --host=arm-linux-gnueabihf --prefix="$dosbox_x_prefix" --with-sdl-prefix="$sdl_prefix" --disable-sdltest --disable-alsatest $dosbox_x_configure_args
 make -j"${DOSBOX_X_CROSS_JOBS:-$(getconf _NPROCESSORS_ONLN)}"
 make DESTDIR="$stage_dir" install

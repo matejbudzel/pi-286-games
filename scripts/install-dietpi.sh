@@ -16,9 +16,15 @@ if ! command -v fbset >/dev/null 2>&1 || ! command -v aplay >/dev/null 2>&1 || !
     sudo apt-get install -y fbset alsa-utils
 fi
 for group in input audio; do if getent group "$group" >/dev/null 2>&1; then sudo usermod -aG "$group" "$user"; fi; done
-# The Pi 1 legacy framebuffer path needs real SDL 1.2, not Debian's
-# sdl12-compat. Build it before writing the host runtime environment.
-"$repo/scripts/build-sdl12-fbcon.sh"
+# The Pi 1 legacy framebuffer path needs the cross-built classic SDL 1.2
+# artifact, never a resource-heavy native build on the 256 MB target.
+sdl_artifact=${SDL12_FBCON_ARTIFACT:-$repo/dist/sdl12-fbcon-rpi1-armv6-armhf.tar.gz}
+if [ ! -x /opt/sdl12-fbcon/bin/sdl-config ] || [ "$(/opt/sdl12-fbcon/bin/sdl-config --version 2>/dev/null)" != 1.2.16 ] || [ ! -e /opt/sdl12-fbcon/lib/libSDL-1.2.so.0 ]; then
+    [ -f "$sdl_artifact" ] || { echo "Missing cross-built SDL artifact: $sdl_artifact. Deploy it with scripts/deploy-sdl12-to-pi.sh before installing." >&2; exit 1; }
+    tar -tzf "$sdl_artifact" | grep -qx 'opt/sdl12-fbcon/lib/libSDL-1.2.so.0' || { echo "Invalid SDL artifact: $sdl_artifact" >&2; exit 1; }
+    sudo tar -xzf "$sdl_artifact" -C /
+    sudo chown -R root:root /opt/sdl12-fbcon
+fi
 if [ ! -f "$repo/config/host.conf" ]; then
     cp "$repo/config/host.conf.example" "$repo/config/host.conf"
     sed -i "s|^game_data_root=.*|game_data_root=$home_dir/pi-286-game-files|" "$repo/config/host.conf"

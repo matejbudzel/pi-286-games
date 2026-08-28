@@ -36,5 +36,9 @@ done
 if kill -0 "$wrapper" 2>/dev/null; then [ -n "$pid" ] && kill -TERM "$pid" 2>/dev/null || true; sleep 3; kill -0 "$wrapper" 2>/dev/null && kill -KILL "$wrapper" 2>/dev/null || true; fi
 wait "$wrapper" || true
 printf 'dosbox=%s\nduration_seconds=%s\nmax_observed_rss_kib=%s\nbase_config=%s\ngame_config=%s\n' "$(command -v "$dosbox")" "$duration" "$max_rss" "$base" "$repo/games/grand-prix/dosbox.conf" > "$out_dir/report.txt"
-sed -n '1,$p' "$time_log" >> "$out_dir/report.txt"
+if [ -f "$time_log" ]; then
+    sed -n '1,$p' "$time_log" >> "$out_dir/report.txt"
+else
+    printf 'GNU time did not produce %s; see %s for the DOSBox launch error.\n' "$time_log" "$dosbox_log" >> "$out_dir/report.txt"
+fi
 printf 'Measurement written to %s\n' "$out_dir/report.txt"
