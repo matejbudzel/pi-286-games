@@ -23,6 +23,7 @@ dosbox_ld_library_path=/opt/sdl12-fbcon/lib
 dosbox_sdl_videodriver=fbcon
 dosbox_sdl_fbdev=/dev/fb0
 dosbox_sdl_fb_broken_modes=1
+dosbox_sdl_audiodriver=alsa
 
 # false closes the launcher and returns to the login shell. Set true on the
 # Raspberry Pi appliance to power off the host from the Bye bye! menu item.

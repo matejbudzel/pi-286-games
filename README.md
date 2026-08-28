@@ -138,8 +138,9 @@ install X11 or enable KMS/FKMS. The corresponding `dosbox_*` settings in
 
 The installer also enables the verified BCM2835 HDMI audio path, persists the
 `snd_bcm2835` module, adds the appliance user to `audio`, and writes an ALSA
-default for the detected bcm2835 HDMI card name. Log out and back in after the
-new group membership, or reboot after installation.
+default for the detected bcm2835 HDMI card name. DOSBox is explicitly run with
+SDL's ALSA backend. Log out and back in after the new group membership, or
+reboot after installation.
 
 The launcher service temporarily conflicts with `getty@tty1.service`. When the
 launcher exits through Ctrl-C or the default `Bye bye!`, it starts the existing

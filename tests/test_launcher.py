@@ -70,11 +70,13 @@ class DiscoveryTests(unittest.TestCase):
             "dosbox_sdl_videodriver": "fbcon",
             "dosbox_sdl_fbdev": "/dev/fb0",
             "dosbox_sdl_fb_broken_modes": "1",
+            "dosbox_sdl_audiodriver": "alsa",
         })
         self.assertEqual(environment["LD_LIBRARY_PATH"], "/opt/sdl12-fbcon/lib")
         self.assertEqual(environment["SDL_VIDEODRIVER"], "fbcon")
         self.assertEqual(environment["SDL_FBDEV"], "/dev/fb0")
         self.assertEqual(environment["SDL_FB_BROKEN_MODES"], "1")
+        self.assertEqual(environment["SDL_AUDIODRIVER"], "alsa")
 
     def test_generated_dosbox_config_has_the_appliance_safe_video_values(self):
         config = launcher.generated_dosbox_config(Path("mapper.txt"), Path("/games/test"), "GAME.EXE")

@@ -199,6 +199,7 @@ def dosbox_environment(config, no_sound=False):
         "dosbox_sdl_videodriver": "SDL_VIDEODRIVER",
         "dosbox_sdl_fbdev": "SDL_FBDEV",
         "dosbox_sdl_fb_broken_modes": "SDL_FB_BROKEN_MODES",
+        "dosbox_sdl_audiodriver": "SDL_AUDIODRIVER",
     }
     for setting, variable in variables.items():
         value = config.get(setting, "")
