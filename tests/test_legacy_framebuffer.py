@@ -61,6 +61,10 @@ class LegacyFramebufferTests(unittest.TestCase):
         self.assertIn("--enable-video-fbcon", source)
         self.assertIn("--disable-video-x11", source)
         self.assertIn("--enable-audio", source)
+        self.assertIn("--enable-alsa", source)
+        self.assertIn("--disable-alsa-shared", source)
+        self.assertIn("libasound", source)
+        self.assertNotIn("--enable-audio-alsa", source)
         self.assertIn("make -j\"$jobs\"", source)
         self.assertNotIn("--disable-audio", source)
 

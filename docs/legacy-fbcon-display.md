@@ -22,8 +22,9 @@ DOSBox → classic SDL 1.2 → fbcon → /dev/fb0 → BCM2708 framebuffer → HD
 `7bf353eca59cb503f43b86e3867dc4fc4e45f2e3` (SDL 1.2.16) with fbcon and audio,
 but without X11 or OpenGL. It installs only under `/opt/sdl12-fbcon`; it never
 replaces Debian's SDL. It defaults to `make -j1` for Pi 1 memory pressure and
-skips a valid existing 1.2.16 installation. A future ARMv6 package or release
-artifact could avoid local compilation, but source builds remain authoritative.
+skips an existing build only when it is 1.2.16 and links `libasound`. A future
+ARMv6 package or release artifact could avoid local compilation, but source
+builds remain authoritative.
 
 The launcher reads the four `dosbox_*` values in `config/host.conf` and passes
 them only to DOSBox: `LD_LIBRARY_PATH=/opt/sdl12-fbcon/lib`,
