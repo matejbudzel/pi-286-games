@@ -74,7 +74,7 @@ readable and writable by the `video` group. No `/dev/dri` is expected here.
 | --- | --- |
 | `Can't init SDL fbcon not available` | DOSBox used distro sdl12-compat instead of `/opt/sdl12-fbcon`; check the `ldd` command and host config. |
 | `Can't init SDL Unable to open a console terminal` | DOSBox has lost its controlling tty or foreground tty process group; launch through the supplied tty1 service and do not detach or isolate DOSBox with `setsid`/`setpgrp`. |
-| Last game frame remains after the panic key | The launcher resets the tty after terminating DOSBox; update the launcher if the old frame remains. |
+| Last game frame remains after DOSBox exits | The launcher monitors the child PID and forces tty1 back to Linux text mode before redrawing; update the launcher if the old frame remains. |
 | Black screen while DOSBox stays alive | Verify `SDL_FB_BROKEN_MODES=1`; run the standalone SDL self-test to separate SDL from DOSBox. |
 | A small centered 640×480 image in 1080p | The actual HDMI/framebuffer remains 1080p; correct the boot settings and reboot. |
 | `/dev/fb0` exists but `/dev/dri` does not | Expected for this legacy path, not an error. |

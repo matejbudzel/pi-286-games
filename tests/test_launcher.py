@@ -36,13 +36,33 @@ class DiscoveryTests(unittest.TestCase):
     def test_console_reset_discards_a_framebuffer_games_last_frame(self):
         captured = []
         original_write, original_flush = launcher.sys.stdout.write, launcher.sys.stdout.flush
+        original_ioctl = launcher.fcntl.ioctl
         launcher.sys.stdout.write = captured.append
         launcher.sys.stdout.flush = lambda: None
+        calls = []
+        launcher.fcntl.ioctl = lambda fd, request, value: calls.append((fd, request, value))
         try:
             launcher.restore_console_display()
         finally:
             launcher.sys.stdout.write, launcher.sys.stdout.flush = original_write, original_flush
+            launcher.fcntl.ioctl = original_ioctl
         self.assertEqual(captured, ["\x1bc"])
+        self.assertEqual(calls[0][1:], (launcher.KDSETMODE, launcher.KD_TEXT))
+
+    def test_replay_script_uses_the_same_fbcon_environment_and_configs(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            replay = Path("/tmp/pi-286-games-dosbox-command.sh")
+            original = launcher.Path
+            try:
+                launcher.Path = lambda value: Path(temporary) / Path(value).name if value == "/tmp/pi-286-games-dosbox-command.sh" else original(value)
+                written = launcher.write_dosbox_replay("/usr/bin/dosbox", Path("game.conf"), Path("/tmp/pi-286-games-dosbox.conf"), {"LD_LIBRARY_PATH": "/opt/sdl12-fbcon/lib", "SDL_VIDEODRIVER": "fbcon", "SDL_FBDEV": "/dev/fb0", "SDL_FB_BROKEN_MODES": "1"})
+            finally:
+                launcher.Path = original
+            content = written.read_text()
+            self.assertIn("SDL_VIDEODRIVER=fbcon", content)
+            self.assertIn("-conf game.conf", content)
+            self.assertIn("-conf /tmp/pi-286-games-dosbox.conf", content)
+            self.assertIn("> /tmp/pi-286-games-dosbox.log 2>&1", content)
 
     def test_dosbox_environment_can_select_the_rpi_fbcon_sdl_build(self):
         environment = launcher.dosbox_environment({

@@ -71,7 +71,9 @@ DOSBox output is kept out of the launcher console. The latest DOSBox diagnostic
 output is retained at `/tmp/pi-286-games-dosbox.log`, including after a normal
 DOSBox exit, because DOS-side startup failures can still result in a zero host
 exit status. The generated per-launch DOSBox override is retained alongside it
-at `/tmp/pi-286-games-dosbox.conf` for troubleshooting.
+at `/tmp/pi-286-games-dosbox.conf` for troubleshooting. The executable
+`/tmp/pi-286-games-dosbox-command.sh` is retained too; it replays the exact
+last launcher DOSBox command and its relevant appliance environment.
 
 ZIP support uses Python's standard library. RAR support requires Debian's
 `unrar` package, which is in the `non-free` repository component:
