@@ -58,7 +58,7 @@ class DiscoveryTests(unittest.TestCase):
 
     def test_generated_dosbox_config_has_the_appliance_safe_video_values(self):
         config = launcher.generated_dosbox_config(Path("mapper.txt"), Path("/games/test"), "GAME.EXE")
-        for line in ("fullscreen=true", "fulldouble=false", "fullfixed=true", "fullresolution=640x480", "output=surface", "usescancodes=true", "frameskip=0", "aspect=false", "scaler=none"):
+        for line in ("fullscreen=true", "fulldouble=false", "fullfixed=true", "fullresolution=640x480", "output=surface", "usescancodes=false", "frameskip=0", "aspect=false", "scaler=none"):
             self.assertIn(line, config)
 
     def test_generated_dosbox_config_only_adds_overrides_to_game_config(self):

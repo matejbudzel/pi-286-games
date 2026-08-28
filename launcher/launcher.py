@@ -206,7 +206,7 @@ fulldouble=false
 fullfixed=true
 fullresolution=640x480
 output=surface
-usescancodes=true
+usescancodes=false
 
 [render]
 frameskip=0
