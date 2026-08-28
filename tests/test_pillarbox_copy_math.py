@@ -2,20 +2,21 @@ import unittest
 
 
 def pillarbox_geometry(physical_width, physical_height, logical_width, logical_height, bpp=16):
-    if bpp != 16 or physical_height != logical_height or logical_width > physical_width:
+    if bpp != 16 or logical_width > physical_width or logical_height > physical_height:
         return None
-    return (physical_width - logical_width) // 2
+    return ((physical_width - logical_width) // 2, (physical_height - logical_height) // 2)
 
 
 def copy_dirty(physical, physical_width, physical_height, stride_pixels, logical, logical_width, logical_height, rect):
-    offset = pillarbox_geometry(physical_width, physical_height, logical_width, logical_height)
-    if offset is None:
+    offsets = pillarbox_geometry(physical_width, physical_height, logical_width, logical_height)
+    if offsets is None:
         return False
+    offset_x, offset_y = offsets
     x, y, width, height = rect
     x1, y1 = max(0, x), max(0, y)
     x2, y2 = min(logical_width, x + width), min(logical_height, y + height)
     for row in range(y1, y2):
-        destination = row * stride_pixels + offset + x1
+        destination = (offset_y + row) * stride_pixels + offset_x + x1
         source = row * logical_width + x1
         physical[destination:destination + x2 - x1] = logical[source:source + x2 - x1]
     return True
@@ -23,7 +24,10 @@ def copy_dirty(physical, physical_width, physical_height, stride_pixels, logical
 
 class PillarboxCopyMathTests(unittest.TestCase):
     def test_854x480_centers_640x480_at_107_pixels(self):
-        self.assertEqual(pillarbox_geometry(854, 480, 640, 480), 107)
+        self.assertEqual(pillarbox_geometry(854, 480, 640, 480), (107, 0))
+
+    def test_1280x720_centers_640x480_without_scaling(self):
+        self.assertEqual(pillarbox_geometry(1280, 720, 640, 480), (320, 120))
 
     def test_dirty_rectangle_is_clipped_and_translated(self):
         physical = [0] * (854 * 480)
@@ -44,9 +48,19 @@ class PillarboxCopyMathTests(unittest.TestCase):
         self.assertEqual(physical[746], 9)
 
     def test_identical_geometry_has_zero_offset(self):
-        self.assertEqual(pillarbox_geometry(640, 480, 640, 480), 0)
+        self.assertEqual(pillarbox_geometry(640, 480, 640, 480), (0, 0))
 
     def test_invalid_geometry_is_safe(self):
         self.assertIsNone(pillarbox_geometry(640, 480, 641, 480))
-        self.assertIsNone(pillarbox_geometry(854, 481, 640, 480))
+        self.assertIsNone(pillarbox_geometry(854, 479, 640, 480))
         self.assertIsNone(pillarbox_geometry(854, 480, 640, 480, 32))
+
+    def test_letterbox_areas_are_not_written(self):
+        physical = [7] * (1280 * 720)
+        logical = [9] * (640 * 480)
+        copy_dirty(physical, 1280, 720, 1280, logical, 640, 480, (0, 0, 640, 480))
+        self.assertEqual(physical[119 * 1280 + 320], 7)
+        self.assertEqual(physical[120 * 1280 + 319], 7)
+        self.assertEqual(physical[120 * 1280 + 320], 9)
+        self.assertEqual(physical[599 * 1280 + 959], 9)
+        self.assertEqual(physical[600 * 1280 + 320], 7)

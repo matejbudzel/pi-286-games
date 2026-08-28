@@ -29,13 +29,17 @@ set_value() {
         printf '%s=%s\n' "$key" "$value" >> "$boot_config"
     fi
 }
+remove_value() {
+    key=$1
+    sed -i "/^[[:space:]]*$key[[:space:]]*=/d" "$boot_config"
+}
 set_value hdmi_force_hotplug 1
 set_value hdmi_drive 2
 set_value hdmi_blanking 0
 set_value disable_overscan 1
 set_value hdmi_group "$hdmi_group"
 set_value hdmi_mode "$hdmi_mode"
-[ -z "$hdmi_cvt" ] || set_value hdmi_cvt "$hdmi_cvt"
+if [ -n "$hdmi_cvt" ]; then set_value hdmi_cvt "$hdmi_cvt"; else remove_value hdmi_cvt; fi
 set_value framebuffer_width "$framebuffer_width"
 set_value framebuffer_height "$framebuffer_height"
 set_value framebuffer_depth "$framebuffer_depth"

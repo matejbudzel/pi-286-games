@@ -24,11 +24,12 @@ The normal appliance path remains a real 640×480 HDMI/framebuffer mode with
 `dosbox_sdl_fb_pillarbox=0`. Use it whenever the monitor preserves 4:3.
 
 Some target monitors stretch every 4:3 HDMI signal to the full 16:9 panel.
-For those displays only, configure a supported wider, 480-high legacy HDMI
-mode in `config/host.conf`, set its `framebuffer_width`, `framebuffer_height`,
-and HDMI group/mode values, then set `dosbox_sdl_fb_pillarbox=1` and rerun the
-installer before rebooting. The physical mode is deliberately host-configured;
-854×480 is one candidate, not a hardcoded requirement.
+For those displays only, configure a larger supported legacy HDMI mode in
+`config/host.conf`, set its `framebuffer_width`, `framebuffer_height`, and HDMI
+group/mode values, then set `dosbox_sdl_fb_pillarbox=1` and rerun the installer
+before rebooting. The physical mode is deliberately host-configured; 854×480
+and the broadly compatible CEA 1280×720 mode are candidates, not hardcoded
+requirements.
 
 For an initial custom-timing experiment, the Pi legacy firmware's DMT custom
 mode 87 with `framebuffer_hdmi_cvt=854 480 60 3 0 0 0` is a reasonable value
@@ -42,25 +43,45 @@ stock DOSBox logical SDL surface: 640x480
 custom SDL fbcon: centered RGB565 dirty-rectangle copy
                  v
 +----------------------------------+
-| black |      640x480 DOS     | black |
+|              canvas              |
+|       +------------------+       |
+|       |    640x480 DOS   |       |
+|       +------------------+       |
+|              canvas              |
 +----------------------------------+
- physical wider framebuffer, same 480 height
+ physical framebuffer, for example 1280x720
                  |
- monitor stretches the whole widescreen HDMI signal
+ monitor displays the whole 16:9 HDMI signal
 ```
 
-This is pillarboxing, not scaling: SDL copies logical pixels unchanged and
-clears the side areas black. DOSBox stays the distro binary and never sees the
-physical framebuffer dimensions. The custom SDL validates unrotated RGB565,
-equal logical/physical height, and physical width at least the logical width;
-otherwise `SDL_SetVideoMode` fails with a diagnostic. The normal direct-mmap
-640×480 path is unchanged when the variable is absent or `0`.
+This is pillarboxing or letterboxing, not scaling: SDL copies logical pixels
+unchanged and clears the unused canvas black. DOSBox stays the distro binary
+and never sees the physical framebuffer dimensions. The custom SDL validates
+unrotated RGB565 and a physical width and height at least as large as the
+logical surface; otherwise `SDL_SetVideoMode` fails with a diagnostic. The
+normal direct-mmap 640×480 path is unchanged when the variable is absent or
+`0`.
+
+For a wire-path diagnostic, set
+`dosbox_sdl_fb_canvas_color=ff00ff` in `host.conf`. The custom SDL then fills
+every unused physical pixel magenta instead of black. It accepts exactly six
+RGB hex digits and defaults to black when the setting is absent. This makes it
+possible to distinguish the framebuffer content SDL sends from a monitor's
+own blacking, cropping, or unsupported-mode behaviour.
+
+For a standard 720p experiment, use `framebuffer_hdmi_group=1`,
+`framebuffer_hdmi_mode=4`, `framebuffer_width=1280`,
+`framebuffer_height=720`, and `framebuffer_depth=16`; leave
+`framebuffer_hdmi_cvt` unset. The 640×480 logical surface then has offsets
+`x=320`, `y=120`. The 720p mode consumes about 1.8 MiB of RGB565 framebuffer
+memory and a full logical frame still copies only about 600 KiB.
 
 Run `sh scripts/run-sdl-fbcon-self-test.sh --pillarbox` after selecting and
-rebooting into the wider physical mode. It draws a blue 640×480 area with a
-white border and yellow center line; the left and right framebuffer areas must
-be black. `sh scripts/health-check.sh` reports logical/physical geometry,
-stride, state, and calculated pillar width.
+rebooting into the larger physical mode. It draws a blue 640×480 area with a
+white border and yellow center line; the rest of the framebuffer must be the
+configured canvas color. `sh scripts/health-check.sh` reports
+logical/physical geometry, stride, state, and calculated horizontal and
+vertical canvas borders.
 
 `scripts/build-sdl12-fbcon.sh` builds upstream `libsdl-org/SDL-1.2` commit
 `7bf353eca59cb503f43b86e3867dc4fc4e45f2e3` (SDL 1.2.16) with fbcon and audio,

@@ -27,7 +27,8 @@ if command -v dosbox >/dev/null 2>&1; then dosbox_path=$(command -v dosbox); pas
 info "display environment: tty=$(tty 2>/dev/null || printf unavailable)"
 [ -n "${DISPLAY:-}" ] && info "DISPLAY is set to $DISPLAY" || info "DISPLAY is not set (normal on a direct Linux console)"
 info "logical DOSBox target resolution: ${logical_width}x${logical_height}"
-if [ "$pillarbox" = 1 ]; then info "PI286 SDL fbcon pillarbox: enabled"; else info "PI286 SDL fbcon pillarbox: disabled"; fi
+canvas_color=$(host_setting dosbox_sdl_fb_canvas_color)
+if [ "$pillarbox" = 1 ]; then info "PI286 SDL fbcon pillarbox: enabled"; info "PI286 SDL fbcon canvas color: ${canvas_color:-black}"; else info "PI286 SDL fbcon pillarbox: disabled"; fi
 
 fb0=$(host_path /dev/fb0)
 if [ -c "$fb0" ]; then
@@ -39,8 +40,8 @@ if [ -c "$fb0" ]; then
         info "physical framebuffer resolution: $geometry; bpp/stride: ${geometry##*x}/$stride"
         physical_width=${geometry%%x*}; rest=${geometry#*x}; physical_height=${rest%%x*}
         if [ "$pillarbox" = 1 ]; then
-            if [ "$physical_width" -gt "$logical_width" ] 2>/dev/null; then pillar_width=$(((physical_width - logical_width) / 2)); info "horizontal pillarbox width: ${pillar_width} pixels per side"; else warn "pillarbox is enabled but physical framebuffer is not wider than ${logical_width}"; fi
-            [ "$physical_height" = "$logical_height" ] && pass "pillarbox physical height matches logical height ${logical_height}" || warn "pillarbox requires physical height ${logical_height}; found '$physical_height'"
+            if [ "$physical_width" -ge "$logical_width" ] 2>/dev/null; then pillar_width=$(((physical_width - logical_width) / 2)); info "horizontal pillarbox width: ${pillar_width} pixels per side"; else warn "centered canvas is enabled but physical framebuffer is narrower than ${logical_width}"; fi
+            if [ "$physical_height" = "$logical_height" ]; then pass "pillarbox physical height matches logical height ${logical_height}"; elif [ "$physical_height" -gt "$logical_height" ] 2>/dev/null; then letterbox_height=$(((physical_height - logical_height) / 2)); info "vertical canvas border: ${letterbox_height} pixels per side"; else warn "centered canvas is enabled but physical framebuffer is shorter than ${logical_height}"; fi
             [ "${geometry##*x}" = 16 ] && pass "pillarbox framebuffer is 16 bpp" || warn "pillarbox requires 16 bpp framebuffer"
         else
             [ "$geometry" = 640x480x16 ] && pass "framebuffer geometry is expected 640x480, 16 bpp" || warn "framebuffer geometry is '$geometry' (expected 640x480x16)"

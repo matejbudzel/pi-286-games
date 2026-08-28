@@ -1,0 +1,145 @@
+diff --git a/src/video/fbcon/SDL_fbvideo.c b/src/video/fbcon/SDL_fbvideo.c
+index 082cb52..0000000 100644
+--- a/src/video/fbcon/SDL_fbvideo.c
++++ b/src/video/fbcon/SDL_fbvideo.c
+@@ -820,6 +820,9 @@ static SDL_Rect **FB_ListModes(_THIS, SDL_PixelFormat *format, Uint32 flags)
+ /* Various screen update functions available */
+ static void FB_DirectUpdate(_THIS, int numrects, SDL_Rect *rects);
+ static void FB_PillarboxUpdate(_THIS, int numrects, SDL_Rect *rects);
++static int FB_PillarboxColor(const char *value, Uint8 *red, Uint8 *green,
++	Uint8 *blue);
++static void FB_PillarboxClear(_THIS);
+ #ifdef VGA16_FBCON_SUPPORT
+ static void FB_VGA16Update(_THIS, int numrects, SDL_Rect *rects);
+ #endif
+@@ -1008,7 +1011,11 @@ static SDL_Surface *FB_SetVideoMode(_THIS, SDL_Surface *current,
+ 	char *surfaces_mem;
+ 	int surfaces_len;
+ 	const char *pillarbox;
++	const char *canvas_color;
+ 	int use_pillarbox = 0;
++	Uint8 canvas_red = 0;
++	Uint8 canvas_green = 0;
++	Uint8 canvas_blue = 0;
+ 
+ 	/* Set the terminal into graphics mode */
+ 	if ( FB_EnterGraphicsMode(this) < 0 ) {
+@@ -1026,9 +1033,9 @@ static SDL_Surface *FB_SetVideoMode(_THIS, SDL_Surface *current,
+ 	pillarbox = SDL_getenv("PI286_SDL_FB_PILLARBOX");
+ 	if (pillarbox && SDL_strcmp(pillarbox, "0") != 0) {
+ 		if (rotate != FBCON_ROTATE_NONE || bpp != 16 ||
+-		    vinfo.bits_per_pixel != 16 || height != (int)vinfo.yres ||
+-		    width > (int)vinfo.xres) {
+-			SDL_SetError("PI286_SDL_FB_PILLARBOX requires unrotated 16 bpp logical %dx%d in physical framebuffer at least %dx%d (found %dx%d, %d bpp)", width, height, width, height, vinfo.xres, vinfo.yres, vinfo.bits_per_pixel);
++		    vinfo.bits_per_pixel != 16 || width > (int)vinfo.xres ||
++		    height > (int)vinfo.yres) {
++			SDL_SetError("PI286_SDL_FB_PILLARBOX requires an unrotated 16 bpp logical %dx%d surface no larger than the physical framebuffer (found %dx%d, %d bpp)", width, height, vinfo.xres, vinfo.yres, vinfo.bits_per_pixel);
+ 			return(NULL);
+ 		}
+ 		use_pillarbox = 1;
+@@ -1092,6 +1099,7 @@ static SDL_Surface *FB_SetVideoMode(_THIS, SDL_Surface *current,
+ 	cache_vinfo = vinfo;
+ 	pillarbox_fb = use_pillarbox;
+ 	pillarbox_x = use_pillarbox ? ((int)vinfo.xres - width) / 2 : 0;
++	pillarbox_y = use_pillarbox ? ((int)vinfo.yres - height) / 2 : 0;
+ #ifdef FBCON_DEBUG
+ 	fprintf(stderr, "Printing actual vinfo:\n");
+ 	print_vinfo(&vinfo);
+@@ -1116,5 +1124,16 @@ static SDL_Surface *FB_SetVideoMode(_THIS, SDL_Surface *current,
+ 		return(NULL);
+ 	}
++	if (pillarbox_fb) {
++		canvas_color = SDL_getenv("PI286_SDL_FB_CANVAS_COLOR");
++		if (canvas_color && canvas_color[0] &&
++		    !FB_PillarboxColor(canvas_color, &canvas_red, &canvas_green,
++		                       &canvas_blue)) {
++			SDL_SetError("PI286_SDL_FB_CANVAS_COLOR must be six RGB hex digits (for example ff00ff)");
++			return(NULL);
++		}
++		pillarbox_fill = (Uint16)SDL_MapRGB(current->format, canvas_red,
++		                                    canvas_green, canvas_blue);
++	}
+ 
+ 	/* Get the fixed information about the console hardware.
+ 	   This is necessary since finfo.line_length changes.
+@@ -1204,8 +1223,7 @@ static SDL_Surface *FB_SetVideoMode(_THIS, SDL_Surface *current,
+ 	/* Set the update rectangle function */
+ 	this->UpdateRects = pillarbox_fb ? FB_PillarboxUpdate : FB_DirectUpdate;
+ 	if (pillarbox_fb) {
+-		SDL_memset(mapped_mem + mapped_offset, 0,
+-		           finfo.line_length * vinfo.yres);
++		FB_PillarboxClear(this);
+ 	}
+ 
+ 	/* We're done */
+@@ -1633,8 +1651,34 @@ static void FB_DirectUpdate(_THIS, int numrects, SDL_Rect *rects)
+ 	}
+ }
+ 
+-/* PI286_SDL_FB_PILLARBOX is deliberately limited to a same-height RGB565
+-   shadow copy.  It is not a general scaling facility. */
++/* PI286_SDL_FB_PILLARBOX is deliberately limited to a centered RGB565 shadow
++   copy.  It is not a general scaling facility. */
++static int FB_PillarboxColor(const char *value, Uint8 *red, Uint8 *green,
++	Uint8 *blue)
++{
++	int digits[6];
++	int i;
++	if (SDL_strlen(value) != 6) return(0);
++	for (i = 0; i < 6; ++i) {
++		char c = value[i];
++		if (c >= '0' && c <= '9') digits[i] = c - '0';
++		else if (c >= 'a' && c <= 'f') digits[i] = c - 'a' + 10;
++		else if (c >= 'A' && c <= 'F') digits[i] = c - 'A' + 10;
++		else return(0);
++	}
++	*red = (Uint8)((digits[0] << 4) | digits[1]);
++	*green = (Uint8)((digits[2] << 4) | digits[3]);
++	*blue = (Uint8)((digits[4] << 4) | digits[5]);
++	return(1);
++}
++
++static void FB_PillarboxClear(_THIS)
++{
++	Uint16 *pixels = (Uint16 *)(mapped_mem + mapped_offset);
++	int count = (physlinebytes / 2) * cache_vinfo.yres;
++	while (count--) *pixels++ = pillarbox_fill;
++}
++
+ static void FB_PillarboxUpdate(_THIS, int numrects, SDL_Rect *rects)
+ {
+ 	SDL_Surface *screen = this->screen;
+@@ -1655,7 +1699,8 @@ static void FB_PillarboxUpdate(_THIS, int numrects, SDL_Rect *rects)
+ 		if (y2 > screen->h) y2 = screen->h;
+ 		if (x2 <= x1 || y2 <= y1) continue;
+ 		for (y = y1; y < y2; ++y) {
+-			SDL_memcpy(mapped_mem + mapped_offset + y * physlinebytes +
++			SDL_memcpy(mapped_mem + mapped_offset +
++			           (pillarbox_y + y) * physlinebytes +
+ 			           (pillarbox_x + x1) * 2,
+ 			           (Uint8 *)screen->pixels + y * screen->pitch + x1 * 2,
+ 			           (x2 - x1) * 2);
+diff --git a/src/video/fbcon/SDL_fbvideo.h b/src/video/fbcon/SDL_fbvideo.h
+index 1326853..0000000 100644
+--- a/src/video/fbcon/SDL_fbvideo.h
++++ b/src/video/fbcon/SDL_fbvideo.h
+@@ -87,7 +87,9 @@ struct SDL_PrivateVideoData {
+ 	int rotate;
+ 	int shadow_fb;				/* Tells whether a shadow is being used. */
+ 	int pillarbox_fb;			/* Appliance-specific centered shadow copy. */
+-	int pillarbox_x;			/* Physical pixel offset of the logical surface. */
++	int pillarbox_x;			/* Physical X offset of the logical surface. */
++	int pillarbox_y;			/* Physical Y offset of the logical surface. */
++	Uint16 pillarbox_fill;		/* RGB565 color for unused physical pixels. */
+ 	FB_bitBlit *blitFunc;
+ 	int physlinebytes;			/* Length of a line in bytes in physical fb */
+ 
+@@ -136,6 +138,8 @@ struct SDL_PrivateVideoData {
+ #define shadow_fb		(this->hidden->shadow_fb)
+ #define pillarbox_fb		(this->hidden->pillarbox_fb)
+ #define pillarbox_x		(this->hidden->pillarbox_x)
++#define pillarbox_y		(this->hidden->pillarbox_y)
++#define pillarbox_fill		(this->hidden->pillarbox_fill)
+ #define blitFunc		(this->hidden->blitFunc)
+ #define physlinebytes		(this->hidden->physlinebytes)
+ #define SDL_nummodes		(this->hidden->SDL_nummodes)

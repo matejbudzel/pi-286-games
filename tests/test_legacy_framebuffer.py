@@ -67,6 +67,19 @@ class LegacyFramebufferTests(unittest.TestCase):
             for line in ("hdmi_mode=87", "hdmi_cvt=854 480 60 3 0 0 0", "framebuffer_width=854", "framebuffer_height=480", "framebuffer_depth=16"):
                 self.assertIn(line, result)
 
+    def test_standard_720p_mode_removes_a_stale_custom_cvt(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            config = root / "config.txt"
+            host = root / "host.conf"
+            config.write_text("hdmi_cvt=854 480 60 3 0 0 0\n")
+            host.write_text("framebuffer_hdmi_group=1\nframebuffer_hdmi_mode=4\nframebuffer_width=1280\nframebuffer_height=720\nframebuffer_depth=16\n")
+            subprocess.run(["sh", str(HELPER)], check=True, env=os.environ | {"BOOT_CONFIG": str(config), "HOST_CONF": str(host)}, capture_output=True, text=True)
+            result = config.read_text()
+            self.assertNotIn("hdmi_cvt=", result)
+            for line in ("hdmi_group=1", "hdmi_mode=4", "framebuffer_width=1280", "framebuffer_height=720", "framebuffer_depth=16"):
+                self.assertIn(line, result)
+
     def test_build_script_pins_classic_sdl_116_and_uses_one_job(self):
         source = BUILD.read_text()
         shared = (ROOT / "scripts" / "sdl12-fbcon-common.sh").read_text()
@@ -75,6 +88,7 @@ class LegacyFramebufferTests(unittest.TestCase):
         self.assertIn("--disable-video-x11", shared)
         self.assertIn("sdl12_fbcon_apply_patches", source)
         self.assertIn(".pi286-sdl-fbcon-pillarbox", source)
+        self.assertIn("0002-pi286-fbcon-centered-canvas-color.patch", shared)
         self.assertIn("--enable-audio", shared)
         self.assertIn("--enable-alsa", shared)
         self.assertIn("--disable-alsa-shared", shared)
