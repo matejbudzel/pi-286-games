@@ -3,3 +3,5 @@ pi-286-game-files/
 __pycache__/
 *.pyc
 .venv/
+.cache/
+dist/

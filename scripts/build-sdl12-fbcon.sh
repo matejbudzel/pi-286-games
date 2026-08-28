@@ -3,10 +3,8 @@
 set -eu
 prefix=${SDL12_FBCON_PREFIX:-/opt/sdl12-fbcon}
 repo=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-pillarbox_patch=$repo/patches/0001-pi286-fbcon-optional-pillarbox.patch
-source_url=https://github.com/libsdl-org/SDL-1.2.git
-# SDL 1.2.16, pinned rather than tracking the upstream branch. This revision retains fbcon.
-source_commit=7bf353eca59cb503f43b86e3867dc4fc4e45f2e3
+. "$repo/scripts/sdl12-fbcon-common.sh"
+prefix=${SDL12_FBCON_PREFIX:-$sdl12_fbcon_prefix}
 jobs=${SDL12_FBCON_JOBS:-1}
 build_dir=${SDL12_FBCON_BUILD_DIR:-/home/dietpi/pi-286-games-sdl12-fbcon}
 valid_install() { [ -x "$prefix/bin/sdl-config" ] && [ -e "$prefix/lib/libSDL-1.2.so.0" ] && [ -f "$prefix/.pi286-sdl-fbcon-pillarbox" ] && [ "$("$prefix/bin/sdl-config" --version 2>/dev/null)" = 1.2.16 ] && ldd "$prefix/lib/libSDL-1.2.so.0" 2>/dev/null | grep -q 'libasound\.so'; }
@@ -18,24 +16,17 @@ if [ -e "$build_dir" ] && [ ! -d "$build_dir/.git" ]; then
     exit 1
 fi
 if [ ! -e "$build_dir" ]; then
-    git clone "$source_url" "$build_dir"
+    git clone "$sdl12_fbcon_source_url" "$build_dir"
     cd "$build_dir"
-    git checkout --detach "$source_commit"
+    git checkout --detach "$sdl12_fbcon_source_commit"
 else
     echo "Reusing persistent SDL build directory: $build_dir"
     cd "$build_dir"
 fi
 [ -f src/video/fbcon/SDL_fbvideo.c ] || { echo "Pinned SDL source has no fbcon backend." >&2; exit 1; }
-if git apply --check "$pillarbox_patch"; then
-    git apply "$pillarbox_patch"
-elif git apply --reverse --check "$pillarbox_patch"; then
-    : # Patch was applied by a prior build; retain local SDL customizations.
-else
-    echo "Cannot apply the Pi fbcon patch cleanly in $build_dir; resolve it there without discarding local changes." >&2
-    exit 1
-fi
+sdl12_fbcon_apply_patches "$build_dir"
 ./autogen.sh
-./configure --prefix="$prefix" --enable-audio --enable-alsa --disable-alsa-shared --enable-video-fbcon --disable-video-x11 --disable-video-opengl
+./configure --prefix="$prefix" $sdl12_fbcon_configure_args
 make -j"$jobs"
 $sudo_cmd make install
 $sudo_cmd touch "$prefix/.pi286-sdl-fbcon-pillarbox"

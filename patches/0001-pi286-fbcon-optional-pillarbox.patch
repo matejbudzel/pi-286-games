@@ -42,7 +42,8 @@ index 5e58809..082cb52 100644
  
 -	if ( (vinfo.xres != width) || (vinfo.yres != height) ||
 +	if ( !use_pillarbox && ((vinfo.xres != width) || (vinfo.yres != height) ||
- 	     (vinfo.bits_per_pixel != bpp) || (flags & SDL_DOUBLEBUF) ) {
+-	     (vinfo.bits_per_pixel != bpp) || (flags & SDL_DOUBLEBUF) ) {
++	     (vinfo.bits_per_pixel != bpp) || (flags & SDL_DOUBLEBUF) )) {
  		vinfo.activate = FB_ACTIVATE_NOW;
  		vinfo.accel_flags = 0;
 @@ -1063,7 +1076,7 @@ static SDL_Surface *FB_SetVideoMode(_THIS, SDL_Surface *current,

@@ -72,6 +72,29 @@ compiled objects. Local SDL changes in that directory are retained. Set
 for Pi 1 memory pressure. A future ARMv6 package or release artifact could
 avoid local compilation, but source builds remain authoritative.
 
+## Fast x86_64 cross-build and Pi deployment
+
+Use the `pi286` SSH alias from the developer machine's SSH configuration; this
+repository intentionally contains no Pi IP, username, port, or key details.
+`scripts/dev-sdl.sh all` syncs the real Pi/Raspbian sysroot to ignored
+`.cache/pi286-sysroot`, cross-builds the same pinned source and patch set with
+`arm-linux-gnueabihf-gcc`, validates ARMv6 hard-float ELF attributes, writes
+ignored `dist/sdl12-fbcon-rpi1-armv6-armhf.tar.gz`, deploys only to
+`/opt/sdl12-fbcon`, and verifies stock DOSBox resolves that library.
+
+```sh
+ssh -o BatchMode=yes pi286 true
+scripts/dev-sdl.sh all
+```
+
+Install `gcc-arm-linux-gnueabihf` on the development machine first. The real
+target sysroot is preferred to generic Debian armhf files because Pi 1 needs
+ARMv6-compatible userspace. Normal deployment does not reboot, change boot
+configuration, rebuild DOSBox, or take over `/dev/fb0`. Use
+`scripts/dev-sdl.sh visual` or `scripts/dev-sdl.sh visual-pillarbox` only for
+an explicit manual display test. The native Pi fallback consumes the same
+shared pin, patch list, configure flags, and `/opt/sdl12-fbcon` prefix.
+
 The launcher reads the `dosbox_*` values in `config/host.conf` and passes
 them only to DOSBox: `LD_LIBRARY_PATH=/opt/sdl12-fbcon/lib`,
 `SDL_VIDEODRIVER=fbcon`, `SDL_FBDEV=/dev/fb0`, and
