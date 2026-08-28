@@ -195,7 +195,7 @@ pg-install             # Run the DietPi appliance installer.
 pg-start --no-sound    # Start the launcher; any launcher option may follow.
 pg-update              # Fast-forward the repository, then reinstall it.
 pg-check --smoke-dosbox # Run health checks; optional smoke test.
-pg-restart             # Restart the physical tty1 launcher, including over SSH.
+pg-restart             # Hand tty1 back from getty to the launcher, including over SSH.
 ```
 
 Open a new Bash shell after installation, or run `source ~/.bashrc` once, for
