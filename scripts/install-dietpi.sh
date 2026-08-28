@@ -65,6 +65,7 @@ sed -i "/^$aliases_begin$/,/^$aliases_end$/d" "$bashrc"
     printf "alias pg-check='cd %s && sh scripts/health-check.sh'\n" "$repo"
     printf "alias pg-restart='cd %s && ./scripts/restart-launcher.sh'\n" "$repo"
     printf "alias pg-resolution='cd %s && ./scripts/set-framebuffer-profile.sh'\n" "$repo"
+    printf "alias pg-measure='cd %s && ./scripts/measure-grand-prix.sh'\n" "$repo"
     printf '%s\n' "$aliases_end"
 } >> "$bashrc"
 service=/etc/systemd/system/pi-286-games.service

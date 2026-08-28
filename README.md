@@ -209,6 +209,19 @@ pg-resolution 640x480 --reboot # Restore the normal 4:3 framebuffer profile and 
 Open a new Bash shell after installation, or run `source ~/.bashrc` once, for
 the aliases to become available.
 
+### Grand Prix performance baseline
+
+On the physical console, `pg-measure` launches Grand Prix with the same SDL,
+audio and ordered DOSBox configuration used by the launcher, runs for 20
+seconds, then sends DOSBox `SIGTERM` (the launcher panic-control equivalent).
+It writes a timestamped report, DOSBox log, and GNU time metrics below
+`~/pi286-measurements`. Use the same workload with an experimental binary:
+
+```sh
+pg-measure
+pg-measure --custom-dosbox /opt/pi286/dosbox-x/bin/dosbox-x
+```
+
 ## Health check
 
 Run the read-only health check on the target to inspect DOSBox, framebuffer/DRM

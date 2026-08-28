@@ -1,0 +1,30 @@
+From: pi-286-games maintainers
+Subject: [PATCH] configure: map generic cross arm host to ARMV4LE
+
+GNU arm-linux-gnueabihf cross triplets expose host_cpu as "arm", not
+"armv6l". The upstream fallback treats that spelling as macOS arm64 and
+selects ARMV8LE, causing the ARMv8 dynrec generator to be compiled for a Pi 1.
+For this Linux-only ARMv6 target, select the conservative ARMV4LE generator.
+
+---
+ configure.ac | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/configure.ac b/configure.ac
+index 5f67c3d..a7106ce 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -713,9 +713,9 @@ case $host_cpu in
+     c_targetcpu="arm"
+     c_unalignedmemory=yes
+     ;;
+-   arm) # Mac OS X uname -m says "arm64", for some reason it becomes "arm" ?
+-    AC_DEFINE(C_TARGETCPU,ARMV8LE)
+-    AC_MSG_RESULT(ARMv8 Little Endian 64-bit)
++   arm) # GNU arm-linux-gnueabihf cross triplets use this generic spelling.
++    AC_DEFINE(C_TARGETCPU,ARMV4LE)
++    AC_MSG_RESULT(ARMv6-compatible ARM Little Endian)
+     c_targetcpu="arm"
+-    c_unalignedmemory=yes
++    dnl Do not enable unaligned accesses on ARM1176.
+     ;;
