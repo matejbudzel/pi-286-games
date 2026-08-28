@@ -13,10 +13,6 @@ dosbox_ld_library_path=/opt/sdl12-fbcon/lib
 dosbox_sdl_videodriver=fbcon
 dosbox_sdl_fbdev=/dev/fb0
 dosbox_sdl_fb_broken_modes=1
-dosbox_sdl_audiodriver=alsa
-# The verified Pi 1 HDMI PCM is ALSA card 0, device 0. SDL 1.2 is explicitly
-# directed here instead of relying on its default-device resolution.
-dosbox_sdl_audiodev=hw:0,0
 
 # Logical launcher controls.
 up_key=UP

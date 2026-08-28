@@ -17,6 +17,7 @@ KD_TEXT = 0x00
 KEY_CODES = {"F1": 59, "UP": 103, "DOWN": 108, "LEFT": 105, "RIGHT": 106,
              "SPACE": 57, "ENTER": 28}
 PANIC_KEY = "F1"
+HDMI_PCM = "hw:0,0"
 PAD_ACTIONS = {2: "UP", 1: "DOWN", 0: "LEFT", 3: "RIGHT", 8: "START", 9: "SELECT"}
 PAD_LAYOUT = ((6, "HORE-L"), (2, "HORE"), (7, "HORE-P"), (0, "VĽAVO"), (3, "VPRAVO"), (4, "DOLE-L"), (1, "DOLE"), (5, "DOLE-P"))
 DOSBOX_KEY_ACTIONS = {"UP": "key_up", "DOWN": "key_down", "LEFT": "key_left", "RIGHT": "key_right", "SPACE": "key_space", "ENTER": "key_enter", "ESC": "key_esc", "LSHIFT": "key_lshift", "LCTRL": "key_lctrl"}
@@ -345,16 +346,15 @@ def dosbox_environment(config, no_sound=False):
         "dosbox_sdl_videodriver": "SDL_VIDEODRIVER",
         "dosbox_sdl_fbdev": "SDL_FBDEV",
         "dosbox_sdl_fb_broken_modes": "SDL_FB_BROKEN_MODES",
-        "dosbox_sdl_audiodriver": "SDL_AUDIODRIVER",
-        "dosbox_sdl_audiodev": "AUDIODEV",
     }
     for setting, variable in variables.items():
         value = config.get(setting, "")
         if value: environment[variable] = value
-    # SDL 1.2 checks SDL_PATH_DSP before AUDIODEV in some audio paths. Keep
-    # both pinned to the verified HDMI PCM for the direct-console appliance.
-    if environment.get("AUDIODEV"): environment["SDL_PATH_DSP"] = environment["AUDIODEV"]
-    if no_sound: environment["SDL_AUDIODRIVER"] = "dummy"
+    # This appliance has one physically verified HDMI PCM. SDL 1.2 checks
+    # SDL_PATH_DSP before AUDIODEV in some audio paths, so pin both explicitly.
+    environment["SDL_AUDIODRIVER"] = "dummy" if no_sound else "alsa"
+    environment["AUDIODEV"] = HDMI_PCM
+    environment["SDL_PATH_DSP"] = HDMI_PCM
     return environment
 
 # This is the appliance base config. It is loaded first, so a deliberate

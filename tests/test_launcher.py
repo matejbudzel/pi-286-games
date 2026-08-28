@@ -88,16 +88,15 @@ class DiscoveryTests(unittest.TestCase):
             "dosbox_sdl_videodriver": "fbcon",
             "dosbox_sdl_fbdev": "/dev/fb0",
             "dosbox_sdl_fb_broken_modes": "1",
-            "dosbox_sdl_audiodriver": "alsa",
-            "dosbox_sdl_audiodev": "hw:0,0",
+            "dosbox_sdl_audiodev": "hw:HDMI,0",
         })
         self.assertEqual(environment["LD_LIBRARY_PATH"], "/opt/sdl12-fbcon/lib")
         self.assertEqual(environment["SDL_VIDEODRIVER"], "fbcon")
         self.assertEqual(environment["SDL_FBDEV"], "/dev/fb0")
         self.assertEqual(environment["SDL_FB_BROKEN_MODES"], "1")
         self.assertEqual(environment["SDL_AUDIODRIVER"], "alsa")
-        self.assertEqual(environment["AUDIODEV"], "hw:0,0")
-        self.assertEqual(environment["SDL_PATH_DSP"], "hw:0,0")
+        self.assertEqual(environment["AUDIODEV"], launcher.HDMI_PCM)
+        self.assertEqual(environment["SDL_PATH_DSP"], launcher.HDMI_PCM)
 
     def test_effective_dosbox_config_has_the_appliance_safe_video_values(self):
         for game_dir in ("blockout", "grand-prix", "prince-of-persia"):
