@@ -130,6 +130,13 @@ class DiscoveryTests(unittest.TestCase):
         self.assertGreater(combined.rfind("aspect=false"), combined.rfind("aspect=true"))
         self.assertGreater(combined.rfind("scaler=none"), combined.rfind("scaler=normal2x"))
 
+    def test_grand_prix_has_a_low_latency_tolerant_pi1_mixer_override(self):
+        config = (Path(__file__).parents[1] / "games" / "grand-prix" / "dosbox.conf").read_text()
+        self.assertIn("[mixer]", config)
+        self.assertIn("rate=22050", config)
+        self.assertIn("blocksize=1024", config)
+        self.assertIn("prebuffer=60", config)
+
     def test_dosbox_launch_does_not_detach_from_tty1(self):
         source = inspect.getsource(launcher.run_game)
         self.assertNotIn("preexec_fn=", source)
