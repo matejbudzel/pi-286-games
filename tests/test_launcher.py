@@ -129,6 +129,9 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(launcher.PAD_LAYOUT[-1], (5, "DOLE-P"))
         self.assertTrue(launcher.pad_panic([2, 9]))
         self.assertFalse(launcher.pad_panic([8]))
+        self.assertTrue(launcher.known_dance_pad(launcher.PAD_DEVICE_NAME, 2, 10))
+        self.assertTrue(launcher.known_dance_pad("USB Gamepad", 2, 10))
+        self.assertFalse(launcher.known_dance_pad("USB Gamepad", 2, 8))
 
     def test_ddr_mapping_loads_labels_and_generates_dosbox_joystick_bindings(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -171,6 +174,7 @@ class DiscoveryTests(unittest.TestCase):
         self.assertIn("START: Streľba", text)
         self.assertIn("ŠÍPKA HORE: Skok", text)
         self.assertIn("MEDZERNÍK: Streľba", text)
+        self.assertTrue(launcher.pre_game_lines(game, labels, keys)[-1][1])
 
     def test_pre_game_screen_adapts_to_available_input_devices(self):
         labels = {button: "nepoužité" for button in range(9)}
@@ -215,6 +219,11 @@ class DiscoveryTests(unittest.TestCase):
             self.assertEqual(launcher.wait_for_game_start(FakeTerm(["CTRL_C"]), FakePad([]), game, labels), "exit")
         finally:
             launcher.Terminal.draw = original
+
+    def test_menu_waits_without_redrawing_when_pad_poll_finds_no_input(self):
+        source = inspect.getsource(launcher.main)
+        self.assertIn("if key is None: continue", source)
+        self.assertIn("if redraw:", source)
 
     def test_discovers_and_sorts_valid_non_helper_games(self):
         with tempfile.TemporaryDirectory() as temporary:

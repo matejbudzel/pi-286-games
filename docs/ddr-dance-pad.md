@@ -9,6 +9,8 @@ The launcher reads Linux's lightweight joystick interface (`/dev/input/js*`);
 it does not use pygame and does not translate joystick input through a separate
 daemon. The device exposes two axes, ten buttons and no hats. Its axes are
 deliberately ignored: every useful physical panel is a direct button.
+The launcher first matches its exact name and also accepts its fixed 2-axis,
+10-button signature for kernels that present a slightly different USB name.
 
 ```text
 button 6       button 2       button 7

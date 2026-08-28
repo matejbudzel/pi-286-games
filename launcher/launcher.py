@@ -9,6 +9,8 @@ EVENT = struct.Struct("llHHI")
 JS_EVENT = struct.Struct("IhBB")
 PAD_DEVICE_NAME = "WiseGroup.,Ltd X-PAD, Extreme Dance Pad"
 JSIOCGNAME = 0x80806A13  # _IOR('j', 0x13, 128), Linux joystick device name
+JSIOCGAXES = 0x80016A11
+JSIOCGBUTTONS = 0x80016A12
 KDSETMODE = 0x4B3A
 KD_TEXT = 0x00
 # Linux input-event key codes for controls useful on a keyboard or dance mat.
@@ -70,6 +72,10 @@ def discover(directory=ROOT / "games"):
             games.append(Game(conf["name"], conf["data_dir"], conf["exe"], item / conf["dosbox_conf"], item / conf["mapper_file"], archive, item / conf.get("ddr_file", "ddr.conf")))
     return sorted(games, key=lambda g: g.name.casefold())
 
+def known_dance_pad(name, axes, buttons):
+    """Recognise the exact X-PAD, including kernels that alter its USB name."""
+    return name == PAD_DEVICE_NAME or (axes == 2 and buttons == 10)
+
 class DancePad:
     """Read only the known DDR pad's Linux joystick button numbers; axes are ignored."""
     def __init__(self): self.fds = []
@@ -79,7 +85,9 @@ class DancePad:
             try:
                 fd = os.open(device, os.O_RDONLY | os.O_NONBLOCK)
                 name = fcntl.ioctl(fd, JSIOCGNAME, b"\0" * 128).split(b"\0", 1)[0].decode("utf-8", "replace")
-                if name == PAD_DEVICE_NAME:
+                axes = fcntl.ioctl(fd, JSIOCGAXES, b"\0")[0]
+                buttons = fcntl.ioctl(fd, JSIOCGBUTTONS, b"\0")[0]
+                if known_dance_pad(name, axes, buttons):
                     self.fds.append(fd); fd = None
             except OSError:
                 pass
@@ -220,7 +228,7 @@ def pre_game_lines(game, labels, keys=None, has_pad=True, has_keyboard=True):
             key = (keys or {}).get(button, "")
             if key: lines.append(("%s: %s" % (KEY_NAMES[key], labels[button]), False))
         lines.append(("ESC: späť do menu", False))
-    lines.append((("SPACE / START - spustiť hru" if has_pad and has_keyboard else "START - spustiť hru" if has_pad else "SPACE - spustiť hru"), False))
+    lines.extend([("", False), (("SPACE / START - spustiť hru" if has_pad and has_keyboard else "START - spustiť hru" if has_pad else "SPACE - spustiť hru"), True)])
     return lines
 
 def wait_for_game_start(term, pad, game, labels, keys=None):
@@ -451,13 +459,17 @@ def main():
     args = parser.parse_args(); config = values(ROOT / "config" / "host.conf.example"); config.update(values(args.host_conf))
     games = discover()
     if not games: print("No valid game definitions found.", file=sys.stderr); return 1
-    selected = 0; confirm = config.get("confirm_key", "SPACE").upper(); corner = ""
+    selected = 0; confirm = config.get("confirm_key", "SPACE").upper(); corner = ""; redraw = True
     with Terminal() as term, DancePad() as pad:
         while True:
-            lines = [(g.name, n == selected) for n, g in enumerate(games)] + [("", False), ("Bye bye!", selected == len(games))]
-            Terminal.draw(lines, "\x1b[91m" if selected == len(games) else ("\x1b[92m", "\x1b[96m", "\x1b[93m")[sum(games[selected].name.encode()) % 3], corner, sound_status())
+            if redraw:
+                lines = [(g.name, n == selected) for n, g in enumerate(games)] + [("", False), ("Bye bye!", selected == len(games))]
+                Terminal.draw(lines, "\x1b[91m" if selected == len(games) else ("\x1b[92m", "\x1b[96m", "\x1b[93m")[sum(games[selected].name.encode()) % 3], corner, sound_status())
+                redraw = False
             key = next_input(term, pad)
+            if key is None: continue
             if key == "CTRL_C": return 0
+            redraw = True
             if key == PANIC_KEY: corner = network_address()
             elif key == "SELECT": continue
             elif key == config.get("up_key", "UP").upper(): selected = (selected - 1) % (len(games) + 1)
