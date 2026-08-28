@@ -1,0 +1,12 @@
+[Unit]
+Description=Load BCM2835 HDMI audio for pi-286-games
+After=systemd-modules-load.service
+Before=pi-286-games.service
+
+[Service]
+Type=oneshot
+ExecStart=/sbin/modprobe snd_bcm2835
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

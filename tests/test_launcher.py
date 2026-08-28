@@ -49,6 +49,18 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(captured, ["\x1bc"])
         self.assertEqual(calls[0][1:], (launcher.KDSETMODE, launcher.KD_TEXT))
 
+    def test_sound_status_requires_module_and_accessible_sound_device(self):
+        class FakePath:
+            def __init__(self, value): self.value = value
+            def read_text(self): return "snd_bcm2835 1 0\n" if self.value == "/proc/modules" else ""
+            def glob(self, pattern): return ["/dev/snd/controlC0"] if self.value == "/dev/snd" else []
+        original_path, original_access = launcher.Path, launcher.os.access
+        launcher.Path, launcher.os.access = FakePath, lambda path, mode: True
+        try:
+            self.assertEqual(launcher.sound_status(), "Zvuk: ide")
+        finally:
+            launcher.Path, launcher.os.access = original_path, original_access
+
     def test_replay_script_uses_the_same_fbcon_environment_and_configs(self):
         with tempfile.TemporaryDirectory() as temporary:
             replay = Path("/tmp/pi-286-games-dosbox-command.sh")

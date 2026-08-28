@@ -93,4 +93,7 @@ persists `snd_bcm2835` in `/etc/modules-load.d/pi-286-games-audio.conf`, adds
 the user to `audio`, and writes `/etc/asound.conf`. The latter selects the
 detected bcm2835 HDMI ALSA card identifier (normally `HDMI`) rather than
 assuming a particular card number. Audio health warnings remain separate from
-framebuffer/video success, and speaker-test is never run automatically.
+framebuffer/video success, and speaker-test is never run automatically. The
+root-owned `pi-286-games-audio.service` also runs `modprobe snd_bcm2835` before
+the launcher as a boot-time recovery path; the launcher shows its live audio
+state in the top-right corner.

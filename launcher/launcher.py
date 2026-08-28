@@ -75,7 +75,7 @@ class Terminal:
         text = text[:available]
         return " " * max(0, (available - len(text)) // 2) + prefix + text
     @staticmethod
-    def draw(lines, color="\x1b[96m", corner=""):
+    def draw(lines, color="\x1b[96m", corner="", top_corner=""):
         try: size = os.get_terminal_size(sys.stdout.fileno())
         except OSError: size = shutil.get_terminal_size((80, 24))
         # Raw mode disables the terminal's normal NL-to-CRNL output conversion.
@@ -85,7 +85,19 @@ class Terminal:
             out.append((color if current else "\x1b[37m") + Terminal.line(text, current, size.columns) + "\x1b[0m\r\n")
         if corner:
             out.append("\x1b[%d;%dH\x1b[90m%s\x1b[0m" % (size.lines, max(1, size.columns - len(corner) + 1), corner[:size.columns]))
+        if top_corner:
+            out.append("\x1b[1;%dH\x1b[90m%s\x1b[0m" % (max(1, size.columns - len(top_corner) + 1), top_corner[:size.columns]))
         sys.stdout.write("".join(out)); sys.stdout.flush()
+
+def sound_status():
+    """Return the appliance audio state without treating it as a video failure."""
+    try:
+        module_loaded = any(line.startswith("snd_bcm2835 ") for line in Path("/proc/modules").read_text().splitlines())
+        devices = list(Path("/dev/snd").glob("*"))
+        usable = any(os.access(device, os.R_OK | os.W_OK) for device in devices)
+    except OSError:
+        return "Zvuk: nejde"
+    return "Zvuk: ide" if module_loaded and usable else "Zvuk: nejde"
 
 def error(term, game, detail, confirm):
     Terminal.draw([("Nepodarilo sa spustiť hru", False), (game.name, True), ("", False), (detail, False), ("", False), ("Stlač %s pre návrat" % confirm, False)], "\x1b[91m")
@@ -301,7 +313,7 @@ def main():
     with Terminal() as term:
         while True:
             lines = [(g.name, n == selected) for n, g in enumerate(games)] + [("", False), ("Bye bye!", selected == len(games))]
-            Terminal.draw(lines, "\x1b[91m" if selected == len(games) else ("\x1b[92m", "\x1b[96m", "\x1b[93m")[sum(games[selected].name.encode()) % 3], corner)
+            Terminal.draw(lines, "\x1b[91m" if selected == len(games) else ("\x1b[92m", "\x1b[96m", "\x1b[93m")[sum(games[selected].name.encode()) % 3], corner, sound_status())
             key = term.key()
             if key == "CTRL_C": return 0
             if key == config.get("panic_key", "F1").upper(): corner = network_address()

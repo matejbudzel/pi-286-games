@@ -41,7 +41,6 @@ else
     echo "INFO: custom classic SDL is not installed; leaving DOSBox SDL settings unchanged."
 fi
 sudo "$repo/scripts/configure-legacy-framebuffer.sh"
-sudo modprobe snd_bcm2835 || echo "WARNING: snd_bcm2835 could not load until after reboot." >&2
 sudo "$repo/scripts/configure-appliance-audio.sh"
 printf '%s ALL=(root) NOPASSWD: /sbin/shutdown -h now\n' "$user" | sudo tee /etc/sudoers.d/pi-286-games-shutdown >/dev/null
 sudo chmod 0440 /etc/sudoers.d/pi-286-games-shutdown
@@ -53,6 +52,8 @@ marker='# pi-286-games launcher'
 sed -i "/^$marker$/,/^fi$/d" "$home_dir/.profile"
 service=/etc/systemd/system/pi-286-games.service
 sed -e "s|@USER@|$user|g" -e "s|@HOME@|$home_dir|g" -e "s|@REPO@|$repo|g" "$repo/systemd/pi-286-games.service.in" | sudo tee "$service" >/dev/null
+sudo install -m 0644 "$repo/systemd/pi-286-games-audio.service" /etc/systemd/system/pi-286-games-audio.service
 sudo systemctl daemon-reload
+sudo systemctl enable pi-286-games-audio.service
 sudo systemctl enable pi-286-games.service
 echo "Installed. Put game data under $home_dir/pi-286-game-files and reboot for the direct DietPi-console-to-launcher handoff."

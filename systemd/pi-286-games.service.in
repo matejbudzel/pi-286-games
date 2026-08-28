@@ -1,6 +1,7 @@
 [Unit]
 Description=pi-286-games launcher on tty1
-After=systemd-user-sessions.service
+Wants=pi-286-games-audio.service
+After=systemd-user-sessions.service pi-286-games-audio.service
 Conflicts=getty@tty1.service
 Before=getty@tty1.service
 

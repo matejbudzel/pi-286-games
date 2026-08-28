@@ -19,6 +19,7 @@ class TtyServiceTests(unittest.TestCase):
         template = (ROOT / "systemd" / "pi-286-games.service.in").read_text()
         rendered = template.replace("@USER@", "dietpi").replace("@HOME@", "/home/dietpi").replace("@REPO@", "/home/dietpi/pi-286-games")
         self.assertNotIn("plymouth", rendered)
+        self.assertIn("Wants=pi-286-games-audio.service", rendered)
         self.assertIn("Conflicts=getty@tty1.service", rendered)
         self.assertIn("TTYPath=/dev/tty1", rendered)
         self.assertIn("ExecStopPost=+/usr/bin/systemctl --no-block start getty@tty1.service", rendered)
@@ -28,6 +29,12 @@ class TtyServiceTests(unittest.TestCase):
         self.assertIn('sed -i "/^$marker$/,/^fi$/d"', installer)
         self.assertIn("pi-286-games.service.in", installer)
         self.assertIn("systemctl enable pi-286-games.service", installer)
+        self.assertIn("systemctl enable pi-286-games-audio.service", installer)
+
+    def test_audio_service_loads_the_target_module_before_launcher(self):
+        audio_service = (ROOT / "systemd" / "pi-286-games-audio.service").read_text()
+        self.assertIn("ExecStart=/sbin/modprobe snd_bcm2835", audio_service)
+        self.assertIn("Before=pi-286-games.service", audio_service)
 
 
 if __name__ == "__main__":

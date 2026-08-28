@@ -142,6 +142,11 @@ default for the detected bcm2835 HDMI card name. DOSBox is explicitly run with
 SDL's ALSA backend. Log out and back in after the new group membership, or
 reboot after installation.
 
+At boot, a root-owned `pi-286-games-audio.service` explicitly loads
+`snd_bcm2835` before the launcher. The launcher displays gray `Zvuk: ide` or
+`Zvuk: nejde` in its top-right corner based on the live module and `/dev/snd`
+access state.
+
 The launcher service temporarily conflicts with `getty@tty1.service`. When the
 launcher exits through Ctrl-C or the default `Bye bye!`, it starts the existing
 tty1 getty again, returning to the usual autologin maintenance shell instead
