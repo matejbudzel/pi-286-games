@@ -42,7 +42,7 @@ else
 fi
 sudo HOST_CONF="$repo/config/host.conf" "$repo/scripts/configure-legacy-framebuffer.sh"
 sudo "$repo/scripts/configure-appliance-audio.sh"
-printf '%s ALL=(root) NOPASSWD: /sbin/shutdown -h now, /usr/bin/systemctl stop pi-286-games.service, /usr/bin/systemctl stop getty@tty1.service, /usr/bin/systemctl start pi-286-games.service\n' "$user" | sudo tee /etc/sudoers.d/pi-286-games-shutdown >/dev/null
+printf '%s ALL=(root) NOPASSWD: /sbin/shutdown -h now, /usr/bin/systemctl mask --runtime --now getty@tty1.service, /usr/bin/systemctl unmask --runtime getty@tty1.service, /usr/bin/systemctl stop pi-286-games.service, /usr/bin/systemctl start pi-286-games.service, /usr/bin/systemctl start getty@tty1.service\n' "$user" | sudo tee /etc/sudoers.d/pi-286-games-shutdown >/dev/null
 sudo chmod 0440 /etc/sudoers.d/pi-286-games-shutdown
 
 sudo systemctl daemon-reload

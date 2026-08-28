@@ -38,12 +38,13 @@ class TtyServiceTests(unittest.TestCase):
             self.assertIn("alias " + alias + "=", installer)
         self.assertIn("git pull --ff-only", installer)
         self.assertIn("restart-launcher.sh", installer)
-        self.assertIn("systemctl stop getty@tty1.service", installer)
+        self.assertIn("systemctl mask --runtime --now getty@tty1.service", installer)
 
     def test_remote_restart_hands_tty1_from_getty_back_to_launcher(self):
         restart = (ROOT / "scripts" / "restart-launcher.sh").read_text()
+        self.assertIn("systemctl mask --runtime --now getty@tty1.service", restart)
         self.assertIn("systemctl stop pi-286-games.service", restart)
-        self.assertIn("systemctl stop getty@tty1.service", restart)
+        self.assertIn("systemctl unmask --runtime getty@tty1.service", restart)
         self.assertIn("systemctl start pi-286-games.service", restart)
 
     def test_audio_service_loads_the_target_module_before_launcher(self):
