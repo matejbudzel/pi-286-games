@@ -71,8 +71,9 @@ DOSBox. This deliberately avoids overwriting or second-guessing a local copy.
 DOSBox output is kept out of the launcher console. The latest DOSBox diagnostic
 output is retained at `/tmp/pi-286-games-dosbox.log`, including after a normal
 DOSBox exit, because DOS-side startup failures can still result in a zero host
-exit status. The generated per-launch DOSBox override is retained alongside it
-at `/tmp/pi-286-games-dosbox.conf` for troubleshooting. The executable
+exit status. The shared appliance base config and generated per-launch override
+are retained alongside it at `/tmp/pi-286-games-dosbox-base.conf` and
+`/tmp/pi-286-games-dosbox.conf` for troubleshooting. The executable
 `/tmp/pi-286-games-dosbox-command.sh` is retained too; it replays the exact
 last launcher DOSBox command and its relevant appliance environment.
 

@@ -67,12 +67,13 @@ class DiscoveryTests(unittest.TestCase):
             original = launcher.Path
             try:
                 launcher.Path = lambda value: Path(temporary) / Path(value).name if value == "/tmp/pi-286-games-dosbox-command.sh" else original(value)
-                written = launcher.write_dosbox_replay("/usr/bin/dosbox", Path("game.conf"), Path("/tmp/pi-286-games-dosbox.conf"), {"LD_LIBRARY_PATH": "/opt/sdl12-fbcon/lib", "SDL_VIDEODRIVER": "fbcon", "SDL_FBDEV": "/dev/fb0", "SDL_FB_BROKEN_MODES": "1", "AUDIODEV": "hw:HDMI,0"})
+                written = launcher.write_dosbox_replay("/usr/bin/dosbox", Path("base.conf"), Path("game.conf"), Path("/tmp/pi-286-games-dosbox.conf"), {"LD_LIBRARY_PATH": "/opt/sdl12-fbcon/lib", "SDL_VIDEODRIVER": "fbcon", "SDL_FBDEV": "/dev/fb0", "SDL_FB_BROKEN_MODES": "1", "AUDIODEV": "hw:HDMI,0"})
             finally:
                 launcher.Path = original
             content = written.read_text()
             self.assertIn("SDL_VIDEODRIVER=fbcon", content)
             self.assertIn("AUDIODEV=hw:HDMI,0", content)
+            self.assertIn("-conf base.conf", content)
             self.assertIn("-conf game.conf", content)
             self.assertIn("-conf /tmp/pi-286-games-dosbox.conf", content)
             self.assertIn("> /tmp/pi-286-games-dosbox.log 2>&1", content)
@@ -93,19 +94,23 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(environment["SDL_AUDIODRIVER"], "alsa")
         self.assertEqual(environment["AUDIODEV"], "hw:HDMI,0")
 
-    def test_generated_dosbox_config_has_the_appliance_safe_video_values(self):
-        config = launcher.generated_dosbox_config(Path("mapper.txt"), Path("/games/test"), "GAME.EXE")
-        for line in ("fullscreen=true", "fulldouble=false", "fullfixed=true", "fullresolution=640x480", "output=surface", "usescancodes=false", "frameskip=0", "aspect=false", "scaler=none"):
-            self.assertIn(line, config)
+    def test_effective_dosbox_config_has_the_appliance_safe_video_values(self):
+        for game_dir in ("blockout", "grand-prix", "prince-of-persia"):
+            game_config = Path(__file__).parents[1] / "games" / game_dir / "dosbox.conf"
+            config = launcher.effective_dosbox_config(game_config, Path("mapper.txt"), Path("/games/test"), "GAME.EXE")
+            for line in ("fullscreen=true", "fulldouble=false", "fullfixed=true", "fullresolution=640x480", "output=surface", "usescancodes=false", "frameskip=0", "aspect=true", "scaler=normal2x"):
+                self.assertIn(line, config, game_dir)
 
-    def test_generated_dosbox_config_only_adds_overrides_to_game_config(self):
-        game_config = (Path(__file__).parents[1] / "games" / "barbarian" / "dosbox.conf").read_text()
-        generated = launcher.generated_dosbox_config(Path("mapper.txt"), Path("/games/test"), "GAME.EXE")
-        combined = game_config + "\n" + generated
+    def test_game_config_can_override_shared_render_defaults(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            game_path = Path(temporary) / "dosbox.conf"
+            game_path.write_text("[dosbox]\nmachine=ega\nmemsize=8\n\n[cpu]\ncycles=fixed 3000\n\n[render]\naspect=false\nscaler=none\n")
+            combined = launcher.effective_dosbox_config(game_path, Path("mapper.txt"), Path("/games/test"), "GAME.EXE")
         self.assertIn("machine=ega", combined)
         self.assertIn("memsize=8", combined)
         self.assertIn("cycles=fixed 3000", combined)
-        self.assertIn("scaler=none", combined)
+        self.assertGreater(combined.rfind("aspect=false"), combined.rfind("aspect=true"))
+        self.assertGreater(combined.rfind("scaler=none"), combined.rfind("scaler=normal2x"))
 
     def test_dosbox_launch_does_not_detach_from_tty1(self):
         source = inspect.getsource(launcher.run_game)

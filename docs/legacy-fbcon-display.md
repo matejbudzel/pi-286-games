@@ -43,14 +43,19 @@ It warns, without removing anything, if KMS/FKMS is already configured.
 
 The physical HDMI signal is 640×480. A 1920×1080 monitor performs panel
 scaling; the Pi does not software-scale a small DOS image inside a 1080p
-framebuffer. Every generated per-game DOSBox override forces that 640×480
-fullscreen surface (`fullfixed=true`) so DOSBox expands the EGA image to the
-appliance framebuffer, and sets `usescancodes=false` for the fbcon keyboard.
-DOSBox 0.74-3 otherwise misinterprets Linux-console scancodes as X11-style
-scancodes, causing incorrect key mappings such as Space producing a letter.
-It also supplies `fulldouble=false`, `output=surface`, and render `frameskip=0`,
-`aspect=false`, `scaler=none`. Game configs still supply their machine, CPU,
-memory, and other game-specific settings.
+framebuffer. The launcher writes a shared appliance base config at
+`/tmp/pi-286-games-dosbox-base.conf` and invokes DOSBox with it first, then the
+game's `dosbox.conf`, then the generated mapper/mount/autoexec config. The base
+forces the 640×480 fullscreen surface (`fullfixed=true`), sets
+`usescancodes=false` for the fbcon keyboard, and supplies `fulldouble=false`,
+`output=surface`, `frameskip=0`, `aspect=true`, and `scaler=normal2x`.
+
+This expands normal 320×200 DOS modes to 640×400 before aspect correction in
+the real 640×480 framebuffer. DOSBox 0.74-3 otherwise misinterprets
+Linux-console scancodes as X11-style scancodes, causing incorrect key mappings
+such as Space producing a letter. A game may deliberately override an SDL or
+render value in its own `dosbox.conf`; its machine, CPU, memory, and other
+game-specific settings remain unchanged.
 
 ## Verification and diagnosis
 
