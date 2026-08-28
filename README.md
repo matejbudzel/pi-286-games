@@ -12,9 +12,10 @@ The repository contains the launcher, host configuration, DOSBox configuration, 
 - DietPi or another minimal Linux installation boots directly into the launcher.
 - The launcher discovers game definitions from `games/` and sorts them alphabetically by display name.
 - A game definition points to game data stored outside this repository.
-- Each game can provide its own DOSBox config and mapper file.
+- Each game provides its own DOSBox config, keyboard mapper and DDR-pad map.
 - The launcher starts DOSBox, waits for it to exit, and then returns to the menu.
-- A host-level panic input can terminate DOSBox independently of the game's mapper.
+- DDR SELECT is a host-level panic control that terminates DOSBox independently
+  of the game's mapper.
 - If a game cannot be started or DOSBox exits abnormally, the launcher shows a fullscreen Slovak error screen and waits for the normal confirm input before returning to the menu.
 - The special `Bye bye!` menu entry exits the launcher by default and can be
   configured to power off the host.
@@ -89,16 +90,21 @@ clear error instead of attempting a RAR extraction when `unrar` is absent.
 
 ## Input model
 
-The launcher has three logical inputs:
+The keyboard remains fully usable. The exact WiseGroup X-PAD DDR dance pad is
+also supported directly through Linux's joystick interface, with no pygame or
+background input daemon. Its button 2 is menu up, button 1 menu down, button 8
+is START/confirm, and button 9 is SELECT/back. Choosing a game opens a
+full-screen physical pad layout first; press Space or START to launch, or Esc
+or SELECT to return.
 
-- Up
-- Down
-- Confirm (`Space` / dance-mat middle)
+While DOSBox runs, SELECT (button 9) is permanently monitored by the launcher
+and returns to the menu immediately. It is never exposed to DOSBox. Every game
+has a small `ddr.conf` which maps buttons 0–8 to the same DOSBox keyboard keys
+and Slovak labels shown on that screen. The normal keyboard bindings remain in
+parallel. See [DDR dance pad setup and mappings](docs/ddr-dance-pad.md).
 
-While DOSBox is running, a separate host-level panic input is monitored. It is configured in `config/host.conf` and is intentionally independent of DOSBox mapper files. Configure it for the appliance's dedicated dance-mat control.
-
-In the launcher menu, pressing that same configured panic control displays the
-first detected Ethernet or Wi-Fi IPv4 address in the bottom-right corner. It
+The configurable keyboard panic key still displays the first detected Ethernet
+or Wi-Fi IPv4 address in the bottom-right corner when pressed in the menu. It
 shows `offline` when neither interface has an address, and also appears after a
 panic return from DOSBox.
 
@@ -123,10 +129,9 @@ The script installs DOSBox when needed, copies the host configuration, grants
 only the shutdown command through sudo, and installs a dedicated systemd
 service which owns local tty1 after DietPi boots. Normal DietPi boot messages
 remain visible; this is intentionally a text-only appliance.
-Configure `panic_device` to a readable `/dev/input/event*` device for panic
-handling while DOSBox owns the display. The install script adds the user to the
-usual `input` group; log out and back in once for that new group membership to
-take effect.
+The installer adds the user to the usual `input` group so it can read the DDR
+pad and retain the keyboard panic fallback. Log out and back in once for that
+new group membership to take effect.
 
 On the ARMv6 256 MB Pi target, the installer builds pinned classic SDL 1.2.16
 under `/opt/sdl12-fbcon` and configures DOSBox alone to use its fbcon backend.

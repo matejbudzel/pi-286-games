@@ -31,7 +31,7 @@ class DiscoveryTests(unittest.TestCase):
             launcher.Terminal.draw = original
         self.assertIn(("Je spustená hra", False), captured)
         self.assertIn(("Prince of Persia", True), captured)
-        self.assertIn(("Ak ju chceš ukončiť, stlač F1.", False), captured)
+        self.assertIn(("Ukončiť: SELECT alebo F1.", False), captured)
 
     def test_console_reset_discards_a_framebuffer_games_last_frame(self):
         captured = []
@@ -109,6 +109,67 @@ class DiscoveryTests(unittest.TestCase):
         self.assertNotIn("preexec_fn=", source)
         self.assertNotIn("setsid", source)
         self.assertNotIn("setpgrp", source)
+
+    def test_ddr_button_mapping_is_the_known_pad_layout(self):
+        self.assertEqual(launcher.PAD_ACTIONS, {2: "UP", 1: "DOWN", 0: "LEFT", 3: "RIGHT", 8: "START", 9: "SELECT"})
+        self.assertEqual(launcher.PAD_LAYOUT[0], (6, "HORE-L"))
+        self.assertEqual(launcher.PAD_LAYOUT[-1], (5, "DOLE-P"))
+        self.assertTrue(launcher.pad_panic([2, 9]))
+        self.assertFalse(launcher.pad_panic([8]))
+
+    def test_ddr_mapping_loads_labels_and_generates_dosbox_joystick_bindings(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            ddr = folder / "ddr.conf"
+            ddr.write_text("button0_key=LEFT\nbutton0_label=Doľava\nbutton2_key=UP\nbutton2_label=Skok\nbutton8_key=SPACE\nbutton8_label=Streľba\n")
+            mapper = folder / "mapper.txt"
+            mapper.write_text('key_left "key 276"\nkey_up "key 273"\nkey_space "key 32"\n')
+            game = launcher.Game("Test", "data", "GAME.EXE", folder / "dosbox.conf", mapper, ddr_conf=ddr)
+            keys, labels = launcher.load_ddr_mapping(game)
+            self.assertEqual((keys[0], labels[2], labels[8]), ("LEFT", "Skok", "Streľba"))
+            generated = launcher.ddr_mapper_content(mapper, keys)
+            self.assertIn('key_left "key 276" "stick_0 button 0"', generated)
+            self.assertIn('key_up "key 273" "stick_0 button 2"', generated)
+            self.assertIn('key_space "key 32" "stick_0 button 8"', generated)
+
+    def test_ddr_mapping_rejects_missing_or_select_mapping(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary)
+            game = launcher.Game("Test", "data", "GAME.EXE", folder / "dosbox.conf", folder / "mapper.txt", ddr_conf=folder / "ddr.conf")
+            with self.assertRaisesRegex(RuntimeError, "Chýba nastavenie DDR"):
+                launcher.load_ddr_mapping(game)
+            game.ddr_conf.write_text("button9_key=SPACE\n")
+            with self.assertRaisesRegex(RuntimeError, "SELECT"):
+                launcher.load_ddr_mapping(game)
+            game.ddr_conf.write_text("button2_key=AXIS\n")
+            with self.assertRaisesRegex(RuntimeError, "Neplatné DDR"):
+                launcher.load_ddr_mapping(game)
+
+    def test_pre_game_screen_shows_full_physical_pad_and_slovak_controls(self):
+        labels = {button: "nepoužité" for button in range(9)}
+        labels.update({2: "Skok", 8: "Streľba"})
+        game = launcher.Game("Prehistorik", "", "", Path(), Path())
+        text = "\n".join(line for line, _ in launcher.pre_game_lines(game, labels))
+        for physical in ("HORE-L", "HORE: Skok", "HORE-P", "VĽAVO", "VPRAVO", "DOLE-L", "DOLE", "DOLE-P", "TY"):
+            self.assertIn(physical, text)
+        self.assertIn("SELECT: späť do menu", text)
+        self.assertIn("START: Streľba", text)
+
+    def test_pre_game_accepts_pad_start_without_keyboard_and_select_goes_back(self):
+        class FakeTerm:
+            def key(self, timeout=None): return None
+        class FakePad:
+            def __init__(self, events): self.events = events
+            def buttons(self): return self.events.pop(0) if self.events else []
+        labels = {button: "nepoužité" for button in range(9)}
+        game = launcher.Game("Test", "", "", Path(), Path())
+        original = launcher.Terminal.draw
+        launcher.Terminal.draw = lambda *args, **kwargs: None
+        try:
+            self.assertTrue(launcher.wait_for_game_start(FakeTerm(), FakePad([[8]]), game, labels))
+            self.assertFalse(launcher.wait_for_game_start(FakeTerm(), FakePad([[9]]), game, labels))
+        finally:
+            launcher.Terminal.draw = original
 
     def test_discovers_and_sorts_valid_non_helper_games(self):
         with tempfile.TemporaryDirectory() as temporary:

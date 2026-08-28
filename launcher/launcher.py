@@ -6,18 +6,24 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 EVENT = struct.Struct("llHHI")
+JS_EVENT = struct.Struct("IhBB")
+PAD_DEVICE_NAME = "WiseGroup.,Ltd X-PAD, Extreme Dance Pad"
+JSIOCGNAME = 0x80806A13  # _IOR('j', 0x13, 128), Linux joystick device name
 KDSETMODE = 0x4B3A
 KD_TEXT = 0x00
 # Linux input-event key codes for controls useful on a keyboard or dance mat.
 KEY_CODES = {"F1": 59, "UP": 103, "DOWN": 108, "LEFT": 105, "RIGHT": 106,
              "SPACE": 57, "ENTER": 28}
+PAD_ACTIONS = {2: "UP", 1: "DOWN", 0: "LEFT", 3: "RIGHT", 8: "START", 9: "SELECT"}
+PAD_LAYOUT = ((6, "HORE-L"), (2, "HORE"), (7, "HORE-P"), (0, "VĽAVO"), (3, "VPRAVO"), (4, "DOLE-L"), (1, "DOLE"), (5, "DOLE-P"))
+DOSBOX_KEY_ACTIONS = {"UP": "key_up", "DOWN": "key_down", "LEFT": "key_left", "RIGHT": "key_right", "SPACE": "key_space", "ENTER": "key_enter", "ESC": "key_esc", "LSHIFT": "key_lshift", "LCTRL": "key_lctrl"}
 
 class InstallationCancelled(Exception):
     pass
 
 @dataclass(frozen=True)
 class Game:
-    name: str; data_dir: str; command: str; dosbox_conf: Path; mapper_file: Path; asset_archive: str = ""
+    name: str; data_dir: str; command: str; dosbox_conf: Path; mapper_file: Path; asset_archive: str = ""; ddr_conf: Path = Path()
 
 def values(path):
     result = {}
@@ -52,8 +58,68 @@ def discover(directory=ROOT / "games"):
         conf = values(item / "game.conf")
         if all(conf.get(k) for k in ("name", "data_dir", "exe", "dosbox_conf", "mapper_file")):
             archive = conf.get("asset_archive", conf.get("asset_zip", ""))
-            games.append(Game(conf["name"], conf["data_dir"], conf["exe"], item / conf["dosbox_conf"], item / conf["mapper_file"], archive))
+            games.append(Game(conf["name"], conf["data_dir"], conf["exe"], item / conf["dosbox_conf"], item / conf["mapper_file"], archive, item / conf.get("ddr_file", "ddr.conf")))
     return sorted(games, key=lambda g: g.name.casefold())
+
+class DancePad:
+    """Read only the known DDR pad's Linux joystick button numbers; axes are ignored."""
+    def __init__(self): self.fds = []
+    def __enter__(self):
+        for device in glob.glob("/dev/input/js*"):
+            fd = None
+            try:
+                fd = os.open(device, os.O_RDONLY | os.O_NONBLOCK)
+                name = fcntl.ioctl(fd, JSIOCGNAME, b"\0" * 128).split(b"\0", 1)[0].decode("utf-8", "replace")
+                if name == PAD_DEVICE_NAME:
+                    self.fds.append(fd); fd = None
+            except OSError:
+                pass
+            finally:
+                if fd is not None: os.close(fd)
+        return self
+    def __exit__(self, *_):
+        for fd in self.fds: os.close(fd)
+    def buttons(self):
+        pressed = []
+        for fd in self.fds:
+            try: raw = os.read(fd, JS_EVENT.size * 32)
+            except BlockingIOError: continue
+            for pos in range(0, len(raw) - JS_EVENT.size + 1, JS_EVENT.size):
+                _, value, typ, number = JS_EVENT.unpack_from(raw, pos)
+                if typ & 0x7f == 1 and value == 1: pressed.append(number)
+        return pressed
+
+def load_ddr_mapping(game):
+    """Load one game's fixed physical-pad-to-DOS-key mapping and Slovak labels."""
+    if not game.ddr_conf.is_file(): raise RuntimeError("Chýba nastavenie DDR ovládača.")
+    raw = values(game.ddr_conf); keys = {}; labels = {}
+    for button in range(9):
+        key = raw.get("button%d_key" % button, "").upper()
+        label = raw.get("button%d_label" % button, "nepoužité")
+        if key in ("", "-"): key = ""
+        elif key not in DOSBOX_KEY_ACTIONS: raise RuntimeError("Neplatné DDR tlačidlo %d." % button)
+        if key and not label: raise RuntimeError("Chýba popis DDR tlačidla %d." % button)
+        keys[button], labels[button] = key, label or "nepoužité"
+    if "button9_key" in raw: raise RuntimeError("SELECT sa nesmie mapovať do hry.")
+    return keys, labels
+
+def ddr_mapper_content(mapper_file, keys):
+    content = mapper_file.read_text(encoding="utf-8")
+    for button, key in keys.items():
+        if not key: continue
+        action = DOSBOX_KEY_ACTIONS[key]
+        lines = content.splitlines()
+        for index, line in enumerate(lines):
+            if line.startswith(action + " "):
+                lines[index] = line + ' "stick_0 button %d"' % button
+                break
+        else: raise RuntimeError("DDR kláves %s nie je v DOSBox mapovaní." % key)
+        content = "\n".join(lines) + "\n"
+    return content
+
+def pad_panic(buttons):
+    """SELECT is never handed to DOSBox: it always returns to the launcher."""
+    return 9 in buttons
 
 class Terminal:
     def __enter__(self):
@@ -99,17 +165,45 @@ def sound_status():
         return "Zvuk: nejde"
     return "Zvuk: ide" if module_loaded and usable else "Zvuk: nejde"
 
-def error(term, game, detail, confirm):
+def next_input(term, pad, timeout=.1):
+    key = term.key(timeout)
+    if key: return key
+    for button in pad.buttons():
+        action = PAD_ACTIONS.get(button)
+        if action: return action
+    return None
+
+def error(term, pad, game, detail, confirm):
     Terminal.draw([("Nepodarilo sa spustiť hru", False), (game.name, True), ("", False), (detail, False), ("", False), ("Stlač %s pre návrat" % confirm, False)], "\x1b[91m")
     while True:
-        key = term.key()
+        key = next_input(term, pad)
         if key == "CTRL_C": return False
-        if key == confirm: return True
+        if key in (confirm, "START"): return True
+        if key in ("SELECT", "ESC"): return False
 
 def game_running_screen(game, panic):
     """Keep a meaningful console screen visible until DOSBox takes it over."""
     Terminal.draw([("Je spustená hra", False), (game.name, True), ("", False),
-                   ("Ak ju chceš ukončiť, stlač %s." % panic, False)], "\x1b[92m")
+                   ("Ukončiť: SELECT alebo %s." % panic, False)], "\x1b[92m")
+
+def pre_game_lines(game, labels):
+    by_button = dict(PAD_LAYOUT)
+    def panel(button): return "%s: %s" % (by_button[button], labels[button])
+    return [(game.name, True), ("", False),
+            ("[ %s ]  [ %s ]  [ %s ]" % (panel(6), panel(2), panel(7)), False),
+            ("", False),
+            ("[ %s ]      TY      [ %s ]" % (panel(0), panel(3)), False),
+            ("", False),
+            ("[ %s ]  [ %s ]  [ %s ]" % (panel(4), panel(1), panel(5)), False),
+            ("", False), ("SELECT: späť do menu", False), ("START: %s" % labels[8], False),
+            ("SPACE / START - spustiť hru", False)]
+
+def wait_for_game_start(term, pad, game, labels):
+    Terminal.draw(pre_game_lines(game, labels), "\x1b[93m", top_corner=sound_status())
+    while True:
+        key = next_input(term, pad)
+        if key in ("SPACE", "START", "ENTER"): return True
+        if key in ("SELECT", "ESC", "CTRL_C"): return False
 
 def restore_console_display():
     """Return fbcon to text mode before redrawing the tty launcher UI."""
@@ -128,12 +222,12 @@ def install_screen(term, game, title, detail, percent=None):
         lines.extend([("", False), ("[%s%s] %d%%" % ("#" * filled, "-" * (width - filled), percent), False)])
     Terminal.draw(lines, "\x1b[93m")
 
-def wait_for_install_confirmation(term, game, confirm, title, detail):
+def wait_for_install_confirmation(term, game, confirm, title, detail, pad=None):
     install_screen(term, game, title, detail)
     while True:
-        key = term.key()
-        if key in ("ESC", "CTRL_C"): raise InstallationCancelled()
-        if key == confirm: return
+        key = next_input(term, pad) if pad else term.key()
+        if key in ("ESC", "SELECT", "CTRL_C"): raise InstallationCancelled()
+        if key in (confirm, "START"): return
 
 def copy_archive(source, archive, game, term):
     if source.startswith(("http://", "https://")):
@@ -151,12 +245,12 @@ def copy_archive(source, archive, game, term):
             output.write(block); copied += len(block)
             if term and total: install_screen(term, game, "Inštalujem herné dáta", "Kopírujem archív...", copied * 50 // total)
 
-def install_assets(game, data, term=None, confirm="SPACE"):
+def install_assets(game, data, term=None, confirm="SPACE", pad=None):
     """Install a ZIP or RAR archive only when the game directory is absent."""
     if data.is_dir(): return
     if not game.asset_archive: raise RuntimeError("Chýbajú herné dáta.")
     if term:
-        wait_for_install_confirmation(term, game, confirm, "Chýbajú herné dáta", "Stlač %s pre inštaláciu, Esc pre návrat" % confirm)
+        wait_for_install_confirmation(term, game, confirm, "Chýbajú herné dáta", "Stlač %s pre inštaláciu, Esc pre návrat" % confirm, pad)
         install_screen(term, game, "Inštalujem herné dáta", "Pripravujem archív...", 0)
     try:
         data.parent.mkdir(parents=True, exist_ok=True)
@@ -190,15 +284,15 @@ def install_assets(game, data, term=None, confirm="SPACE"):
             payload.rename(data)
             if term:
                 install_screen(term, game, "Herné dáta sú pripravené", "Stlač %s pre spustenie hry" % confirm, 100)
-                wait_for_install_confirmation(term, game, confirm, "Herné dáta sú pripravené", "Stlač %s pre spustenie hry" % confirm)
+                wait_for_install_confirmation(term, game, confirm, "Herné dáta sú pripravené", "Stlač %s pre spustenie hry" % confirm, pad)
         except (OSError, subprocess.CalledProcessError, urllib.error.URLError, zipfile.BadZipFile) as exc:
             raise RuntimeError("Herné dáta sa nepodarilo nainštalovať: %s" % str(exc)) from exc
 
-def validate(game, root, term=None, confirm="SPACE"):
+def validate(game, root, term=None, confirm="SPACE", pad=None):
     relative = Path(game.data_dir)
     if relative.is_absolute() or ".." in relative.parts: raise RuntimeError("Neplatný priečinok s dátami.")
     data = (root / relative).resolve()
-    install_assets(game, data, term, confirm)
+    install_assets(game, data, term, confirm, pad)
     parts = shlex.split(game.command)
     if not parts or Path(parts[0]).is_absolute() or ".." in Path(parts[0]).parts: raise RuntimeError("Neplatný príkaz hry.")
     return data, " ".join([parts[0].replace("/", "\\\\")] + parts[1:])
@@ -248,14 +342,16 @@ def write_dosbox_replay(dosbox, game_conf, generated_conf, environment):
     replay.chmod(0o700)
     return replay
 
-def run_game(game, config, term, no_sound=False):
-    try: data, command = validate(game, Path(config["game_data_root"]).expanduser(), term, config.get("confirm_key", "SPACE").upper())
+def run_game(game, config, term, pad, ddr_keys, no_sound=False):
+    try: data, command = validate(game, Path(config["game_data_root"]).expanduser(), term, config.get("confirm_key", "SPACE").upper(), pad)
     except InstallationCancelled: return "cancelled"
     if not game.dosbox_conf.is_file() or not game.mapper_file.is_file(): raise RuntimeError("Chýba nastavenie DOSBoxu.")
     dosbox = shutil.which(config.get("dosbox_command", "dosbox"))
     if not dosbox: raise RuntimeError("DOSBox nie je nainštalovaný.")
     generated = game.dosbox_conf.parent / ".launcher-autoexec.conf"
-    generated_content = generated_dosbox_config(game.mapper_file, data, command, no_sound)
+    generated_mapper = Path("/tmp/pi-286-games-dosbox-mapper.txt")
+    generated_mapper.write_text(ddr_mapper_content(game.mapper_file, ddr_keys), encoding="utf-8")
+    generated_content = generated_dosbox_config(generated_mapper, data, command, no_sound)
     generated.write_text(generated_content, encoding="utf-8")
     generated_copy = Path("/tmp/pi-286-games-dosbox.conf")
     generated_copy.write_text(generated_content, encoding="utf-8")
@@ -283,6 +379,12 @@ def run_game(game, config, term, no_sound=False):
         wanted = KEY_CODES.get(config.get("panic_key", "F1").upper())
         panicked = False
         while proc.poll() is None:
+            if pad_panic(pad.buttons()):
+                proc.terminate()
+                try: proc.wait(timeout=3)
+                except subprocess.TimeoutExpired: proc.kill(); proc.wait()
+                panicked = True
+                break
             for fd in fds:
                 try: raw = os.read(fd, EVENT.size * 8)
                 except BlockingIOError: continue
@@ -310,26 +412,29 @@ def main():
     games = discover()
     if not games: print("No valid game definitions found.", file=sys.stderr); return 1
     selected = 0; confirm = config.get("confirm_key", "SPACE").upper(); corner = ""
-    with Terminal() as term:
+    with Terminal() as term, DancePad() as pad:
         while True:
             lines = [(g.name, n == selected) for n, g in enumerate(games)] + [("", False), ("Bye bye!", selected == len(games))]
             Terminal.draw(lines, "\x1b[91m" if selected == len(games) else ("\x1b[92m", "\x1b[96m", "\x1b[93m")[sum(games[selected].name.encode()) % 3], corner, sound_status())
-            key = term.key()
+            key = next_input(term, pad)
             if key == "CTRL_C": return 0
             if key == config.get("panic_key", "F1").upper(): corner = network_address()
+            elif key == "SELECT": continue
             elif key == config.get("up_key", "UP").upper(): selected = (selected - 1) % (len(games) + 1)
             elif key == config.get("down_key", "DOWN").upper(): selected = (selected + 1) % (len(games) + 1)
-            elif key == confirm:
+            elif key in (confirm, "START"):
                 if selected == len(games):
                     if not enabled(config.get("shutdown_on_bye_bye", "false")): return 0
                     try: subprocess.run(["sudo", "-n", "/sbin/shutdown", "-h", "now"], check=True)
                     except (OSError, subprocess.CalledProcessError):
-                        if not error(term, Game("Systém", "", "", Path(), Path()), "Vypnutie systému zlyhalo.", confirm): return 0
+                        if not error(term, pad, Game("Systém", "", "", Path(), Path()), "Vypnutie systému zlyhalo.", confirm): return 0
                 else:
                     try:
-                        result = run_game(games[selected], config, term, args.no_sound)
+                        ddr_keys, ddr_labels = load_ddr_mapping(games[selected])
+                        if not wait_for_game_start(term, pad, games[selected], ddr_labels): continue
+                        result = run_game(games[selected], config, term, pad, ddr_keys, args.no_sound)
                         if result == "panic": corner = network_address()
-                        if result == "failed" and not error(term, games[selected], "DOSBox skončil s chybou.", confirm): return 0
+                        if result == "failed" and not error(term, pad, games[selected], "DOSBox skončil s chybou.", confirm): return 0
                     except RuntimeError as exc:
-                        if not error(term, games[selected], str(exc), confirm): return 0
+                        if not error(term, pad, games[selected], str(exc), confirm): return 0
 if __name__ == "__main__": raise SystemExit(main())

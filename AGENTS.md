@@ -35,3 +35,9 @@ framebuffer. Do not replace it with sdl12-compat, X11, Wayland, KMS, or FKMS;
 HDMI audio on this target uses `dtparam=audio=on`, `snd_bcm2835`, and the
 bcm2835 HDMI ALSA card identifier. Preserve the card-name-based ALSA default;
 do not make audio failures invalidate the independent video diagnosis.
+
+The supported dance pad is exactly `WiseGroup.,Ltd X-PAD, Extreme Dance Pad`.
+Read its Linux joystick buttons directly; ignore axes. Button 9 (SELECT) is a
+launcher-only DOSBox panic/return control and must never be mapped into a game.
+Keep game-specific button-to-key bindings and Slovak labels in each game's
+`ddr.conf`, not in launcher code.
