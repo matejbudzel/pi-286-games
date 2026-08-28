@@ -144,8 +144,9 @@ install X11 or enable KMS/FKMS. The corresponding `dosbox_*` settings in
 The installer also enables the verified BCM2835 HDMI audio path, persists the
 `snd_bcm2835` module, adds the appliance user to `audio`, and writes an ALSA
 default for the detected bcm2835 HDMI card name. DOSBox is explicitly run with
-SDL's ALSA backend. Log out and back in after the new group membership, or
-reboot after installation.
+SDL's ALSA backend and `AUDIODEV=hw:HDMI,0`, matching the verified HDMI device
+without relying on its numeric card order. Log out and back in after the new
+group membership, or reboot after installation.
 
 At boot, a root-owned `pi-286-games-audio.service` explicitly loads
 `snd_bcm2835` before the launcher. The launcher displays gray `Zvuk: ide` or

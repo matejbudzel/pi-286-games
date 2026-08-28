@@ -24,6 +24,9 @@ dosbox_sdl_videodriver=fbcon
 dosbox_sdl_fbdev=/dev/fb0
 dosbox_sdl_fb_broken_modes=1
 dosbox_sdl_audiodriver=alsa
+# SDL 1.2's ALSA backend reads AUDIODEV.  Use the verified HDMI card ID rather
+# than relying on ALSA's default or a changing numeric card order.
+dosbox_sdl_audiodev=hw:HDMI,0
 
 # false closes the launcher and returns to the login shell. Set true on the
 # Raspberry Pi appliance to power off the host from the Bye bye! menu item.

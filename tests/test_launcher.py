@@ -67,11 +67,12 @@ class DiscoveryTests(unittest.TestCase):
             original = launcher.Path
             try:
                 launcher.Path = lambda value: Path(temporary) / Path(value).name if value == "/tmp/pi-286-games-dosbox-command.sh" else original(value)
-                written = launcher.write_dosbox_replay("/usr/bin/dosbox", Path("game.conf"), Path("/tmp/pi-286-games-dosbox.conf"), {"LD_LIBRARY_PATH": "/opt/sdl12-fbcon/lib", "SDL_VIDEODRIVER": "fbcon", "SDL_FBDEV": "/dev/fb0", "SDL_FB_BROKEN_MODES": "1"})
+                written = launcher.write_dosbox_replay("/usr/bin/dosbox", Path("game.conf"), Path("/tmp/pi-286-games-dosbox.conf"), {"LD_LIBRARY_PATH": "/opt/sdl12-fbcon/lib", "SDL_VIDEODRIVER": "fbcon", "SDL_FBDEV": "/dev/fb0", "SDL_FB_BROKEN_MODES": "1", "AUDIODEV": "hw:HDMI,0"})
             finally:
                 launcher.Path = original
             content = written.read_text()
             self.assertIn("SDL_VIDEODRIVER=fbcon", content)
+            self.assertIn("AUDIODEV=hw:HDMI,0", content)
             self.assertIn("-conf game.conf", content)
             self.assertIn("-conf /tmp/pi-286-games-dosbox.conf", content)
             self.assertIn("> /tmp/pi-286-games-dosbox.log 2>&1", content)
@@ -83,12 +84,14 @@ class DiscoveryTests(unittest.TestCase):
             "dosbox_sdl_fbdev": "/dev/fb0",
             "dosbox_sdl_fb_broken_modes": "1",
             "dosbox_sdl_audiodriver": "alsa",
+            "dosbox_sdl_audiodev": "hw:HDMI,0",
         })
         self.assertEqual(environment["LD_LIBRARY_PATH"], "/opt/sdl12-fbcon/lib")
         self.assertEqual(environment["SDL_VIDEODRIVER"], "fbcon")
         self.assertEqual(environment["SDL_FBDEV"], "/dev/fb0")
         self.assertEqual(environment["SDL_FB_BROKEN_MODES"], "1")
         self.assertEqual(environment["SDL_AUDIODRIVER"], "alsa")
+        self.assertEqual(environment["AUDIODEV"], "hw:HDMI,0")
 
     def test_generated_dosbox_config_has_the_appliance_safe_video_values(self):
         config = launcher.generated_dosbox_config(Path("mapper.txt"), Path("/games/test"), "GAME.EXE")

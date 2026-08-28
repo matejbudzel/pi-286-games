@@ -96,4 +96,6 @@ assuming a particular card number. Audio health warnings remain separate from
 framebuffer/video success, and speaker-test is never run automatically. The
 root-owned `pi-286-games-audio.service` also runs `modprobe snd_bcm2835` before
 the launcher as a boot-time recovery path; the launcher shows its live audio
-state in the top-right corner.
+state in the top-right corner. DOSBox's classic SDL 1.2 ALSA backend is also
+given `AUDIODEV=hw:HDMI,0` explicitly; this bypasses ambiguity in ALSA's
+default-device selection while retaining the card-name-based setup.

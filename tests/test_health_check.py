@@ -30,7 +30,7 @@ class HealthCheckTests(unittest.TestCase):
             (root / "opt/sdl12-fbcon/lib/libSDL-1.2.so.0").touch()
             self.write_command(root / "opt/sdl12-fbcon/bin", "sdl-config", "echo 1.2.16")
         host_conf = temporary / "host.conf"
-        host_conf.write_text("dosbox_ld_library_path=/opt/sdl12-fbcon/lib\ndosbox_sdl_videodriver=fbcon\ndosbox_sdl_fbdev=/dev/fb0\ndosbox_sdl_fb_broken_modes=1\ndosbox_sdl_audiodriver=alsa\n")
+        host_conf.write_text("dosbox_ld_library_path=/opt/sdl12-fbcon/lib\ndosbox_sdl_videodriver=fbcon\ndosbox_sdl_fbdev=/dev/fb0\ndosbox_sdl_fb_broken_modes=1\ndosbox_sdl_audiodriver=alsa\ndosbox_sdl_audiodev=hw:HDMI,0\n")
         commands = temporary / "bin"; commands.mkdir()
         self.write_command(commands, "dosbox", "if [ \"${1:-}\" = -version ]; then echo 'DOSBox version 0.74-3'; exit 0; fi\n[ \"${LD_LIBRARY_PATH:-}\" = \"$HEALTH_CHECK_ROOT/opt/sdl12-fbcon/lib\" ] || exit 1\n[ \"${SDL_VIDEODRIVER:-}\" = fbcon ] || exit 1\n[ \"${SDL_FBDEV:-}\" = /dev/fb0 ] || exit 1\n[ \"${SDL_FB_BROKEN_MODES:-}\" = 1 ] || exit 1\nexit 0")
         self.write_command(commands, "ldd", "if [ \"${LD_LIBRARY_PATH:-}\" = \"$HEALTH_CHECK_ROOT/opt/sdl12-fbcon/lib\" ]; then echo \"libSDL-1.2.so.0 => $HEALTH_CHECK_ROOT/opt/sdl12-fbcon/lib/libSDL-1.2.so.0\"; else echo 'libSDL-1.2.so.0 => /lib/libSDL-1.2.so.0'; echo 'libSDL2-2.0.so.0 => /lib/libSDL2-2.0.so.0'; fi")
