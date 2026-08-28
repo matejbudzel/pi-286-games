@@ -70,4 +70,4 @@ class LegacyFramebufferTests(unittest.TestCase):
         self.assertIn("SDL_INIT_AUDIO", source)
         self.assertIn("SDL_OpenAudio", source)
         self.assertIn("SDL_AUDIODRIVER=alsa", runner)
-        self.assertIn("AUDIODEV=hw:0,0", runner)
+        self.assertIn("AUDIODEV=plughw:0,0", runner)

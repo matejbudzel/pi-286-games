@@ -81,7 +81,7 @@ if [ -n "$dosbox_path" ] && command -v ldd >/dev/null 2>&1; then
 fi
 host_conf=${HEALTH_CHECK_HOST_CONF:-$repo/config/host.conf}
 for pair in dosbox_sdl_videodriver=fbcon dosbox_sdl_fbdev=/dev/fb0 dosbox_sdl_fb_broken_modes=1 dosbox_ld_library_path=/opt/sdl12-fbcon/lib; do key=${pair%%=*}; expected=${pair#*=}; value=$(host_setting "$key"); [ "$value" = "$expected" ] && pass "runtime setting $pair" || warn "runtime setting $key is '$value' (expected $expected)"; done
-pass "DOSBox audio runtime is pinned to SDL_AUDIODRIVER=alsa AUDIODEV=hw:0,0 SDL_PATH_DSP=hw:0,0"
+pass "DOSBox audio runtime is pinned to SDL_AUDIODRIVER=alsa AUDIODEV=plughw:0,0 SDL_PATH_DSP=plughw:0,0"
 
 if [ "$smoke" = true ]; then
     smoke_log=$runtime_dir/pi-286-games-dosbox-smoke.log

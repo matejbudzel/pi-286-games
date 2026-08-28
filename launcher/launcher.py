@@ -17,7 +17,9 @@ KD_TEXT = 0x00
 KEY_CODES = {"F1": 59, "UP": 103, "DOWN": 108, "LEFT": 105, "RIGHT": 106,
              "SPACE": 57, "ENTER": 28}
 PANIC_KEY = "F1"
-HDMI_PCM = "hw:0,0"
+# Keep the verified HDMI hardware target, but let ALSA adapt legacy SDL's
+# requested sample format/rate instead of requiring an exact hardware match.
+HDMI_PCM = "plughw:0,0"
 PAD_ACTIONS = {2: "UP", 1: "DOWN", 0: "LEFT", 3: "RIGHT", 8: "START", 9: "SELECT"}
 PAD_LAYOUT = ((6, "HORE-L"), (2, "HORE"), (7, "HORE-P"), (0, "VĽAVO"), (3, "VPRAVO"), (4, "DOLE-L"), (1, "DOLE"), (5, "DOLE-P"))
 DOSBOX_KEY_ACTIONS = {"UP": "key_up", "DOWN": "key_down", "LEFT": "key_left", "RIGHT": "key_right", "SPACE": "key_space", "ENTER": "key_enter", "ESC": "key_esc", "LSHIFT": "key_lshift", "LCTRL": "key_lctrl"}
