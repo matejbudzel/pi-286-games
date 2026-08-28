@@ -30,7 +30,7 @@ if [ -x /opt/sdl12-fbcon/bin/sdl-config ] && [ "$(/opt/sdl12-fbcon/bin/sdl-confi
         'dosbox_sdl_fbdev=/dev/fb0' \
         'dosbox_sdl_fb_broken_modes=1' \
         'dosbox_sdl_audiodriver=alsa' \
-        'dosbox_sdl_audiodev=hw:HDMI,0'; do
+        'dosbox_sdl_audiodev=hw:0,0'; do
         key=${setting%%=*}
         if grep -q "^$key=" "$repo/config/host.conf"; then
             sed -i "s|^$key=.*|$setting|" "$repo/config/host.conf"

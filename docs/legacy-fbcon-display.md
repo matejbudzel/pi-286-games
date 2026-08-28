@@ -102,5 +102,6 @@ framebuffer/video success, and speaker-test is never run automatically. The
 root-owned `pi-286-games-audio.service` also runs `modprobe snd_bcm2835` before
 the launcher as a boot-time recovery path; the launcher shows its live audio
 state in the top-right corner. DOSBox's classic SDL 1.2 ALSA backend is also
-given `AUDIODEV=hw:HDMI,0` explicitly; this bypasses ambiguity in ALSA's
-default-device selection while retaining the card-name-based setup.
+given `AUDIODEV=hw:0,0` and `SDL_PATH_DSP=hw:0,0` explicitly. Card 0/device 0
+is the physically verified HDMI PCM on this fixed Pi 1 appliance; this bypasses
+SDL's default-device resolution while `/etc/asound.conf` remains card-name based.
