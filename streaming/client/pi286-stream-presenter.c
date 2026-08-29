@@ -104,12 +104,13 @@ int main(int argc, char **argv) {
     if (argc != 6) { fprintf(stderr, "usage: %s HOST PORT TOKEN_FILE SESSION PAD_MAP\n", argv[0]); return 2; }
     host = argv[1]; port = argv[2]; token_path = argv[3]; session = argv[4];
     snprintf(pad_map, sizeof(pad_map), "%s", argv[5]); parse_pad_map(pad_map, pad_keys);
-    if (!(file = fopen(token_path, "r")) || !fgets(token, sizeof(token), file)) return 2;
+    if (!(file = fopen(token_path, "r")) || !fgets(token, sizeof(token), file)) { fprintf(stderr, "cannot read token file %s\n", token_path); return 2; }
     fclose(file); token[strcspn(token, "\r\n")] = 0;
-    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_JOYSTICK) < 0 || !(screen = SDL_SetVideoMode(640, 480, 16, SDL_FULLSCREEN))) return 1;
+    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_JOYSTICK) < 0) { fprintf(stderr, "SDL_Init failed: %s\n", SDL_GetError()); return 1; }
+    if (!(screen = SDL_SetVideoMode(640, 480, 16, SDL_FULLSCREEN))) { fprintf(stderr, "SDL_SetVideoMode failed: %s\n", SDL_GetError()); SDL_Quit(); return 1; }
     if (SDL_NumJoysticks() > 0) joystick = SDL_JoystickOpen(0);
     memset(&audio, 0, sizeof(audio)); audio.freq = 22050; audio.format = AUDIO_S16LSB; audio.channels = 1; audio.samples = 512; audio.callback = audio_callback;
-    if (SDL_OpenAudio(&audio, NULL) < 0) { SDL_Quit(); return 1; }
+    if (SDL_OpenAudio(&audio, NULL) < 0) { fprintf(stderr, "SDL_OpenAudio failed: %s\n", SDL_GetError()); SDL_Quit(); return 1; }
     SDL_PauseAudio(0);
     for (;;) {
         snprintf(path, sizeof(path), "/v1/sessions/%s/video", session);
