@@ -47,3 +47,14 @@ Before integrating the launcher or audio, prove these facts with Grand Prix:
 Only after that should mono audio, launcher selection, authentication, and
 network-loss handling be added.
 
+## Prepared server container
+
+The initial prototype container is Proxmox LXC `112` (`pi286-dos-stream`). It
+is an unprivileged Debian 13 amd64 guest with 2 vCPU, 1 GiB RAM, 512 MiB swap,
+an 8 GiB `local-lvm` disk, DHCP on `vmbr0`, and `onboot=0`. At provisioning it
+received only `dosbox` (Debian 0.74-3), `xvfb`, `openssh-server`, and Python 3.
+The non-login `pi286stream` account owns `/srv/pi286-stream/{sessions,runtime}`.
+
+No streaming listener or automatic game session is installed yet. The next
+change must define the authenticated control/video/audio protocol before any
+port is opened to the Pi.
