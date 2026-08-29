@@ -5,4 +5,5 @@ state_root=/srv/pi286-stream
 token_file=/etc/pi286-stream.token
 dosbox=/usr/bin/dosbox
 xvfb=/usr/bin/Xvfb
+xwd=/usr/bin/xwd
 max_upload_bytes=134217728

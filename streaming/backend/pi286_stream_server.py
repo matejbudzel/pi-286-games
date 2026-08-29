@@ -32,6 +32,7 @@ DEFAULTS = {
     "token_file": "/etc/pi286-stream.token",
     "dosbox": "/usr/bin/dosbox",
     "xvfb": "/usr/bin/Xvfb",
+    "xwd": "/usr/bin/xwd",
     "max_upload_bytes": str(128 * 1024 * 1024),
 }
 
@@ -170,7 +171,8 @@ class StreamState:
             dosbox = subprocess.Popen([self.config["dosbox"], "-conf", str(config_path)], cwd=game_dir,
                                       env=environment, stdout=log, stderr=subprocess.STDOUT,
                                       start_new_session=True)
-            self.active[session_id] = {"dosbox": dosbox, "xvfb": xvfb, "log": log, "started": time.time()}
+            self.active[session_id] = {"dosbox": dosbox, "xvfb": xvfb, "log": log,
+                                       "display": display, "started": time.time(), "frames": []}
             return self.session_status(session_id)
 
     def _next_display(self) -> str:
@@ -187,7 +189,35 @@ class StreamState:
             if not item:
                 raise KeyError(session_id)
             return {"id": session_id, "state": "running" if item["dosbox"].poll() is None else "exited",
-                    "pid": item["dosbox"].pid, "log": f"/v1/sessions/{session_id}/log"}
+                    "pid": item["dosbox"].pid, "frames": len(item["frames"]),
+                    "log": f"/v1/sessions/{session_id}/log"}
+
+    def capture_frame(self, session_id: str) -> dict:
+        with self.lock:
+            item = self.active.get(session_id)
+            if not item:
+                raise KeyError(session_id)
+            if item["dosbox"].poll() is not None:
+                raise RuntimeError("DOSBox has already exited")
+            frame_id = f"{len(item['frames']) + 1:04d}.xwd"
+            frame = self.runtime / f"{session_id}-{frame_id}"
+            subprocess.run([self.config["xwd"], "-silent", "-root", "-display", item["display"], "-out", str(frame)],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=3, check=True)
+            item["frames"].append(frame)
+            return {"id": frame_id, "bytes": frame.stat().st_size,
+                    "path": f"/v1/sessions/{session_id}/frames/{frame_id}"}
+
+    def frame_path(self, session_id: str, frame_id: str) -> Path:
+        if not re.fullmatch(r"[0-9]{4}\\.xwd", frame_id):
+            raise KeyError(session_id)
+        with self.lock:
+            item = self.active.get(session_id)
+            if not item:
+                raise KeyError(session_id)
+            frame = self.runtime / f"{session_id}-{frame_id}"
+            if frame not in item["frames"]:
+                raise KeyError(session_id)
+            return frame
 
     def stop_session(self, session_id: str) -> None:
         with self.lock:
@@ -229,6 +259,15 @@ def make_handler(state: StreamState):
             self.end_headers()
             self.wfile.write(body)
 
+        def _file(self, path: Path):
+            size = path.stat().st_size
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "image/x-xwindowdump")
+            self.send_header("Content-Length", str(size))
+            self.end_headers()
+            with path.open("rb") as source:
+                shutil.copyfileobj(source, self.wfile)
+
         def _request_json(self):
             try:
                 length = int(self.headers.get("Content-Length", "-1"))
@@ -250,6 +289,9 @@ def make_handler(state: StreamState):
                 if self.path == "/v1/status":
                     self._json(HTTPStatus.OK, {"api": 1, "active_sessions": len(state.active),
                                                 "media_transport": "not implemented"})
+                elif re.fullmatch(r"/v1/sessions/[^/]+/frames/[0-9]{4}\\.xwd", self.path):
+                    parts = self.path.split("/")
+                    self._file(state.frame_path(parts[3], parts[5]))
                 elif self.path.startswith("/v1/sessions/") and self.path.endswith("/log"):
                     session_id = self.path.split("/")[3]
                     self._json(HTTPStatus.NOT_IMPLEMENTED, {"error": "log retrieval is not exposed yet", "id": session_id})
@@ -267,9 +309,12 @@ def make_handler(state: StreamState):
                     self._json(HTTPStatus.OK, {"missing": state.missing(request["blobs"])})
                 elif self.path == "/v1/sessions":
                     self._json(HTTPStatus.CREATED, state.start_session(request))
+                elif re.fullmatch(r"/v1/sessions/[^/]+/frames", self.path):
+                    self._json(HTTPStatus.CREATED, state.capture_frame(self.path.split("/")[3]))
                 else: self._json(HTTPStatus.NOT_FOUND, {"error": "not found"})
             except (ValueError, json.JSONDecodeError) as error: self._json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
             except RuntimeError as error: self._json(HTTPStatus.CONFLICT, {"error": str(error)})
+            except (subprocess.SubprocessError, OSError) as error: self._json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(error)})
 
         def do_PUT(self):
             if not self._check_auth(): return

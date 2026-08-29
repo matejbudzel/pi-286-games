@@ -34,3 +34,9 @@ class StreamBackendTests(unittest.TestCase):
         self.assertIn("nosound=true", config)
         self.assertIn("mount c .", config)
         self.assertIn("GP\\GP.EXE", config)
+
+    def test_frame_names_are_strict_and_do_not_escape_runtime(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = backend.StreamState(dict(backend.DEFAULTS, state_root=directory), "x" * 32)
+            with self.assertRaises(KeyError):
+                state.frame_path("no-session", "../../etc/passwd")

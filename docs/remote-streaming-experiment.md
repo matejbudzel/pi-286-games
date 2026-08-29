@@ -72,8 +72,12 @@ The initial HTTP API is deliberately limited:
 - `PUT /v1/blobs/<sha256>` verifies and atomically stores an uploaded blob;
 - `POST /v1/sessions` materializes a cached game into a new private session and
   launches one headless DOSBox instance under Xvfb;
+- `POST /v1/sessions/<id>/frames` saves an Xvfb root-window frame as XWD and
+  `GET /v1/sessions/<id>/frames/<frame>.xwd` downloads it;
 - `GET`/`DELETE /v1/sessions/<id>` inspect or terminate that instance.
 
-It has no media or input endpoint yet. That separation is intentional: the
+`scripts/smoke-stream-backend.py` exercises cache-miss/upload/start/two-frame
+capture/stop using a generated, disposable DOS COM program. Run it inside the
+LXC after installation. It has no media or input endpoint yet. That separation is intentional: the
 cache and process lifecycle can be verified without exposing game assets in the
 repository or prematurely choosing a video/audio protocol.
