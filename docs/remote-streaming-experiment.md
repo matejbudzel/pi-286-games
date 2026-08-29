@@ -84,6 +84,9 @@ The initial HTTP API is deliberately limited:
   hardware dependency and does not let DOSBox run unbounded;
 - `POST /v1/sessions/<id>/input` accepts up to 32 normalized key press/release
   events and injects them directly into that session's DOSBox X window.
+- `POST /v1/diagnostics/rainbow-cat` starts an asset-free generated DOSBox
+  diagnostic. It is intended for checking video/audio/input transport before
+  uploading any private game data.
 - `GET`/`DELETE /v1/sessions/<id>` inspect or terminate that instance.
 
 `scripts/smoke-stream-backend.py` exercises cache-miss/**failed start**/upload/

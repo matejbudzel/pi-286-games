@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import hmac
+import io
 import json
 import os
 import re
@@ -48,6 +49,7 @@ KEYS = {
     "F6": "F6", "F7": "F7", "F8": "F8", "F9": "F9", "F10": "F10",
     **{character.upper(): character for character in "abcdefghijklmnopqrstuvwxyz0123456789"},
 }
+RAINBOW_CAT_COM = bytes.fromhex("b0b6e643b8a904e64288e0e642e4610c03e661b81300cd10b800a08ec031ffb003b900faf3aab401cd1674fab400cd1680fc4875f131ffb004b900faf3aaebe6")
 VIDEO_WIDTH = 320
 VIDEO_HEIGHT = 200
 VIDEO_BYTES = VIDEO_WIDTH * VIDEO_HEIGHT * 2
@@ -204,6 +206,13 @@ class StreamState:
             self.active[session_id].update({"audio": audio_path, "audio_stop": audio_stop,
                                             "audio_thread": audio_thread, "window": None, "held_keys": set()})
             return self.session_status(session_id)
+
+    def start_rainbow_cat(self) -> dict:
+        """Launch the built-in asset-free DOSBox stream diagnostic."""
+        digest = hashlib.sha256(RAINBOW_CAT_COM).hexdigest()
+        self.store_blob(digest, io.BytesIO(RAINBOW_CAT_COM), len(RAINBOW_CAT_COM))
+        return self.start_session({"game_id": "rainbow-cat", "executable": "RAINBOW.COM",
+                                   "files": {"RAINBOW.COM": digest}})
 
     def _next_display(self) -> str:
         return f":{200 + (os.getpid() % 300)}"
@@ -535,6 +544,8 @@ def make_handler(state: StreamState):
                     self._json(HTTPStatus.OK, {"missing": state.missing(request["blobs"])})
                 elif self.path == "/v1/sessions":
                     self._json(HTTPStatus.CREATED, state.start_session(request))
+                elif self.path == "/v1/diagnostics/rainbow-cat":
+                    self._json(HTTPStatus.CREATED, state.start_rainbow_cat())
                 elif re.fullmatch(r"/v1/sessions/[^/]+/frames", self.path):
                     self._json(HTTPStatus.CREATED, state.capture_frame(self.path.split("/")[3]))
                 elif re.fullmatch(r"/v1/sessions/[^/]+/input", self.path):

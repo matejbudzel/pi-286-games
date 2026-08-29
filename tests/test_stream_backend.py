@@ -81,6 +81,10 @@ class StreamBackendTests(unittest.TestCase):
         self.assertEqual(backend.KEYS["SPACE"], "space")
         self.assertNotIn("rm -rf /", backend.KEYS)
 
+    def test_rainbow_diagnostic_is_generated_and_does_not_need_game_assets(self):
+        self.assertGreater(len(backend.RAINBOW_CAT_COM), 32)
+        self.assertEqual(backend.RAINBOW_CAT_COM[:2], b"\xb0\xb6")
+
     def test_xwd_video_conversion_crops_and_downsamples_to_rgb565(self):
         header = [100, 7, 2, 24, 640, 480, 0, 0, 32, 0, 8, 24, 640 * 4,
                   4, 0x00ff0000, 0x0000ff00, 0x000000ff, 8, 256, 0, 0, 640, 480, 0, 0]
