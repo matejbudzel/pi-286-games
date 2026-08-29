@@ -14,8 +14,9 @@ case " $* " in
     ;;
 esac
 runtime="$PI286_SYSROOT/lib/arm-linux-gnueabihf"
+gcc_runtime="$PI286_SYSROOT/usr/lib/gcc/arm-linux-gnueabihf/14"
 exec "${cross}g++" --sysroot="$PI286_SYSROOT" -B"$tool_bin" -fno-use-linker-plugin $arm_flags -nostdlib \
-  "$runtime/crt1.o" "$runtime/crti.o" "$@" \
+  "$runtime/crt1.o" "$runtime/crti.o" "$gcc_runtime/crtbeginS.o" "$@" \
   "$runtime/libstdc++.so.6" "$runtime/libm.so.6" "$runtime/libdl.so.2" \
   "$runtime/libpthread.so.0" "$runtime/libgcc_s.so.1" "$runtime/libc.so.6" \
-  "$runtime/crtn.o" -Wl,--dynamic-linker=/lib/ld-linux-armhf.so.3
+  "$gcc_runtime/crtendS.o" "$runtime/crtn.o" -Wl,--dynamic-linker=/lib/ld-linux-armhf.so.3

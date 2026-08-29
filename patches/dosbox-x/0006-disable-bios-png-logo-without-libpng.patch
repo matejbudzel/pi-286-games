@@ -1,0 +1,32 @@
+From: pi-286-games maintainers
+Subject: [PATCH] bios: omit the PNG logo path when libpng is disabled
+
+The appliance disables screenshots and libpng to avoid carrying an unused
+image stack. The optional BIOS startup logo decoder was not guarded by
+C_LIBPNG, which leaves PNG types and embedded logo symbols referenced in a
+libpng-free build. Keep the text splash while compiling out only that decoder.
+
+---
+ src/ints/bios.cpp | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/src/ints/bios.cpp b/src/ints/bios.cpp
+index 645878b..0000000 100644
+--- a/src/ints/bios.cpp
++++ b/src/ints/bios.cpp
+@@ -11017,6 +11017,7 @@ startfunction:
+ 
+         BIOS_Int10RightJustifiedPrint(x,y,msg);
+ 
++        #if C_LIBPNG
+         {
+             png_bytep rows[1];
+             unsigned char *row = NULL;/*png_width*/
+@@ -11162,6 +11163,7 @@ startfunction:
+             if (png_fp) fclose(png_fp);
+         }
+ 
++        #endif
+         if (machine == MCH_PC98 && textsplash) {
+             unsigned int bo, lastline = 7;
+             for (unsigned int i=0; i<=lastline; i++) {

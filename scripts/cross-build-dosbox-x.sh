@@ -16,7 +16,7 @@ if ! command -v "${cross}g++" >/dev/null 2>&1 && [ -x "$repo/.cache/cross-cxx/us
     export PATH
 fi
 for command in "$cc" "${cross}g++" "${cross}strip" git tar readelf file strings autoconf automake aclocal autoheader; do command -v "$command" >/dev/null 2>&1 || { echo "Missing required tool: $command" >&2; exit 1; }; done
-[ -f "$sysroot/lib/arm-linux-gnueabihf/crt1.o" ] && [ -f "$sysroot/lib/arm-linux-gnueabihf/libstdc++.so.6.0.33" ] || { echo "Pi sysroot lacks ARMv6 C++ runtime objects; sync it when pi286 is online." >&2; exit 1; }
+[ -f "$sysroot/lib/arm-linux-gnueabihf/crt1.o" ] && [ -f "$sysroot/lib/arm-linux-gnueabihf/libstdc++.so.6.0.33" ] && [ -e "$sysroot/usr/lib/gcc/arm-linux-gnueabihf/14/libatomic.so" ] && [ -f "$sysroot/usr/lib/gcc/arm-linux-gnueabihf/14/crtbeginS.o" ] && [ -f "$sysroot/usr/lib/gcc/arm-linux-gnueabihf/14/crtendS.o" ] || { echo "Pi sysroot lacks required ARMv6 C++ runtime objects; run scripts/sync-pi-sysroot.sh while pi286 is online." >&2; exit 1; }
 [ -x "$sdl_prefix/bin/sdl-config" ] && [ -e "$sdl_prefix/lib/libSDL-1.2.so.0" ] || { echo "Missing staged custom SDL; run scripts/cross-build-sdl12-fbcon.sh first." >&2; exit 1; }
 if [ ! -d "$source_dir/.git" ]; then git clone "$dosbox_x_source_url" "$source_dir"; fi
 git -C "$source_dir" fetch --depth 1 origin "$dosbox_x_source_commit"
@@ -26,13 +26,13 @@ git -C "$source_dir" clean -fdx
 dosbox_x_apply_patches "$source_dir"
 rm -rf "$stage_dir"; mkdir -p "$stage_dir$dosbox_x_prefix/etc" "$stage_dir$dosbox_x_prefix/share" "$dist_dir"
 arm_flags='-O2 -fomit-frame-pointer -marm -march=armv6zk -mtune=arm1176jzf-s -mfpu=vfp -mfloat-abi=hard'
+export PI286_SYSROOT="$sysroot"
 cd "$source_dir"
 ./autogen.sh
 PATH="$sdl_prefix/bin:$PATH"
 export PATH
-PI286_SYSROOT="$sysroot" \
 CC="$repo/scripts/pi286-armv6-cc.sh" CXX="$repo/scripts/pi286-armv6-cxx.sh" AR="${cross}ar" RANLIB="${cross}ranlib" STRIP="${cross}strip" \
-CFLAGS="$arm_flags -I$sdl_prefix/include/SDL -I$sysroot/usr/include/arm-linux-gnueabihf" CXXFLAGS="$arm_flags -I$sdl_prefix/include/SDL -I$sysroot/usr/include/arm-linux-gnueabihf" CPPFLAGS="-I$sdl_prefix/include/SDL -I$sysroot/usr/include/arm-linux-gnueabihf" LDFLAGS="-L$sdl_prefix/lib" \
+CFLAGS="$arm_flags -I$sdl_prefix/include/SDL -I$sysroot/usr/include/arm-linux-gnueabihf" CXXFLAGS="$arm_flags -DPI286_CLASSIC_SDL1 -I$sdl_prefix/include/SDL -I$sysroot/usr/include/arm-linux-gnueabihf" CPPFLAGS="-DPI286_CLASSIC_SDL1 -I$sdl_prefix/include/SDL -I$sysroot/usr/include/arm-linux-gnueabihf" LDFLAGS="-L$sdl_prefix/lib -L$sysroot/usr/lib/gcc/arm-linux-gnueabihf/14" \
 ./configure --build="$(gcc -dumpmachine)" --host=arm-linux-gnueabihf --prefix="$dosbox_x_prefix" --with-sdl-prefix="$sdl_prefix" --disable-sdltest --disable-alsatest $dosbox_x_configure_args
 make -j"${DOSBOX_X_CROSS_JOBS:-$(getconf _NPROCESSORS_ONLN)}"
 make DESTDIR="$stage_dir" install
