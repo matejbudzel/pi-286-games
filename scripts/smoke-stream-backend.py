@@ -62,7 +62,11 @@ def main():
         started = json.loads(request(args.url, token, "POST", "/v1/sessions", session)[0])
         session_id = started["id"]
         time.sleep(1)
-        audio, headers = request(args.url, token, "GET", f"/v1/sessions/{session_id}/audio?offset=0")
+        for _ in range(40):
+            audio, headers = request(args.url, token, "GET", f"/v1/sessions/{session_id}/audio?offset=0")
+            if len(audio) >= 100:
+                break
+            time.sleep(0.1)
         if len(audio) < 100 or len(audio) % 2 or "audio/L16" not in headers.get_content_type() + ";" + headers.get("Content-Type", ""):
             raise RuntimeError("invalid PCM audio capture")
         first = json.loads(request(args.url, token, "POST", f"/v1/sessions/{session_id}/frames", {})[0])
