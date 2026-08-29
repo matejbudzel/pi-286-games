@@ -173,6 +173,7 @@ class DiscoveryTests(unittest.TestCase):
         source = inspect.getsource(launcher.run_remote_presenter)
         self.assertIn("environment.update(dosbox_environment(config))", source)
         self.assertIn('/tmp/pi286-stream-presenter.log', source)
+        self.assertIn('Path(config["remote_dosbox_token_file"]).expanduser()', source)
 
     def test_ddr_button_mapping_is_the_known_pad_layout(self):
         self.assertEqual(launcher.PAD_ACTIONS, {2: "UP", 1: "DOWN", 0: "LEFT", 3: "RIGHT", 8: "START", 9: "SELECT"})
