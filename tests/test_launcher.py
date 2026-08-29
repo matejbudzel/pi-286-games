@@ -159,6 +159,9 @@ class DiscoveryTests(unittest.TestCase):
         self.assertNotIn("panic_device", source)
         self.assertIn("KEY_CODES[PANIC_KEY]", source)
 
+    def test_remote_pad_map_preserves_button_order_and_normalizes_modifiers(self):
+        self.assertEqual(launcher.remote_pad_map({0: "LEFT", 2: "UP", 8: "LCTRL"}), "LEFT,,UP,,,,,,CTRL")
+
     def test_ddr_button_mapping_is_the_known_pad_layout(self):
         self.assertEqual(launcher.PAD_ACTIONS, {2: "UP", 1: "DOWN", 0: "LEFT", 3: "RIGHT", 8: "START", 9: "SELECT"})
         self.assertEqual(launcher.PAD_LAYOUT[0], (6, "HORE-L"))

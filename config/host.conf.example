@@ -7,6 +7,13 @@ game_data_root=~/pi-286-game-files
 # Debian's package installs this command.
 dosbox_command=dosbox
 
+# local keeps the proven on-device DOSBox path. auto uses the remote LXC only
+# when its authenticated health check and the Pi presenter both succeed.
+dosbox_backend=local
+# remote_dosbox_url=http://192.168.100.194:28680
+# remote_dosbox_token_file=~/.config/pi286-stream.token
+# remote_dosbox_presenter=/opt/pi286/stream/bin/pi286-stream-presenter
+
 # Raspberry Pi 1 direct-console classic SDL 1.2 build. These are passed only
 # to DOSBox; the DietPi installer creates the required installation first.
 dosbox_ld_library_path=/opt/sdl12-fbcon/lib

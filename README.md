@@ -219,6 +219,12 @@ The ARMv6 DOSBox-X cross-build experiment was retired because it was slower in
 practice, used more memory, and was unreliable with classic SDL fbcon. See
 [the experiment note](docs/remote-streaming-experiment.md).
 
+For the remote prototype, build and deploy its Pi SDL presenter from the
+development host with `scripts/deploy-stream-presenter-to-pi.sh`. It copies the
+LXC's private API token to `~/.config/pi286-stream.token` without printing it.
+Set `dosbox_backend=auto` plus the LXC URL in ignored `config/host.conf`; the
+launcher falls back to stock local DOSBox when the presenter or LXC is absent.
+
 ## Health check
 
 Run the read-only health check on the target to inspect DOSBox, framebuffer/DRM

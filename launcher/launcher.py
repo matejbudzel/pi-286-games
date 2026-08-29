@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path: sys.path.insert(0, str(ROOT))
+from streaming.client.remote_api import RemoteBackend, RemoteProtocolError, RemoteUnavailable
 EVENT = struct.Struct("llHHI")
 JS_EVENT = struct.Struct("IhBB")
 PAD_DEVICE_NAME = "WiseGroup.,Ltd X-PAD, Extreme Dance Pad"
@@ -442,6 +444,48 @@ def generated_dosbox_config(mapper_file, data, command, no_sound=False):
     sound_config = "\n[mixer]\nnosound=true\n\n[midi]\nmpu401=none\nmididevice=none\n" if no_sound else ""
     return "[sdl]\nmapperfile=%s\n%s\n[autoexec]\nmount c \"%s\"\nc:\n%s\nexit\n" % (mapper_file, sound_config, data, command)
 
+def remote_choice(config):
+    mode = config.get("dosbox_backend", "local").lower()
+    if mode not in ("local", "auto", "remote"): raise RuntimeError("Neplatné nastavenie DOSBox backendu.")
+    if mode == "local": return None
+    try:
+        presenter = Path(config.get("remote_dosbox_presenter", "/opt/pi286/stream/bin/pi286-stream-presenter"))
+        backend = RemoteBackend.from_token_file(config["remote_dosbox_url"], Path(config["remote_dosbox_token_file"]).expanduser())
+        backend.status()
+        if not presenter.is_file() or not os.access(presenter, os.X_OK): raise RemoteUnavailable("Pi stream klient nie je nainštalovaný")
+        return backend, presenter
+    except (KeyError, OSError, ValueError, RemoteUnavailable, RemoteProtocolError) as exc:
+        if mode == "auto": return None
+        raise RuntimeError("Vzdialený DOSBox nie je dostupný: %s" % exc) from exc
+
+def remote_pad_map(keys):
+    translate = {"LCTRL": "CTRL", "LSHIFT": "SHIFT"}
+    return ",".join(translate.get(keys.get(button, ""), keys.get(button, "")) for button in range(9))
+
+def run_remote_game(game, config, term, data, ddr_keys):
+    selected = remote_choice(config)
+    if not selected: return None
+    backend, presenter = selected
+    confirm = config.get("confirm_key", "SPACE").upper()
+    def progress(done, total, name):
+        percent = 100 if not total else done * 100 // total
+        install_screen(term, game, "Pripravujem vzdialenú hru", "Nahrávam herné dáta " + name, percent)
+    install_screen(term, game, "Pripravujem vzdialenú hru", "Kontrolujem herné dáta...", 0)
+    files, _ = backend.sync_directory(data, progress)
+    executable = shlex.split(game.command)[0].replace("/", "\\")
+    session = backend.start_session(re.sub(r"[^a-z0-9_-]", "-", game.data_dir.lower()), executable, files)
+    parsed = urllib.parse.urlparse(config["remote_dosbox_url"])
+    if not parsed.hostname or parsed.scheme != "http":
+        backend.stop_session(session["id"]); raise RuntimeError("Neplatná adresa vzdialeného DOSBoxu.")
+    game_running_screen(game, PANIC_KEY)
+    try:
+        result = subprocess.run([str(presenter), parsed.hostname, str(parsed.port or 80), config["remote_dosbox_token_file"], session["id"], remote_pad_map(ddr_keys)], check=False)
+    finally:
+        try: backend.stop_session(session["id"])
+        except (RemoteUnavailable, RemoteProtocolError): pass
+        restore_console_display()
+    return "panic" if result.returncode == 0 else "failed"
+
 def effective_dosbox_config(game_config, mapper_file, data, command, no_sound=False):
     """Return the ordered config text DOSBox receives for diagnostics/tests."""
     return "%s\n%s\n%s" % (APPLIANCE_DOSBOX_BASE_CONFIG, game_config.read_text(encoding="utf-8"), generated_dosbox_config(mapper_file, data, command, no_sound))
@@ -460,6 +504,8 @@ def run_game(game, config, term, pad, ddr_keys, no_sound=False):
     try: data, command = validate(game, Path(config["game_data_root"]).expanduser(), term, config.get("confirm_key", "SPACE").upper(), pad)
     except InstallationCancelled: return "cancelled"
     except LauncherExit: return "exit"
+    remote = run_remote_game(game, config, term, data, ddr_keys)
+    if remote is not None: return remote
     if not game.dosbox_conf.is_file() or not game.mapper_file.is_file(): raise RuntimeError("Chýba nastavenie DOSBoxu.")
     dosbox = shutil.which(config.get("dosbox_command", "dosbox"))
     if not dosbox: raise RuntimeError("DOSBox nie je nainštalovaný.")
