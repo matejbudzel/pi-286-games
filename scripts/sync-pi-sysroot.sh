@@ -6,7 +6,7 @@ sysroot=${PI286_SYSROOT:-$repo/.cache/pi286-sysroot}
 ssh -o BatchMode=yes pi286 true || { echo "Cannot connect to SSH alias pi286 with BatchMode enabled." >&2; exit 1; }
 ssh pi286 'set -eu; printf "remote OS: "; . /etc/os-release; printf "%s %s\n" "$ID" "$VERSION_ID"; printf "remote machine: "; uname -m; printf "remote dpkg architecture: "; dpkg --print-architecture' | tee /dev/stderr | grep -Eq 'remote machine: armv6l|remote machine: armv6' || { echo "pi286 is not an ARMv6 target." >&2; exit 1; }
 mkdir -p "$sysroot/lib" "$sysroot/usr/lib/arm-linux-gnueabihf/pkgconfig" "$sysroot/usr/lib/gcc/arm-linux-gnueabihf/14" "$sysroot/usr"
-# SDL/DOSBox-X need target glibc/loader, headers, and ALSA/zlib/libatomic
+# SDL needs target glibc/loader, headers, and ALSA development files.
 # development linker files; copying all of /usr/lib is several GiB and not useful.
 rsync -a --delete --links -e 'ssh -o BatchMode=yes' pi286:/lib/arm-linux-gnueabihf/ "$sysroot/lib/arm-linux-gnueabihf/"
 # Raspbian's multiarch asm headers are relative symlinks into /usr/lib/linux;

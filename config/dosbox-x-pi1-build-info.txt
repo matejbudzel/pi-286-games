@@ -1,8 +1,0 @@
-source_url=https://github.com/joncampbell123/dosbox-x.git
-source_ref=dosbox-x-v2025.10.07
-source_commit=0cd7c0fecb41d10152e96a63beb7001a7fdbd8e4
-configure_system=GNU Autotools
-compiler_flags=-O2 -fomit-frame-pointer -marm -march=armv6zk -mtune=arm1176jzf-s -mfpu=vfp -mfloat-abi=hard
-linker_runtime=Pi-synced ARMv6 crt/libstdc++ runtime objects
-dynrec_compiled=yes
-dynrec_backend=ARMV4LE risc_armv4le
