@@ -523,7 +523,8 @@ def make_handler(state: StreamState):
                 elif path.startswith("/v1/sessions/"):
                     self._json(HTTPStatus.OK, state.session_status(path.split("/")[3]))
                 else: self._json(HTTPStatus.NOT_FOUND, {"error": "not found"})
-            except (KeyError, ValueError): self._json(HTTPStatus.NOT_FOUND, {"error": "unknown session or invalid audio offset"})
+            except KeyError: self._json(HTTPStatus.NOT_FOUND, {"error": "unknown session"})
+            except ValueError as error: self._json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
 
         def do_POST(self):
             if not self._check_auth(): return
