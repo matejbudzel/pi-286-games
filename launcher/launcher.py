@@ -474,6 +474,7 @@ def run_remote_presenter(title, config, backend, presenter, session_id, ddr_keys
     log_path = Path("/tmp/pi286-stream-presenter.log")
     with log_path.open("wb") as log:
         result = subprocess.run([str(presenter), parsed.hostname, str(parsed.port or 80), config["remote_dosbox_token_file"], session_id, remote_pad_map(ddr_keys or {})], stdout=log, stderr=subprocess.STDOUT, env=environment, check=False)
+        log.write(("presenter exit status: %d\n" % result.returncode).encode())
     restore_console_display()
     return "panic" if result.returncode == 0 else "failed"
 
