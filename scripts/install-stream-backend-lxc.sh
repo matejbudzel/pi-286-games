@@ -10,7 +10,7 @@ fi
 
 repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 apt-get update
-apt-get install -y --no-install-recommends dosbox xvfb x11-apps python3 ca-certificates git
+apt-get install -y --no-install-recommends dosbox xvfb x11-apps xdotool python3 ca-certificates git
 id -u pi286stream >/dev/null 2>&1 || useradd --system --home /srv/pi286-stream --shell /usr/sbin/nologin pi286stream
 install -d -o pi286stream -g pi286stream -m 0750 /srv/pi286-stream/blobs /srv/pi286-stream/sessions /srv/pi286-stream/runtime
 install -o root -g pi286stream -m 0640 "$repo_root/config/pi286-stream.conf.example" /etc/pi286-stream.conf

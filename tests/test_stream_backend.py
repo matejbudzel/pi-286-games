@@ -75,3 +75,8 @@ class StreamBackendTests(unittest.TestCase):
         source = MODULE.read_text()
         self.assertIn("self.audio_rate * 2 * 2", source)
         self.assertIn("os.O_RDWR | os.O_NONBLOCK", source)
+
+    def test_input_protocol_has_a_closed_key_set(self):
+        self.assertEqual(backend.KEYS["UP"], "Up")
+        self.assertEqual(backend.KEYS["SPACE"], "space")
+        self.assertNotIn("rm -rf /", backend.KEYS)

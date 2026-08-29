@@ -79,6 +79,8 @@ The initial HTTP API is deliberately limited:
   using the response's `X-Pi286-Audio-Next-Offset` header. The LXC uses ALSA's
   local `file` PCM plugin backed by a paced FIFO reader, so it has no audio
   hardware dependency and does not let DOSBox run unbounded;
+- `POST /v1/sessions/<id>/input` accepts up to 32 normalized key press/release
+  events and injects them directly into that session's DOSBox X window.
 - `GET`/`DELETE /v1/sessions/<id>` inspect or terminate that instance.
 
 `scripts/smoke-stream-backend.py` exercises cache-miss/**failed start**/upload/
@@ -86,6 +88,8 @@ successful start/PCM transport capture/two-frame capture/stop using a
 generated, disposable DOS COM program. Run it inside the LXC after
 installation. The generated direct-PC-Speaker tone is currently silent in the
 Debian DOSBox mixer, so PC Speaker content must be validated with a real game
-before treating audio emulation as proven. It has no input endpoint yet. That separation is intentional: the
+before treating audio emulation as proven. The smoke program also verifies that
+an injected `UP` press changes its captured framebuffer. Pi joystick/button
+handling will stay client-side and emit these normalized game keys. That separation is intentional: the
 cache and process lifecycle can be verified without exposing game assets in the
 repository or prematurely choosing a video/audio protocol.

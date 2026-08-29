@@ -35,8 +35,18 @@ DEFAULTS = {
     "dosbox": "/usr/bin/dosbox",
     "xvfb": "/usr/bin/Xvfb",
     "xwd": "/usr/bin/xwd",
+    "xdotool": "/usr/bin/xdotool",
     "audio_rate": "22050",
     "max_upload_bytes": str(128 * 1024 * 1024),
+}
+
+KEYS = {
+    "UP": "Up", "DOWN": "Down", "LEFT": "Left", "RIGHT": "Right",
+    "ENTER": "Return", "ESC": "Escape", "SPACE": "space",
+    "CTRL": "Control_L", "ALT": "Alt_L", "SHIFT": "Shift_L",
+    "F1": "F1", "F2": "F2", "F3": "F3", "F4": "F4", "F5": "F5",
+    "F6": "F6", "F7": "F7", "F8": "F8", "F9": "F9", "F10": "F10",
+    **{character.upper(): character for character in "abcdefghijklmnopqrstuvwxyz0123456789"},
 }
 
 
@@ -189,7 +199,7 @@ class StreamState:
             self.active[session_id] = {"dosbox": dosbox, "xvfb": xvfb, "log": log,
                                        "display": display, "started": time.time(), "frames": []}
             self.active[session_id].update({"audio": audio_path, "audio_stop": audio_stop,
-                                            "audio_thread": audio_thread})
+                                            "audio_thread": audio_thread, "window": None, "held_keys": set()})
             return self.session_status(session_id)
 
     def _next_display(self) -> str:
@@ -247,6 +257,7 @@ class StreamState:
             return {"id": session_id, "state": "running" if item["dosbox"].poll() is None else "exited",
                     "pid": item["dosbox"].pid, "frames": len(item["frames"]),
                     "audio_bytes": item["audio"].stat().st_size if item["audio"].exists() else 0,
+                    "held_keys": sorted(item["held_keys"]),
                     "audio": f"/v1/sessions/{session_id}/audio?offset=0",
                     "log": f"/v1/sessions/{session_id}/log"}
 
@@ -273,6 +284,60 @@ class StreamState:
             left, right = struct.unpack_from("<hh", raw, index)
             struct.pack_into("<h", mono, index // 2, (left + right) // 2)
         return bytes(mono), output_offset + len(mono)
+
+    def input_events(self, session_id: str, events: list[dict]) -> dict:
+        if not isinstance(events, list) or not events or len(events) > 32:
+            raise ValueError("events must contain between one and 32 key events")
+        checked = []
+        for event in events:
+            if not isinstance(event, dict) or set(event) != {"key", "pressed"}:
+                raise ValueError("each event must contain only key and pressed")
+            key, pressed = event["key"], event["pressed"]
+            if not isinstance(key, str) or key not in KEYS or not isinstance(pressed, bool):
+                raise ValueError("unsupported input key or state")
+            checked.append((key, pressed))
+        with self.lock:
+            item = self.active.get(session_id)
+            if not item or item["dosbox"].poll() is not None:
+                raise KeyError(session_id)
+            window = item["window"] or self._find_dosbox_window(item["display"])
+            if not window:
+                raise RuntimeError("DOSBox input window is not ready")
+            item["window"] = window
+            for key, pressed in checked:
+                if pressed == (key in item["held_keys"]):
+                    continue
+                command = "keydown" if pressed else "keyup"
+                result = subprocess.run([self.config["xdotool"], command, "--window", str(window), KEYS[key]],
+                                        env=dict(os.environ, DISPLAY=item["display"]), stdout=subprocess.DEVNULL,
+                                        stderr=subprocess.PIPE, timeout=2)
+                if result.returncode:
+                    item["window"] = None
+                    raise RuntimeError("XTEST input injection failed")
+                if pressed:
+                    item["held_keys"].add(key)
+                else:
+                    item["held_keys"].discard(key)
+            return {"accepted": len(checked), "held_keys": sorted(item["held_keys"])}
+
+    def _find_dosbox_window(self, display: str) -> str | None:
+        result = subprocess.run([self.config["xdotool"], "search", "--onlyvisible", "--name", "DOSBox"],
+                                env=dict(os.environ, DISPLAY=display), stdout=subprocess.PIPE,
+                                stderr=subprocess.DEVNULL, text=True, timeout=2)
+        if result.returncode:
+            return None
+        windows = result.stdout.split()
+        return windows[-1] if windows else None
+
+    def _release_all_keys(self, item: dict) -> None:
+        window = item.get("window")
+        if not window:
+            return
+        for key in list(item["held_keys"]):
+            subprocess.run([self.config["xdotool"], "keyup", "--window", str(window), KEYS[key]],
+                           env=dict(os.environ, DISPLAY=item["display"]), stdout=subprocess.DEVNULL,
+                           stderr=subprocess.DEVNULL, timeout=2)
+        item["held_keys"].clear()
 
     def capture_frame(self, session_id: str) -> dict:
         with self.lock:
@@ -306,6 +371,7 @@ class StreamState:
             item = self.active.pop(session_id, None)
         if not item:
             raise KeyError(session_id)
+        self._release_all_keys(item)
         for name in ("dosbox", "xvfb"):
             process = item[name]
             if process.poll() is None:
@@ -411,6 +477,8 @@ def make_handler(state: StreamState):
                     self._json(HTTPStatus.CREATED, state.start_session(request))
                 elif re.fullmatch(r"/v1/sessions/[^/]+/frames", self.path):
                     self._json(HTTPStatus.CREATED, state.capture_frame(self.path.split("/")[3]))
+                elif re.fullmatch(r"/v1/sessions/[^/]+/input", self.path):
+                    self._json(HTTPStatus.OK, state.input_events(self.path.split("/")[3], request.get("events")))
                 else: self._json(HTTPStatus.NOT_FOUND, {"error": "not found"})
             except (ValueError, json.JSONDecodeError) as error: self._json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
             except RuntimeError as error: self._json(HTTPStatus.CONFLICT, {"error": str(error)})

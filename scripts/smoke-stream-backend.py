@@ -38,10 +38,10 @@ def main():
     else:
         raise RuntimeError("backend did not become ready")
     # COM: start the PC speaker near 1 kHz, set VGA 320x200x256, paint all
-    # pixels colour 3, then loop.
+    # pixels colour 3, and repaint colour 4 after an Up key press.
     # The trailing nonce is unreachable after the infinite loop and guarantees
     # this invocation exercises a cache miss instead of a warm-cache shortcut.
-    payload = bytes.fromhex("b0b6e643b8a904e64288e0e642e4610c03e661b81300cd10b800a08ec031ffb003b900faf3aaebfe") + os.urandom(8)
+    payload = bytes.fromhex("b0b6e643b8a904e64288e0e642e4610c03e661b81300cd10b800a08ec031ffb003b900faf3aae464a80174fae4603c4875f431ffb004b900faf3aaebe9") + os.urandom(8)
     digest = hashlib.sha256(payload).hexdigest()
     manifest = {"blobs": [{"sha256": digest, "size": len(payload)}]}
     missing = json.loads(request(args.url, token, "POST", "/v1/manifest", manifest)[0])["missing"]
@@ -70,14 +70,21 @@ def main():
         if len(audio) < 100 or len(audio) % 2 or "audio/L16" not in headers.get_content_type() + ";" + headers.get("Content-Type", ""):
             raise RuntimeError("invalid PCM audio capture")
         first = json.loads(request(args.url, token, "POST", f"/v1/sessions/{session_id}/frames", {})[0])
+        request(args.url, token, "POST", f"/v1/sessions/{session_id}/input", {"events": [{"key": "UP", "pressed": True}]})
+        time.sleep(0.2)
+        request(args.url, token, "POST", f"/v1/sessions/{session_id}/input", {"events": [{"key": "UP", "pressed": False}]})
         time.sleep(0.2)
         second = json.loads(request(args.url, token, "POST", f"/v1/sessions/{session_id}/frames", {})[0])
+        downloaded = []
         for frame in (first, second):
             body, _ = request(args.url, token, "GET", frame["path"])
             if len(body) != frame["bytes"] or len(body) < 100:
                 raise RuntimeError("invalid XWD frame download")
+            downloaded.append(body)
+        if downloaded[0] == downloaded[1]:
+            raise RuntimeError("injected Up key did not change the framebuffer")
         print(json.dumps({"session": session_id, "audio_bytes": len(audio), "audio_non_silent": bool(any(audio)),
-                          "frames": [first, second], "result": "ok"}, sort_keys=True))
+                          "frames": [first, second], "input": "UP press/release", "result": "ok"}, sort_keys=True))
     finally:
         if "session_id" in locals():
             request(args.url, token, "DELETE", f"/v1/sessions/{session_id}")
