@@ -76,8 +76,9 @@ The initial HTTP API is deliberately limited:
   `GET /v1/sessions/<id>/frames/<frame>.xwd` downloads it;
 - `GET`/`DELETE /v1/sessions/<id>` inspect or terminate that instance.
 
-`scripts/smoke-stream-backend.py` exercises cache-miss/upload/start/two-frame
-capture/stop using a generated, disposable DOS COM program. Run it inside the
-LXC after installation. It has no media or input endpoint yet. That separation is intentional: the
+`scripts/smoke-stream-backend.py` exercises cache-miss/**failed start**/upload/
+successful start/two-frame capture/stop using a generated, disposable DOS COM
+program. Run it inside the LXC after installation. It has no media or input
+endpoint yet. That separation is intentional: the
 cache and process lifecycle can be verified without exposing game assets in the
 repository or prematurely choosing a video/audio protocol.

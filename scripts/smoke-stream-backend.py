@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import time
 import urllib.error
 import urllib.request
@@ -37,13 +38,25 @@ def main():
     else:
         raise RuntimeError("backend did not become ready")
     # COM: set VGA 320x200x256, paint all 64000 pixels colour 3, then loop.
-    payload = bytes.fromhex("b81300cd10b800a08ec031ffb003b900faf3aaebfe")
+    # The trailing nonce is unreachable after the infinite loop and guarantees
+    # this invocation exercises a cache miss instead of a warm-cache shortcut.
+    payload = bytes.fromhex("b81300cd10b800a08ec031ffb003b900faf3aaebfe") + os.urandom(8)
     digest = hashlib.sha256(payload).hexdigest()
     manifest = {"blobs": [{"sha256": digest, "size": len(payload)}]}
     missing = json.loads(request(args.url, token, "POST", "/v1/manifest", manifest)[0])["missing"]
-    if digest in missing:
-        request(args.url, token, "PUT", "/v1/blobs/" + digest, payload, "application/octet-stream")
     session = {"game_id": "smoke", "executable": "SMOKE.COM", "files": {"SMOKE.COM": digest}}
+    if missing != [digest]:
+        raise RuntimeError("new synthetic asset was unexpectedly already cached")
+    try:
+        request(args.url, token, "POST", "/v1/sessions", session)
+    except urllib.error.HTTPError as error:
+        if error.code != 400 or "absent from cache" not in error.read().decode():
+            raise
+    else:
+        raise RuntimeError("session unexpectedly started without its asset")
+    request(args.url, token, "PUT", "/v1/blobs/" + digest, payload, "application/octet-stream")
+    if json.loads(request(args.url, token, "POST", "/v1/manifest", manifest)[0])["missing"]:
+        raise RuntimeError("uploaded asset was not retained in cache")
     try:
         started = json.loads(request(args.url, token, "POST", "/v1/sessions", session)[0])
         session_id = started["id"]
