@@ -82,7 +82,7 @@ class StreamBackendTests(unittest.TestCase):
         self.assertNotIn("rm -rf /", backend.KEYS)
 
     def test_xwd_video_conversion_crops_and_downsamples_to_rgb565(self):
-        header = [100, 7, 2, 24, 640, 480, 0, 0, 32, 0, 32, 32, 640 * 4,
+        header = [100, 7, 2, 24, 640, 480, 0, 0, 32, 0, 8, 24, 640 * 4,
                   4, 0x00ff0000, 0x0000ff00, 0x000000ff, 8, 256, 0, 0, 640, 480, 0, 0]
         pixels = bytearray(640 * 480 * 4)
         # The first sampled pixel is source (0, 40): pure red.

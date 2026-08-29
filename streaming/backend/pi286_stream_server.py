@@ -380,7 +380,7 @@ class StreamState:
         header = struct.unpack_from(">25I", source)
         header_size, width, height = header[0], header[4], header[5]
         byte_order, bits_per_pixel, bytes_per_line = header[7], header[11], header[12]
-        if width != 640 or height != 480 or bits_per_pixel != 32 or byte_order != 0:
+        if width != 640 or height != 480 or bits_per_pixel not in (24, 32) or byte_order != 0 or bytes_per_line != 640 * 4:
             raise ValueError("unexpected Xvfb image format")
         pixels = header_size + header[19] * 12
         if pixels + bytes_per_line * height > len(source):
