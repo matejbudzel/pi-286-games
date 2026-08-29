@@ -1,0 +1,21 @@
+[Unit]
+Description=Pi286 remote DOS streaming prototype backend
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi286stream
+Group=pi286stream
+WorkingDirectory=/opt/pi286-stream/repo
+ExecStart=/usr/bin/python3 /opt/pi286-stream/repo/streaming/backend/pi286_stream_server.py --config /etc/pi286-stream.conf
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ReadWritePaths=/srv/pi286-stream
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,8 @@
+# Server-side settings for the Proxmox LXC. Keep the token in token_file.
+bind=0.0.0.0
+port=28680
+state_root=/srv/pi286-stream
+token_file=/etc/pi286-stream.token
+dosbox=/usr/bin/dosbox
+xvfb=/usr/bin/Xvfb
+max_upload_bytes=134217728

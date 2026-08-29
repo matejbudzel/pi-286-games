@@ -61,6 +61,19 @@ an 8 GiB `local-lvm` disk, DHCP on `vmbr0`, and `onboot=0`. At provisioning it
 received only `dosbox` (Debian 0.74-3), `xvfb`, `openssh-server`, and Python 3.
 The non-login `pi286stream` account owns `/srv/pi286-stream/{sessions,runtime}`.
 
-No game files, streaming listener, or automatic game session are installed
-yet. The next change must define the authenticated control/video/audio protocol
-and cache manifest/upload flow before any port is opened to the Pi.
+No game files are installed in the container. The backend is implemented in
+`streaming/backend/pi286_stream_server.py` and installed with
+`scripts/install-stream-backend-lxc.sh`. It listens on TCP 28680 with a
+per-container bearer token stored only in `/etc/pi286-stream.token`.
+
+The initial HTTP API is deliberately limited:
+
+- `POST /v1/manifest` reports which SHA-256 blobs are absent from the LXC cache;
+- `PUT /v1/blobs/<sha256>` verifies and atomically stores an uploaded blob;
+- `POST /v1/sessions` materializes a cached game into a new private session and
+  launches one headless DOSBox instance under Xvfb;
+- `GET`/`DELETE /v1/sessions/<id>` inspect or terminate that instance.
+
+It has no media or input endpoint yet. That separation is intentional: the
+cache and process lifecycle can be verified without exposing game assets in the
+repository or prematurely choosing a video/audio protocol.
