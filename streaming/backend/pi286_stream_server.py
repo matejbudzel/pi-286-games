@@ -210,7 +210,7 @@ class StreamState:
                     "path": f"/v1/sessions/{session_id}/frames/{frame_id}"}
 
     def frame_path(self, session_id: str, frame_id: str) -> Path:
-        if not re.fullmatch(r"[0-9]{4}\\.xwd", frame_id):
+        if not re.fullmatch(r"[0-9]{4}\.xwd", frame_id):
             raise KeyError(session_id)
         with self.lock:
             item = self.active.get(session_id)

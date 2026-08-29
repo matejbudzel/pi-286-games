@@ -42,6 +42,10 @@ class StreamBackendTests(unittest.TestCase):
     def test_frame_names_are_strict_and_do_not_escape_runtime(self):
         with tempfile.TemporaryDirectory() as directory:
             state = backend.StreamState(dict(backend.DEFAULTS, state_root=directory), "x" * 32)
+            captured = state.runtime / "one-0001.xwd"
+            captured.write_bytes(b"frame")
+            state.active["one"] = {"frames": [captured]}
+            self.assertEqual(state.frame_path("one", "0001.xwd"), captured)
             with self.assertRaises(KeyError):
                 state.frame_path("no-session", "../../etc/passwd")
 
