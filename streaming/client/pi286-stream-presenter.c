@@ -69,12 +69,21 @@ static int request(const char *host, const char *port, const char *token, const 
 }
 
 static const char *dos_key(SDLKey key) {
+    static char letter[2];
     switch (key) {
     case SDLK_UP: return "UP"; case SDLK_DOWN: return "DOWN"; case SDLK_LEFT: return "LEFT"; case SDLK_RIGHT: return "RIGHT";
     case SDLK_RETURN: return "ENTER"; case SDLK_ESCAPE: return "ESC"; case SDLK_SPACE: return "SPACE";
     case SDLK_LCTRL: case SDLK_RCTRL: return "CTRL"; case SDLK_LALT: case SDLK_RALT: return "ALT"; case SDLK_LSHIFT: case SDLK_RSHIFT: return "SHIFT";
-    default: return NULL;
+    case SDLK_F1: return "F1"; case SDLK_F2: return "F2"; case SDLK_F3: return "F3"; case SDLK_F4: return "F4"; case SDLK_F5: return "F5";
+    case SDLK_F6: return "F6"; case SDLK_F7: return "F7"; case SDLK_F8: return "F8"; case SDLK_F9: return "F9"; case SDLK_F10: return "F10";
+    default: break;
     }
+    if ((key >= SDLK_a && key <= SDLK_z) || (key >= SDLK_0 && key <= SDLK_9)) { letter[0] = (char)key; letter[1] = 0; return letter; }
+}
+
+static void parse_pad_map(char *map, const char **keys) {
+    int index = 0; char *part = map;
+    while (index < 9) { char *comma = strchr(part, ','); if (comma) *comma = 0; keys[index++] = *part ? part : NULL; if (!comma) break; part = comma + 1; }
 }
 
 static void render(SDL_Surface *screen, const unsigned char *frame) {
@@ -90,13 +99,15 @@ static void render(SDL_Surface *screen, const unsigned char *frame) {
 }
 
 int main(int argc, char **argv) {
-    const char *host, *port, *token_path, *session; FILE *file; char token[256], path[256], body[128];
+    const char *host, *port, *token_path, *session, *pad_keys[9] = {0}; FILE *file; char token[256], path[256], body[128], pad_map[256]; SDL_Joystick *joystick = NULL;
     unsigned char frame[FRAME], pcm[65536]; SDL_Surface *screen; SDL_Event event; SDL_AudioSpec audio; int audio_offset = 0, next_offset, n;
-    if (argc != 5) { fprintf(stderr, "usage: %s HOST PORT TOKEN_FILE SESSION\n", argv[0]); return 2; }
+    if (argc != 6) { fprintf(stderr, "usage: %s HOST PORT TOKEN_FILE SESSION PAD_MAP\n", argv[0]); return 2; }
     host = argv[1]; port = argv[2]; token_path = argv[3]; session = argv[4];
+    snprintf(pad_map, sizeof(pad_map), "%s", argv[5]); parse_pad_map(pad_map, pad_keys);
     if (!(file = fopen(token_path, "r")) || !fgets(token, sizeof(token), file)) return 2;
     fclose(file); token[strcspn(token, "\r\n")] = 0;
-    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) < 0 || !(screen = SDL_SetVideoMode(640, 480, 16, SDL_FULLSCREEN))) return 1;
+    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_JOYSTICK) < 0 || !(screen = SDL_SetVideoMode(640, 480, 16, SDL_FULLSCREEN))) return 1;
+    if (SDL_NumJoysticks() > 0) joystick = SDL_JoystickOpen(0);
     memset(&audio, 0, sizeof(audio)); audio.freq = 22050; audio.format = AUDIO_S16LSB; audio.channels = 1; audio.samples = 512; audio.callback = audio_callback;
     if (SDL_OpenAudio(&audio, NULL) < 0) { SDL_Quit(); return 1; }
     SDL_PauseAudio(0);
@@ -107,11 +118,14 @@ int main(int argc, char **argv) {
         n = request(host, port, token, "GET", path, NULL, pcm, sizeof(pcm), &next_offset);
         if (n > 0 && next_offset >= audio_offset) { audio_put(pcm, n); audio_offset = next_offset; }
         while (SDL_PollEvent(&event)) {
-            const char *key;
+            const char *key = NULL; int pressed = 0;
             if (event.type == SDL_QUIT || (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_F1)) { SDL_Quit(); return 0; }
-            if ((event.type == SDL_KEYDOWN || event.type == SDL_KEYUP) && (key = dos_key(event.key.keysym.sym))) {
+            if ((event.type == SDL_KEYDOWN || event.type == SDL_KEYUP) && (key = dos_key(event.key.keysym.sym))) pressed = event.type == SDL_KEYDOWN;
+            if ((event.type == SDL_JOYBUTTONDOWN || event.type == SDL_JOYBUTTONUP) && event.jbutton.button < 9) { key = pad_keys[event.jbutton.button]; pressed = event.type == SDL_JOYBUTTONDOWN; }
+            if ((event.type == SDL_JOYBUTTONDOWN && event.jbutton.button == 9)) { if (joystick) SDL_JoystickClose(joystick); SDL_Quit(); return 0; }
+            if (key) {
                 snprintf(path, sizeof(path), "/v1/sessions/%s/input", session);
-                snprintf(body, sizeof(body), "{\"events\":[{\"key\":\"%s\",\"pressed\":%s}]}", key, event.type == SDL_KEYDOWN ? "true" : "false");
+                snprintf(body, sizeof(body), "{\"events\":[{\"key\":\"%s\",\"pressed\":%s}]}", key, pressed ? "true" : "false");
                 request(host, port, token, "POST", path, body, frame, sizeof(frame), NULL);
             }
         }
