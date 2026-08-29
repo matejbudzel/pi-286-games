@@ -163,7 +163,9 @@ class StreamState:
             config_path = session_dir / "dosbox.conf"
             config_path.write_text(self._dosbox_config(executable_path, self.audio_rate), encoding="utf-8")
             audio_path = session_dir / "audio-s16le-stereo.raw"
-            (session_dir / ".asoundrc").write_text(self._alsa_capture_config(audio_path), encoding="utf-8")
+            audio_fifo = session_dir / "audio-s16le-stereo.fifo"
+            os.mkfifo(audio_fifo, 0o600)
+            (session_dir / ".asoundrc").write_text(self._alsa_capture_config(audio_fifo), encoding="utf-8")
             log = (self.runtime / f"{session_id}.log").open("ab", buffering=0)
             display = self._next_display()
             # Debian's SDL 1.2 DOSBox build does not accept Xvfb's 8-bit visual.
@@ -174,6 +176,10 @@ class StreamState:
             if xvfb.poll() is not None:
                 log.close()
                 raise RuntimeError("Xvfb failed to start; see session log")
+            audio_stop = threading.Event()
+            audio_thread = threading.Thread(target=self._audio_pump,
+                                            args=(audio_fifo, audio_path, audio_stop), daemon=True)
+            audio_thread.start()
             environment = os.environ.copy()
             environment.update({"DISPLAY": display, "SDL_AUDIODRIVER": "alsa",
                                 "AUDIODEV": "default", "HOME": str(session_dir)})
@@ -182,7 +188,8 @@ class StreamState:
                                       start_new_session=True)
             self.active[session_id] = {"dosbox": dosbox, "xvfb": xvfb, "log": log,
                                        "display": display, "started": time.time(), "frames": []}
-            self.active[session_id]["audio"] = audio_path
+            self.active[session_id].update({"audio": audio_path, "audio_stop": audio_stop,
+                                            "audio_thread": audio_thread})
             return self.session_status(session_id)
 
     def _next_display(self) -> str:
@@ -196,6 +203,41 @@ class StreamState:
     @staticmethod
     def _alsa_capture_config(audio_path: Path) -> str:
         return """# Session-local, headless SDL/DOSBox audio sink.\npcm.pi286_capture {\n    type file\n    slave.pcm \"null\"\n    file \"%s\"\n    format \"raw\"\n}\npcm.!default pi286_capture\n""" % audio_path
+
+    def _audio_pump(self, fifo: Path, capture: Path, stop: threading.Event) -> None:
+        """Drain the ALSA file FIFO at its actual PCM rate.
+
+        A plain file lets the SDL audio thread run unbounded, which makes
+        DOSBox race ahead and consumes disk rapidly. Keeping the FIFO reader
+        paced gives the audio producer a finite kernel buffer and back-pressure.
+        """
+        bytes_per_second = self.audio_rate * 2 * 2  # S16LE stereo input
+        descriptor = os.open(fifo, os.O_RDWR | os.O_NONBLOCK)
+        credit = 0.0
+        previous = time.monotonic()
+        try:
+            with capture.open("wb") as output:
+                while not stop.is_set():
+                    now = time.monotonic()
+                    credit += (now - previous) * bytes_per_second
+                    previous = now
+                    amount = min(4096, int(credit))
+                    if amount < 4:
+                        stop.wait(0.005)
+                        continue
+                    try:
+                        data = os.read(descriptor, amount - amount % 4)
+                    except BlockingIOError:
+                        stop.wait(0.005)
+                        continue
+                    if data:
+                        output.write(data)
+                        output.flush()
+                        credit -= len(data)
+                    else:
+                        stop.wait(0.005)
+        finally:
+            os.close(descriptor)
 
     def session_status(self, session_id: str) -> dict:
         with self.lock:
@@ -268,6 +310,7 @@ class StreamState:
             process = item[name]
             if process.poll() is None:
                 os.killpg(process.pid, signal.SIGTERM)
+        item["audio_stop"].set()
         deadline = time.monotonic() + 3
         for name in ("dosbox", "xvfb"):
             process = item[name]
@@ -277,6 +320,7 @@ class StreamState:
             except subprocess.TimeoutExpired:
                 os.killpg(process.pid, signal.SIGKILL)
                 process.wait()
+        item["audio_thread"].join(timeout=1)
         item["log"].close()
 
 

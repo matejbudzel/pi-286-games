@@ -70,3 +70,8 @@ class StreamBackendTests(unittest.TestCase):
         self.assertIn("type file", config)
         self.assertIn('slave.pcm "null"', config)
         self.assertIn('file "/tmp/audio.raw"', config)
+
+    def test_audio_pump_rate_is_stereo_s16le(self):
+        source = MODULE.read_text()
+        self.assertIn("self.audio_rate * 2 * 2", source)
+        self.assertIn("os.O_RDWR | os.O_NONBLOCK", source)
