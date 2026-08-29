@@ -178,7 +178,7 @@ class StreamState:
 
     @staticmethod
     def _dosbox_config(executable: PurePosixPath) -> str:
-        command = "\\\\".join(executable.parts)
+        command = "\\".join(executable.parts)
         return """[sdl]\nfullscreen=false\noutput=surface\nusescancodes=true\n\n[mixer]\nnosound=true\n\n[autoexec]\n@echo off\nmount c .\nc:\n%s\nexit\n""" % command
 
     def session_status(self, session_id: str) -> dict:

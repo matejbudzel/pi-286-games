@@ -33,5 +33,4 @@ class StreamBackendTests(unittest.TestCase):
         config = backend.StreamState._dosbox_config(backend.safe_relative_path("GP/GP.EXE"))
         self.assertIn("nosound=true", config)
         self.assertIn("mount c .", config)
-        self.assertIn("GP\\\\GP.EXE", config)
-
+        self.assertIn("GP\\GP.EXE", config)
