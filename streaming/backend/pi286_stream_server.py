@@ -160,7 +160,9 @@ class StreamState:
             config_path.write_text(self._dosbox_config(executable_path), encoding="utf-8")
             log = (self.runtime / f"{session_id}.log").open("ab", buffering=0)
             display = self._next_display()
-            xvfb = subprocess.Popen([self.config["xvfb"], display, "-screen", "0", "640x480x8", "-nolisten", "tcp"],
+            # Debian's SDL 1.2 DOSBox build does not accept Xvfb's 8-bit visual.
+            # This is server-only capture; the future Pi protocol remains 8-bit.
+            xvfb = subprocess.Popen([self.config["xvfb"], display, "-screen", "0", "640x480x24", "-nolisten", "tcp"],
                                     stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
             time.sleep(0.15)
             if xvfb.poll() is not None:

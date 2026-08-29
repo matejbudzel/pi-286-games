@@ -28,6 +28,14 @@ def main():
     parser.add_argument("--token-file", default="/etc/pi286-stream.token")
     args = parser.parse_args()
     token = open(args.token_file, encoding="utf-8").read().strip()
+    for _ in range(20):
+        try:
+            request(args.url, token, "GET", "/v1/status")
+            break
+        except urllib.error.URLError:
+            time.sleep(0.1)
+    else:
+        raise RuntimeError("backend did not become ready")
     # COM: set VGA 320x200x256, paint all 64000 pixels colour 3, then loop.
     payload = bytes.fromhex("b81300cd10b800a08ec031ffb003b900faf3aaebfe")
     digest = hashlib.sha256(payload).hexdigest()

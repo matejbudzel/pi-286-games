@@ -22,5 +22,6 @@ chown root:pi286stream /etc/pi286-stream.token
 chmod 0640 /etc/pi286-stream.token
 install -o root -g root -m 0644 "$repo_root/systemd/pi286-stream.service" /etc/systemd/system/pi286-stream.service
 systemctl daemon-reload
-systemctl enable --now pi286-stream.service
+systemctl enable pi286-stream.service
+systemctl restart pi286-stream.service
 echo "Backend installed. Read the token only on the LXC: /etc/pi286-stream.token"

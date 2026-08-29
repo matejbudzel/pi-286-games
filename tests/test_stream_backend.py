@@ -35,6 +35,10 @@ class StreamBackendTests(unittest.TestCase):
         self.assertIn("mount c .", config)
         self.assertIn("GP\\GP.EXE", config)
 
+    def test_xvfb_uses_a_visual_accepted_by_debian_dosbox(self):
+        source = MODULE.read_text()
+        self.assertIn('"640x480x24"', source)
+
     def test_frame_names_are_strict_and_do_not_escape_runtime(self):
         with tempfile.TemporaryDirectory() as directory:
             state = backend.StreamState(dict(backend.DEFAULTS, state_root=directory), "x" * 32)
