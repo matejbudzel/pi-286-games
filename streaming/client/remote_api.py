@@ -95,7 +95,9 @@ class RemoteBackend:
 
     def start_rainbow_cat(self):
         """Start the server's asset-free video/audio/input transport check."""
-        return self.json("POST", "/v1/diagnostics/rainbow-cat")
+        # The small server parses every POST body as JSON, including this
+        # asset-free endpoint which otherwise needs no request fields.
+        return self.json("POST", "/v1/diagnostics/rainbow-cat", {})
 
     def stop_session(self, session_id: str):
         return self.json("DELETE", "/v1/sessions/" + session_id)

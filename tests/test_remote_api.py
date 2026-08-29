@@ -13,7 +13,7 @@ class RemoteApiTests(unittest.TestCase):
         calls = []
         backend.json = lambda method, path, payload=None: calls.append((method, path, payload)) or {"id": "diagnostic"}
         self.assertEqual(backend.start_rainbow_cat(), {"id": "diagnostic"})
-        self.assertEqual(calls, [("POST", "/v1/diagnostics/rainbow-cat", None)])
+        self.assertEqual(calls, [("POST", "/v1/diagnostics/rainbow-cat", {})])
     def test_manifest_hashes_regular_files_with_safe_posix_paths(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
