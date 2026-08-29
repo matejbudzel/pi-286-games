@@ -1,9 +1,9 @@
 # Remote DOS game streaming experiment
 
 The Raspberry Pi 1 remains responsible for the native text launcher, direct
-framebuffer display, local audio playback, and game controls. A separate
-Proxmox LXC may run DOSBox on faster hardware and stream one active DOS game
-to the Pi over the local network.
+framebuffer display, local audio playback, game controls, and private game
+files. A separate Proxmox LXC may run DOSBox on faster hardware and stream one
+active DOS game to the Pi over the local network.
 
 ## Why this experiment exists
 
@@ -32,6 +32,12 @@ The first implementation should be deliberately narrow:
 - no desktop stack, browser, or general-purpose remote desktop client on the
   Pi.
 
+The Pi is the authoritative game-data source. Before launching a session it
+will send a manifest and upload only files absent from, or different in, the
+LXC's private cache. The LXC may retain that cache between sessions to avoid
+re-uploading unchanged assets, but it must not be provisioned with game files
+or treated as their owner.
+
 The LXC may use a convenient server-side display backend during the prototype;
 that backend must not become a requirement on the Pi.
 
@@ -55,6 +61,6 @@ an 8 GiB `local-lvm` disk, DHCP on `vmbr0`, and `onboot=0`. At provisioning it
 received only `dosbox` (Debian 0.74-3), `xvfb`, `openssh-server`, and Python 3.
 The non-login `pi286stream` account owns `/srv/pi286-stream/{sessions,runtime}`.
 
-No streaming listener or automatic game session is installed yet. The next
-change must define the authenticated control/video/audio protocol before any
-port is opened to the Pi.
+No game files, streaming listener, or automatic game session are installed
+yet. The next change must define the authenticated control/video/audio protocol
+and cache manifest/upload flow before any port is opened to the Pi.
