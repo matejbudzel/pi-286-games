@@ -76,7 +76,9 @@ The initial HTTP API is deliberately limited:
   `GET /v1/sessions/<id>/frames/<frame>.xwd` downloads it;
 - `GET /v1/sessions/<id>/audio?offset=<bytes>` returns the next bounded
   snapshot as signed 16-bit little-endian, 22050 Hz mono PCM. The caller polls
-  using the response's `X-Pi286-Audio-Next-Offset` header;
+  using the response's `X-Pi286-Audio-Next-Offset` header. The LXC uses ALSA's
+  local `file` PCM plugin as a headless capture sink; it has no audio hardware
+  dependency;
 - `GET`/`DELETE /v1/sessions/<id>` inspect or terminate that instance.
 
 `scripts/smoke-stream-backend.py` exercises cache-miss/**failed start**/upload/

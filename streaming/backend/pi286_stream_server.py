@@ -163,6 +163,7 @@ class StreamState:
             config_path = session_dir / "dosbox.conf"
             config_path.write_text(self._dosbox_config(executable_path, self.audio_rate), encoding="utf-8")
             audio_path = session_dir / "audio-s16le-stereo.raw"
+            (session_dir / ".asoundrc").write_text(self._alsa_capture_config(audio_path), encoding="utf-8")
             log = (self.runtime / f"{session_id}.log").open("ab", buffering=0)
             display = self._next_display()
             # Debian's SDL 1.2 DOSBox build does not accept Xvfb's 8-bit visual.
@@ -174,9 +175,8 @@ class StreamState:
                 log.close()
                 raise RuntimeError("Xvfb failed to start; see session log")
             environment = os.environ.copy()
-            environment.update({"DISPLAY": display, "SDL_AUDIODRIVER": "disk",
-                                "SDL_DISKAUDIOFILE": str(audio_path), "SDL_DISKAUDIODELAY": "0",
-                                "HOME": str(session_dir)})
+            environment.update({"DISPLAY": display, "SDL_AUDIODRIVER": "alsa",
+                                "AUDIODEV": "default", "HOME": str(session_dir)})
             dosbox = subprocess.Popen([self.config["dosbox"], "-conf", str(config_path)], cwd=game_dir,
                                       env=environment, stdout=log, stderr=subprocess.STDOUT,
                                       start_new_session=True)
@@ -192,6 +192,10 @@ class StreamState:
     def _dosbox_config(executable: PurePosixPath, audio_rate: int) -> str:
         command = "\\".join(executable.parts)
         return """[sdl]\nfullscreen=false\noutput=surface\nusescancodes=true\n\n[mixer]\nnosound=false\nrate=%d\nblocksize=256\nprebuffer=20\n\n[speaker]\npcspeaker=true\npcrate=%d\n\n[sblaster]\nsbtype=none\n\n[autoexec]\n@echo off\nmount c .\nc:\n%s\nexit\n""" % (audio_rate, audio_rate, command)
+
+    @staticmethod
+    def _alsa_capture_config(audio_path: Path) -> str:
+        return """# Session-local, headless SDL/DOSBox audio sink.\npcm.pi286_capture {\n    type file\n    slave.pcm \"null\"\n    file \"%s\"\n    format \"raw\"\n}\npcm.!default pi286_capture\n""" % audio_path
 
     def session_status(self, session_id: str) -> dict:
         with self.lock:
@@ -214,7 +218,8 @@ class StreamState:
             path = item["audio"]
         if not path.exists():
             return b"", output_offset
-        # SDL 1.2's disk driver receives DOSBox's S16LE stereo mixer stream.
+        # SDL's ALSA backend writes DOSBox's S16LE stereo mixer stream through
+        # the session-local ALSA file PCM above.
         # Convert a bounded snapshot to S16LE mono for the future Pi client.
         source_offset = output_offset * 2
         with path.open("rb") as source:

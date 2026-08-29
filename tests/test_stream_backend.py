@@ -64,3 +64,9 @@ class StreamBackendTests(unittest.TestCase):
             result, next_offset = state.audio_chunk("audio", 0)
             self.assertEqual(struct.unpack("<hh", result), (0, 2000))
             self.assertEqual(next_offset, 4)
+
+    def test_alsa_capture_is_session_local_and_uses_a_file_pcm(self):
+        config = backend.StreamState._alsa_capture_config(Path("/tmp/audio.raw"))
+        self.assertIn("type file", config)
+        self.assertIn('slave.pcm "null"', config)
+        self.assertIn('file "/tmp/audio.raw"', config)
