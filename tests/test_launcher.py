@@ -169,6 +169,11 @@ class DiscoveryTests(unittest.TestCase):
         self.assertIn("(\"\", False), (RAINBOW_CAT_LABEL", source)
         self.assertIn("run_rainbow_cat(config)", source)
 
+    def test_remote_presenter_uses_the_same_fbcon_environment_and_keeps_a_log(self):
+        source = inspect.getsource(launcher.run_remote_presenter)
+        self.assertIn("environment.update(dosbox_environment(config))", source)
+        self.assertIn('/tmp/pi286-stream-presenter.log', source)
+
     def test_ddr_button_mapping_is_the_known_pad_layout(self):
         self.assertEqual(launcher.PAD_ACTIONS, {2: "UP", 1: "DOWN", 0: "LEFT", 3: "RIGHT", 8: "START", 9: "SELECT"})
         self.assertEqual(launcher.PAD_LAYOUT[0], (6, "HORE-L"))
