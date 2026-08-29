@@ -210,6 +210,15 @@ pg-resolution 640x480 --reboot # Restore the normal 4:3 framebuffer profile and 
 Open a new Bash shell after installation, or run `source ~/.bashrc` once, for
 the aliases to become available.
 
+## Future remote-streaming experiment
+
+The native Pi launcher and stock DOSBox path remain supported. A separate
+thin-client experiment may run one DOSBox session in a nearby Proxmox LXC and
+stream its low-resolution video, PC Speaker audio, and controls to the Pi.
+The ARMv6 DOSBox-X cross-build experiment was retired because it was slower in
+practice, used more memory, and was unreliable with classic SDL fbcon. See
+[the experiment note](docs/remote-streaming-experiment.md).
+
 ## Health check
 
 Run the read-only health check on the target to inspect DOSBox, framebuffer/DRM
