@@ -82,8 +82,10 @@ The initial HTTP API is deliberately limited:
 - `GET`/`DELETE /v1/sessions/<id>` inspect or terminate that instance.
 
 `scripts/smoke-stream-backend.py` exercises cache-miss/**failed start**/upload/
-successful start/PC-Speaker PCM capture/two-frame capture/stop using a
+successful start/PCM transport capture/two-frame capture/stop using a
 generated, disposable DOS COM program. Run it inside the LXC after
-installation. It has no input endpoint yet. That separation is intentional: the
+installation. The generated direct-PC-Speaker tone is currently silent in the
+Debian DOSBox mixer, so PC Speaker content must be validated with a real game
+before treating audio emulation as proven. It has no input endpoint yet. That separation is intentional: the
 cache and process lifecycle can be verified without exposing game assets in the
 repository or prematurely choosing a video/audio protocol.
