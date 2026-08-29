@@ -69,6 +69,9 @@ def main():
             time.sleep(0.1)
         if len(audio) < 100 or len(audio) % 2 or "audio/L16" not in headers.get_content_type() + ";" + headers.get("Content-Type", ""):
             raise RuntimeError("invalid PCM audio capture")
+        video, video_headers = request(args.url, token, "GET", f"/v1/sessions/{session_id}/video")
+        if len(video) != 320 * 200 * 2 or video_headers.get("Content-Type") != "application/x-pi286-rgb565le":
+            raise RuntimeError("invalid RGB565 video frame")
         first = json.loads(request(args.url, token, "POST", f"/v1/sessions/{session_id}/frames", {})[0])
         request(args.url, token, "POST", f"/v1/sessions/{session_id}/input", {"events": [{"key": "UP", "pressed": True}]})
         time.sleep(0.2)
@@ -84,7 +87,7 @@ def main():
         if downloaded[0] == downloaded[1]:
             raise RuntimeError("injected Up key did not change the framebuffer")
         print(json.dumps({"session": session_id, "audio_bytes": len(audio), "audio_non_silent": bool(any(audio)),
-                          "frames": [first, second], "input": "UP press/release", "result": "ok"}, sort_keys=True))
+                          "video_bytes": len(video), "frames": [first, second], "input": "UP press/release", "result": "ok"}, sort_keys=True))
     finally:
         if "session_id" in locals():
             request(args.url, token, "DELETE", f"/v1/sessions/{session_id}")
