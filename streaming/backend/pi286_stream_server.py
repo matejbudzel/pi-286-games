@@ -48,6 +48,9 @@ KEYS = {
     "F6": "F6", "F7": "F7", "F8": "F8", "F9": "F9", "F10": "F10",
     **{character.upper(): character for character in "abcdefghijklmnopqrstuvwxyz0123456789"},
 }
+VIDEO_WIDTH = 320
+VIDEO_HEIGHT = 200
+VIDEO_BYTES = VIDEO_WIDTH * VIDEO_HEIGHT * 2
 
 
 def read_config(path: Path) -> dict[str, str]:
@@ -354,6 +357,50 @@ class StreamState:
             return {"id": frame_id, "bytes": frame.stat().st_size,
                     "path": f"/v1/sessions/{session_id}/frames/{frame_id}"}
 
+    def video_frame(self, session_id: str) -> bytes:
+        """Return a 320x200 RGB565LE frame for the Pi's fixed 2x presenter."""
+        with self.lock:
+            item = self.active.get(session_id)
+            if not item:
+                raise KeyError(session_id)
+            if item["dosbox"].poll() is not None:
+                raise RuntimeError("DOSBox has already exited")
+            temporary = self.runtime / f"{session_id}-video-{secrets.token_hex(4)}.xwd"
+            try:
+                subprocess.run([self.config["xwd"], "-silent", "-root", "-display", item["display"], "-out", str(temporary)],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=3, check=True)
+                return self._xwd_to_rgb565(temporary.read_bytes())
+            finally:
+                temporary.unlink(missing_ok=True)
+
+    @staticmethod
+    def _xwd_to_rgb565(source: bytes) -> bytes:
+        if len(source) < 100:
+            raise ValueError("truncated XWD header")
+        header = struct.unpack_from(">25I", source)
+        header_size, width, height = header[0], header[4], header[5]
+        byte_order, bits_per_pixel, bytes_per_line = header[7], header[11], header[12]
+        if width != 640 or height != 480 or bits_per_pixel != 32 or byte_order != 0:
+            raise ValueError("unexpected Xvfb image format")
+        pixels = header_size + header[19] * 12
+        if pixels + bytes_per_line * height > len(source):
+            raise ValueError("truncated XWD pixels")
+        # Xvfb's 24-bit TrueColor pixels are B,G,R,pad in little-endian 32-bit
+        # storage. Crop the 640x400 DOS region centred in 640x480, then sample
+        # every second pixel/row into the fixed 320x200 protocol frame.
+        output = bytearray(VIDEO_BYTES)
+        destination = 0
+        for y in range(VIDEO_HEIGHT):
+            row = pixels + (y * 2 + 40) * bytes_per_line
+            for x in range(VIDEO_WIDTH):
+                offset = row + x * 8
+                blue, green, red = source[offset], source[offset + 1], source[offset + 2]
+                color = ((red & 0xf8) << 8) | ((green & 0xfc) << 3) | (blue >> 3)
+                output[destination] = color & 0xff
+                output[destination + 1] = color >> 8
+                destination += 2
+        return bytes(output)
+
     def frame_path(self, session_id: str, frame_id: str) -> Path:
         if not re.fullmatch(r"[0-9]{4}\.xwd", frame_id):
             raise KeyError(session_id)
@@ -428,6 +475,16 @@ def make_handler(state: StreamState):
             self.end_headers()
             self.wfile.write(body)
 
+        def _video(self, session_id: str):
+            body = state.video_frame(session_id)
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "application/x-pi286-rgb565le")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("X-Pi286-Video-Width", str(VIDEO_WIDTH))
+            self.send_header("X-Pi286-Video-Height", str(VIDEO_HEIGHT))
+            self.end_headers()
+            self.wfile.write(body)
+
         def _request_json(self):
             try:
                 length = int(self.headers.get("Content-Length", "-1"))
@@ -458,6 +515,8 @@ def make_handler(state: StreamState):
                     values = parse_qs(parsed.query, strict_parsing=True)
                     offset = int(values.get("offset", ["0"])[0])
                     self._audio(path.split("/")[3], offset)
+                elif re.fullmatch(r"/v1/sessions/[^/]+/video", path):
+                    self._video(path.split("/")[3])
                 elif path.startswith("/v1/sessions/") and path.endswith("/log"):
                     session_id = path.split("/")[3]
                     self._json(HTTPStatus.NOT_IMPLEMENTED, {"error": "log retrieval is not exposed yet", "id": session_id})

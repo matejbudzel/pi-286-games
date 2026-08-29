@@ -74,6 +74,9 @@ The initial HTTP API is deliberately limited:
   launches one headless DOSBox instance under Xvfb;
 - `POST /v1/sessions/<id>/frames` saves an Xvfb root-window frame as XWD and
   `GET /v1/sessions/<id>/frames/<frame>.xwd` downloads it;
+- `GET /v1/sessions/<id>/video` returns a fixed 320×200 RGB565 little-endian
+  frame, cropped from the headless 640×480 DOS output and sampled 2×. This is
+  the first Pi presenter wire format, not its final tile/delta protocol;
 - `GET /v1/sessions/<id>/audio?offset=<bytes>` returns the next bounded
   snapshot as signed 16-bit little-endian, 22050 Hz mono PCM. The caller polls
   using the response's `X-Pi286-Audio-Next-Offset` header. The LXC uses ALSA's
