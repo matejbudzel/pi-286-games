@@ -88,8 +88,8 @@ successful start/PCM transport capture/two-frame capture/stop using a
 generated, disposable DOS COM program. Run it inside the LXC after
 installation. The generated direct-PC-Speaker tone is currently silent in the
 Debian DOSBox mixer, so PC Speaker content must be validated with a real game
-before treating audio emulation as proven. The smoke program also verifies that
-an injected `UP` press changes its captured framebuffer. Pi joystick/button
+before treating audio emulation as proven. The smoke program uses DOS BIOS
+keyboard reads and verifies that an injected `UP` press changes its captured framebuffer. Pi joystick/button
 handling will stay client-side and emit these normalized game keys. That separation is intentional: the
 cache and process lifecycle can be verified without exposing game assets in the
 repository or prematurely choosing a video/audio protocol.

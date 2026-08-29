@@ -41,7 +41,7 @@ def main():
     # pixels colour 3, and repaint colour 4 after an Up key press.
     # The trailing nonce is unreachable after the infinite loop and guarantees
     # this invocation exercises a cache miss instead of a warm-cache shortcut.
-    payload = bytes.fromhex("b0b6e643b8a904e64288e0e642e4610c03e661b81300cd10b800a08ec031ffb003b900faf3aae464a80174fae4603c4875f431ffb004b900faf3aaebe9") + os.urandom(8)
+    payload = bytes.fromhex("b0b6e643b8a904e64288e0e642e4610c03e661b81300cd10b800a08ec031ffb003b900faf3aab401cd1674fab400cd1680fc4875f131ffb004b900faf3aaebe6") + os.urandom(8)
     digest = hashlib.sha256(payload).hexdigest()
     manifest = {"blobs": [{"sha256": digest, "size": len(payload)}]}
     missing = json.loads(request(args.url, token, "POST", "/v1/manifest", manifest)[0])["missing"]
