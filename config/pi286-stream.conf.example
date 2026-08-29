@@ -6,4 +6,5 @@ token_file=/etc/pi286-stream.token
 dosbox=/usr/bin/dosbox
 xvfb=/usr/bin/Xvfb
 xwd=/usr/bin/xwd
+audio_rate=22050
 max_upload_bytes=134217728

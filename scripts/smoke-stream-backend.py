@@ -37,10 +37,11 @@ def main():
             time.sleep(0.1)
     else:
         raise RuntimeError("backend did not become ready")
-    # COM: set VGA 320x200x256, paint all 64000 pixels colour 3, then loop.
+    # COM: start the PC speaker near 1 kHz, set VGA 320x200x256, paint all
+    # pixels colour 3, then loop.
     # The trailing nonce is unreachable after the infinite loop and guarantees
     # this invocation exercises a cache miss instead of a warm-cache shortcut.
-    payload = bytes.fromhex("b81300cd10b800a08ec031ffb003b900faf3aaebfe") + os.urandom(8)
+    payload = bytes.fromhex("b0b6e643b8a904e64288e0e642e4610c03e661b81300cd10b800a08ec031ffb003b900faf3aaebfe") + os.urandom(8)
     digest = hashlib.sha256(payload).hexdigest()
     manifest = {"blobs": [{"sha256": digest, "size": len(payload)}]}
     missing = json.loads(request(args.url, token, "POST", "/v1/manifest", manifest)[0])["missing"]
@@ -61,6 +62,11 @@ def main():
         started = json.loads(request(args.url, token, "POST", "/v1/sessions", session)[0])
         session_id = started["id"]
         time.sleep(1)
+        audio, headers = request(args.url, token, "GET", f"/v1/sessions/{session_id}/audio?offset=0")
+        if len(audio) < 100 or len(audio) % 2 or "audio/L16" not in headers.get_content_type() + ";" + headers.get("Content-Type", ""):
+            raise RuntimeError("invalid PCM audio capture")
+        if not any(audio):
+            raise RuntimeError("PC speaker capture is silent")
         first = json.loads(request(args.url, token, "POST", f"/v1/sessions/{session_id}/frames", {})[0])
         time.sleep(0.2)
         second = json.loads(request(args.url, token, "POST", f"/v1/sessions/{session_id}/frames", {})[0])
@@ -68,7 +74,7 @@ def main():
             body, _ = request(args.url, token, "GET", frame["path"])
             if len(body) != frame["bytes"] or len(body) < 100:
                 raise RuntimeError("invalid XWD frame download")
-        print(json.dumps({"session": session_id, "frames": [first, second], "result": "ok"}, sort_keys=True))
+        print(json.dumps({"session": session_id, "audio_bytes": len(audio), "frames": [first, second], "result": "ok"}, sort_keys=True))
     finally:
         if "session_id" in locals():
             request(args.url, token, "DELETE", f"/v1/sessions/{session_id}")

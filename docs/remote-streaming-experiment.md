@@ -74,11 +74,14 @@ The initial HTTP API is deliberately limited:
   launches one headless DOSBox instance under Xvfb;
 - `POST /v1/sessions/<id>/frames` saves an Xvfb root-window frame as XWD and
   `GET /v1/sessions/<id>/frames/<frame>.xwd` downloads it;
+- `GET /v1/sessions/<id>/audio?offset=<bytes>` returns the next bounded
+  snapshot as signed 16-bit little-endian, 22050 Hz mono PCM. The caller polls
+  using the response's `X-Pi286-Audio-Next-Offset` header;
 - `GET`/`DELETE /v1/sessions/<id>` inspect or terminate that instance.
 
 `scripts/smoke-stream-backend.py` exercises cache-miss/**failed start**/upload/
-successful start/two-frame capture/stop using a generated, disposable DOS COM
-program. Run it inside the LXC after installation. It has no media or input
-endpoint yet. That separation is intentional: the
+successful start/PC-Speaker PCM capture/two-frame capture/stop using a
+generated, disposable DOS COM program. Run it inside the LXC after
+installation. It has no input endpoint yet. That separation is intentional: the
 cache and process lifecycle can be verified without exposing game assets in the
 repository or prematurely choosing a video/audio protocol.

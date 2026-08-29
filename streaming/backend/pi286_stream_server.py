@@ -17,11 +17,13 @@ import secrets
 import shutil
 import signal
 import subprocess
+import struct
 import threading
 import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path, PurePosixPath
+from urllib.parse import parse_qs, urlsplit
 
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 SESSION_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
@@ -33,6 +35,7 @@ DEFAULTS = {
     "dosbox": "/usr/bin/dosbox",
     "xvfb": "/usr/bin/Xvfb",
     "xwd": "/usr/bin/xwd",
+    "audio_rate": "22050",
     "max_upload_bytes": str(128 * 1024 * 1024),
 }
 
@@ -74,6 +77,7 @@ class StreamState:
         for directory in (self.blobs, self.sessions, self.runtime):
             directory.mkdir(parents=True, exist_ok=True)
         self.max_upload_bytes = int(config["max_upload_bytes"])
+        self.audio_rate = int(config["audio_rate"])
         self.lock = threading.RLock()
         self.active: dict[str, dict] = {}
 
@@ -157,7 +161,8 @@ class StreamState:
                 except OSError:
                     shutil.copyfile(self.blob_path(digest), target)
             config_path = session_dir / "dosbox.conf"
-            config_path.write_text(self._dosbox_config(executable_path), encoding="utf-8")
+            config_path.write_text(self._dosbox_config(executable_path, self.audio_rate), encoding="utf-8")
+            audio_path = session_dir / "audio-s16le-stereo.raw"
             log = (self.runtime / f"{session_id}.log").open("ab", buffering=0)
             display = self._next_display()
             # Debian's SDL 1.2 DOSBox build does not accept Xvfb's 8-bit visual.
@@ -169,21 +174,24 @@ class StreamState:
                 log.close()
                 raise RuntimeError("Xvfb failed to start; see session log")
             environment = os.environ.copy()
-            environment.update({"DISPLAY": display, "SDL_AUDIODRIVER": "dummy", "HOME": str(session_dir)})
+            environment.update({"DISPLAY": display, "SDL_AUDIODRIVER": "disk",
+                                "SDL_DISKAUDIOFILE": str(audio_path), "SDL_DISKAUDIODELAY": "0",
+                                "HOME": str(session_dir)})
             dosbox = subprocess.Popen([self.config["dosbox"], "-conf", str(config_path)], cwd=game_dir,
                                       env=environment, stdout=log, stderr=subprocess.STDOUT,
                                       start_new_session=True)
             self.active[session_id] = {"dosbox": dosbox, "xvfb": xvfb, "log": log,
                                        "display": display, "started": time.time(), "frames": []}
+            self.active[session_id]["audio"] = audio_path
             return self.session_status(session_id)
 
     def _next_display(self) -> str:
         return f":{200 + (os.getpid() % 300)}"
 
     @staticmethod
-    def _dosbox_config(executable: PurePosixPath) -> str:
+    def _dosbox_config(executable: PurePosixPath, audio_rate: int) -> str:
         command = "\\".join(executable.parts)
-        return """[sdl]\nfullscreen=false\noutput=surface\nusescancodes=true\n\n[mixer]\nnosound=true\n\n[autoexec]\n@echo off\nmount c .\nc:\n%s\nexit\n""" % command
+        return """[sdl]\nfullscreen=false\noutput=surface\nusescancodes=true\n\n[mixer]\nnosound=false\nrate=%d\nblocksize=256\nprebuffer=20\n\n[speaker]\npcspeaker=true\npcrate=%d\n\n[sblaster]\nsbtype=none\n\n[autoexec]\n@echo off\nmount c .\nc:\n%s\nexit\n""" % (audio_rate, audio_rate, command)
 
     def session_status(self, session_id: str) -> dict:
         with self.lock:
@@ -192,7 +200,32 @@ class StreamState:
                 raise KeyError(session_id)
             return {"id": session_id, "state": "running" if item["dosbox"].poll() is None else "exited",
                     "pid": item["dosbox"].pid, "frames": len(item["frames"]),
+                    "audio_bytes": item["audio"].stat().st_size if item["audio"].exists() else 0,
+                    "audio": f"/v1/sessions/{session_id}/audio?offset=0",
                     "log": f"/v1/sessions/{session_id}/log"}
+
+    def audio_chunk(self, session_id: str, output_offset: int) -> tuple[bytes, int]:
+        if output_offset < 0 or output_offset % 2:
+            raise ValueError("audio offset must be a non-negative multiple of two")
+        with self.lock:
+            item = self.active.get(session_id)
+            if not item:
+                raise KeyError(session_id)
+            path = item["audio"]
+        if not path.exists():
+            return b"", output_offset
+        # SDL 1.2's disk driver receives DOSBox's S16LE stereo mixer stream.
+        # Convert a bounded snapshot to S16LE mono for the future Pi client.
+        source_offset = output_offset * 2
+        with path.open("rb") as source:
+            source.seek(source_offset)
+            raw = source.read(65536 * 2)
+        raw = raw[:len(raw) // 4 * 4]
+        mono = bytearray(len(raw) // 2)
+        for index in range(0, len(raw), 4):
+            left, right = struct.unpack_from("<hh", raw, index)
+            struct.pack_into("<h", mono, index // 2, (left + right) // 2)
+        return bytes(mono), output_offset + len(mono)
 
     def capture_frame(self, session_id: str) -> dict:
         with self.lock:
@@ -270,6 +303,16 @@ def make_handler(state: StreamState):
             with path.open("rb") as source:
                 shutil.copyfileobj(source, self.wfile)
 
+        def _audio(self, session_id: str, offset: int):
+            body, next_offset = state.audio_chunk(session_id, offset)
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", f"audio/L16;rate={state.audio_rate};channels=1")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("X-Pi286-Audio-Offset", str(offset))
+            self.send_header("X-Pi286-Audio-Next-Offset", str(next_offset))
+            self.end_headers()
+            self.wfile.write(body)
+
         def _request_json(self):
             try:
                 length = int(self.headers.get("Content-Length", "-1"))
@@ -287,20 +330,26 @@ def make_handler(state: StreamState):
 
         def do_GET(self):
             if not self._check_auth(): return
+            parsed = urlsplit(self.path)
+            path = parsed.path
             try:
-                if self.path == "/v1/status":
+                if path == "/v1/status":
                     self._json(HTTPStatus.OK, {"api": 1, "active_sessions": len(state.active),
                                                 "media_transport": "not implemented"})
-                elif re.fullmatch(r"/v1/sessions/[^/]+/frames/[0-9]{4}\.xwd", self.path):
-                    parts = self.path.split("/")
+                elif re.fullmatch(r"/v1/sessions/[^/]+/frames/[0-9]{4}\.xwd", path):
+                    parts = path.split("/")
                     self._file(state.frame_path(parts[3], parts[5]))
-                elif self.path.startswith("/v1/sessions/") and self.path.endswith("/log"):
-                    session_id = self.path.split("/")[3]
+                elif re.fullmatch(r"/v1/sessions/[^/]+/audio", path):
+                    values = parse_qs(parsed.query, strict_parsing=True)
+                    offset = int(values.get("offset", ["0"])[0])
+                    self._audio(path.split("/")[3], offset)
+                elif path.startswith("/v1/sessions/") and path.endswith("/log"):
+                    session_id = path.split("/")[3]
                     self._json(HTTPStatus.NOT_IMPLEMENTED, {"error": "log retrieval is not exposed yet", "id": session_id})
-                elif self.path.startswith("/v1/sessions/"):
-                    self._json(HTTPStatus.OK, state.session_status(self.path.split("/")[3]))
+                elif path.startswith("/v1/sessions/"):
+                    self._json(HTTPStatus.OK, state.session_status(path.split("/")[3]))
                 else: self._json(HTTPStatus.NOT_FOUND, {"error": "not found"})
-            except KeyError: self._json(HTTPStatus.NOT_FOUND, {"error": "unknown session"})
+            except (KeyError, ValueError): self._json(HTTPStatus.NOT_FOUND, {"error": "unknown session or invalid audio offset"})
 
         def do_POST(self):
             if not self._check_auth(): return

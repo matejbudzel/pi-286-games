@@ -1,6 +1,7 @@
 import hashlib
 import importlib.util
 import io
+import struct
 import tempfile
 import unittest
 from pathlib import Path
@@ -30,8 +31,10 @@ class StreamBackendTests(unittest.TestCase):
             self.assertEqual(state.blob_path(digest).read_bytes(), payload)
 
     def test_generated_dosbox_config_is_headless_and_mounts_session(self):
-        config = backend.StreamState._dosbox_config(backend.safe_relative_path("GP/GP.EXE"))
-        self.assertIn("nosound=true", config)
+        config = backend.StreamState._dosbox_config(backend.safe_relative_path("GP/GP.EXE"), 22050)
+        self.assertIn("nosound=false", config)
+        self.assertIn("pcspeaker=true", config)
+        self.assertIn("rate=22050", config)
         self.assertIn("mount c .", config)
         self.assertIn("GP\\GP.EXE", config)
 
@@ -51,3 +54,13 @@ class StreamBackendTests(unittest.TestCase):
 
     def test_frame_download_route_matches_xwd_not_a_literal_backslash(self):
         self.assertIn(r'frames/[0-9]{4}\.xwd', MODULE.read_text())
+
+    def test_audio_downmixes_stereo_s16le_to_mono(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = backend.StreamState(dict(backend.DEFAULTS, state_root=directory), "x" * 32)
+            audio = state.sessions / "audio.raw"
+            audio.write_bytes(struct.pack("<hhhh", 1000, -1000, 3000, 1000))
+            state.active["audio"] = {"audio": audio}
+            result, next_offset = state.audio_chunk("audio", 0)
+            self.assertEqual(struct.unpack("<hh", result), (0, 2000))
+            self.assertEqual(next_offset, 4)
