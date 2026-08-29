@@ -44,3 +44,6 @@ class StreamBackendTests(unittest.TestCase):
             state = backend.StreamState(dict(backend.DEFAULTS, state_root=directory), "x" * 32)
             with self.assertRaises(KeyError):
                 state.frame_path("no-session", "../../etc/passwd")
+
+    def test_frame_download_route_matches_xwd_not_a_literal_backslash(self):
+        self.assertIn(r'frames/[0-9]{4}\.xwd', MODULE.read_text())

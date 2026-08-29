@@ -291,7 +291,7 @@ def make_handler(state: StreamState):
                 if self.path == "/v1/status":
                     self._json(HTTPStatus.OK, {"api": 1, "active_sessions": len(state.active),
                                                 "media_transport": "not implemented"})
-                elif re.fullmatch(r"/v1/sessions/[^/]+/frames/[0-9]{4}\\.xwd", self.path):
+                elif re.fullmatch(r"/v1/sessions/[^/]+/frames/[0-9]{4}\.xwd", self.path):
                     parts = self.path.split("/")
                     self._file(state.frame_path(parts[3], parts[5]))
                 elif self.path.startswith("/v1/sessions/") and self.path.endswith("/log"):
