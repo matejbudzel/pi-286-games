@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Minimal terminal UI and DOSBox supervisor for pi-286-games."""
-import argparse, fcntl, glob, os, select, shlex, shutil, signal, socket, struct, subprocess, sys, tempfile, termios, time, tty, urllib.error, urllib.parse, urllib.request, zipfile
+import argparse, fcntl, glob, os, re, select, shlex, shutil, signal, socket, struct, subprocess, sys, tempfile, termios, time, tty, urllib.error, urllib.parse, urllib.request, zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -23,6 +23,7 @@ PANIC_KEY = "F1"
 # requested sample format/rate instead of requiring an exact hardware match.
 HDMI_PCM = "plughw:0,0"
 AUDIO_VOLUME_KEY = "audio_volume_percent"
+RAINBOW_CAT_LABEL = "Dúhová mačka (test vzdialeného spojenia)"
 PAD_ACTIONS = {2: "UP", 1: "DOWN", 0: "LEFT", 3: "RIGHT", 8: "START", 9: "SELECT"}
 PAD_LAYOUT = ((6, "HORE-L"), (2, "HORE"), (7, "HORE-P"), (0, "VĽAVO"), (3, "VPRAVO"), (4, "DOLE-L"), (1, "DOLE"), (5, "DOLE-P"))
 DOSBOX_KEY_ACTIONS = {"UP": "key_up", "DOWN": "key_down", "LEFT": "key_left", "RIGHT": "key_right", "SPACE": "key_space", "ENTER": "key_enter", "ESC": "key_esc", "LSHIFT": "key_lshift", "LCTRL": "key_lctrl"}
@@ -462,11 +463,20 @@ def remote_pad_map(keys):
     translate = {"LCTRL": "CTRL", "LSHIFT": "SHIFT"}
     return ",".join(translate.get(keys.get(button, ""), keys.get(button, "")) for button in range(9))
 
+def run_remote_presenter(title, config, backend, presenter, session_id, ddr_keys=None):
+    """Show one remote session through the Pi's isolated SDL fbcon client."""
+    parsed = urllib.parse.urlparse(config["remote_dosbox_url"])
+    if not parsed.hostname or parsed.scheme != "http":
+        raise RuntimeError("Neplatná adresa vzdialeného DOSBoxu.")
+    game_running_screen(Game(title, "", "", Path(), Path()), PANIC_KEY)
+    result = subprocess.run([str(presenter), parsed.hostname, str(parsed.port or 80), config["remote_dosbox_token_file"], session_id, remote_pad_map(ddr_keys or {})], check=False)
+    restore_console_display()
+    return "panic" if result.returncode == 0 else "failed"
+
 def run_remote_game(game, config, term, data, ddr_keys):
     selected = remote_choice(config)
     if not selected: return None
     backend, presenter = selected
-    confirm = config.get("confirm_key", "SPACE").upper()
     def progress(done, total, name):
         percent = 100 if not total else done * 100 // total
         install_screen(term, game, "Pripravujem vzdialenú hru", "Nahrávam herné dáta " + name, percent)
@@ -474,17 +484,24 @@ def run_remote_game(game, config, term, data, ddr_keys):
     files, _ = backend.sync_directory(data, progress)
     executable = shlex.split(game.command)[0].replace("/", "\\")
     session = backend.start_session(re.sub(r"[^a-z0-9_-]", "-", game.data_dir.lower()), executable, files)
-    parsed = urllib.parse.urlparse(config["remote_dosbox_url"])
-    if not parsed.hostname or parsed.scheme != "http":
-        backend.stop_session(session["id"]); raise RuntimeError("Neplatná adresa vzdialeného DOSBoxu.")
-    game_running_screen(game, PANIC_KEY)
     try:
-        result = subprocess.run([str(presenter), parsed.hostname, str(parsed.port or 80), config["remote_dosbox_token_file"], session["id"], remote_pad_map(ddr_keys)], check=False)
+        return run_remote_presenter(game.name, config, backend, presenter, session["id"], ddr_keys)
     finally:
         try: backend.stop_session(session["id"])
         except (RemoteUnavailable, RemoteProtocolError): pass
-        restore_console_display()
-    return "panic" if result.returncode == 0 else "failed"
+
+def run_rainbow_cat(config):
+    """Run the remote-only asset-free transport diagnostic from the menu."""
+    selected = remote_choice(config)
+    if not selected:
+        raise RuntimeError("Vzdialené spojenie nie je dostupné.")
+    backend, presenter = selected
+    session = backend.start_rainbow_cat()
+    try:
+        return run_remote_presenter(RAINBOW_CAT_LABEL, config, backend, presenter, session["id"])
+    finally:
+        try: backend.stop_session(session["id"])
+        except (RemoteUnavailable, RemoteProtocolError): pass
 
 def effective_dosbox_config(game_config, mapper_file, data, command, no_sound=False):
     """Return the ordered config text DOSBox receives for diagnostics/tests."""
@@ -573,12 +590,14 @@ def main():
     games = discover()
     if not games: print("No valid game definitions found.", file=sys.stderr); return 1
     selected = 0; confirm = config.get("confirm_key", "SPACE").upper(); corner = ""; redraw = True
+    diagnostic_index = len(games); bye_index = diagnostic_index + 1
     volume = volume_percent(config.get(AUDIO_VOLUME_KEY, "96")); set_audio_volume(volume)
     with Terminal() as term, DancePad() as pad:
         while True:
             if redraw:
-                lines = [(g.name, n == selected) for n, g in enumerate(games)] + [("", False), ("Bye bye!", selected == len(games))]
-                Terminal.draw(lines, "\x1b[91m" if selected == len(games) else ("\x1b[92m", "\x1b[96m", "\x1b[93m")[sum(games[selected].name.encode()) % 3], corner, sound_status(volume))
+                lines = [(g.name, n == selected) for n, g in enumerate(games)] + [("", False), (RAINBOW_CAT_LABEL, selected == diagnostic_index), ("", False), ("Bye bye!", selected == bye_index)]
+                color = "\x1b[91m" if selected == bye_index else "\x1b[95m" if selected == diagnostic_index else ("\x1b[92m", "\x1b[96m", "\x1b[93m")[sum(games[selected].name.encode()) % 3]
+                Terminal.draw(lines, color, corner, sound_status(volume))
                 redraw = False
             key = next_input(term, pad)
             if key is None: continue
@@ -586,18 +605,25 @@ def main():
             redraw = True
             if key == PANIC_KEY: corner = network_address()
             elif key == "SELECT": continue
-            elif key == config.get("up_key", "UP").upper(): selected = (selected - 1) % (len(games) + 1)
-            elif key == config.get("down_key", "DOWN").upper(): selected = (selected + 1) % (len(games) + 1)
+            elif key == config.get("up_key", "UP").upper(): selected = (selected - 1) % (len(games) + 2)
+            elif key == config.get("down_key", "DOWN").upper(): selected = (selected + 1) % (len(games) + 2)
             elif key in ("LEFT", "RIGHT"):
                 changed = max(0, min(100, volume + (10 if key == "RIGHT" else -10)))
                 if changed != volume and set_audio_volume(changed):
                     volume = changed; config[AUDIO_VOLUME_KEY] = str(volume); save_value(args.host_conf, AUDIO_VOLUME_KEY, volume)
             elif key in (confirm, "START"):
-                if selected == len(games):
+                if selected == bye_index:
                     if not is_raspberry_pi(): return 0
                     try: subprocess.run(["sudo", "-n", "/sbin/shutdown", "-h", "now"], check=True)
                     except (OSError, subprocess.CalledProcessError):
                         if not error(term, pad, Game("Systém", "", "", Path(), Path()), "Vypnutie systému zlyhalo.", confirm): return 0
+                elif selected == diagnostic_index:
+                    try:
+                        result = run_rainbow_cat(config)
+                        if result == "panic": corner = network_address()
+                        if result == "failed" and not error(term, pad, Game(RAINBOW_CAT_LABEL, "", "", Path(), Path()), "Vzdialený prehrávač skončil s chybou.", confirm): return 0
+                    except RuntimeError as exc:
+                        if not error(term, pad, Game(RAINBOW_CAT_LABEL, "", "", Path(), Path()), str(exc), confirm): return 0
                 else:
                     try:
                         ddr_keys, ddr_labels = load_ddr_mapping(games[selected])

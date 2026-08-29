@@ -7,6 +7,13 @@ from streaming.client.remote_api import RemoteBackend, RemoteProtocolError
 
 
 class RemoteApiTests(unittest.TestCase):
+
+    def test_rainbow_cat_uses_the_asset_free_diagnostic_endpoint(self):
+        backend = RemoteBackend("http://example.test", "token")
+        calls = []
+        backend.json = lambda method, path, payload=None: calls.append((method, path, payload)) or {"id": "diagnostic"}
+        self.assertEqual(backend.start_rainbow_cat(), {"id": "diagnostic"})
+        self.assertEqual(calls, [("POST", "/v1/diagnostics/rainbow-cat", None)])
     def test_manifest_hashes_regular_files_with_safe_posix_paths(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

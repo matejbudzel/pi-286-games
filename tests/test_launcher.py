@@ -162,6 +162,13 @@ class DiscoveryTests(unittest.TestCase):
     def test_remote_pad_map_preserves_button_order_and_normalizes_modifiers(self):
         self.assertEqual(launcher.remote_pad_map({0: "LEFT", 2: "UP", 8: "LCTRL"}), "LEFT,,UP,,,,,,CTRL")
 
+    def test_menu_includes_the_remote_diagnostic_between_games_and_bye_bye(self):
+        source = inspect.getsource(launcher.main)
+        self.assertIn("RAINBOW_CAT_LABEL", source)
+        self.assertIn("diagnostic_index = len(games)", source)
+        self.assertIn("(\"\", False), (RAINBOW_CAT_LABEL", source)
+        self.assertIn("run_rainbow_cat(config)", source)
+
     def test_ddr_button_mapping_is_the_known_pad_layout(self):
         self.assertEqual(launcher.PAD_ACTIONS, {2: "UP", 1: "DOWN", 0: "LEFT", 3: "RIGHT", 8: "START", 9: "SELECT"})
         self.assertEqual(launcher.PAD_LAYOUT[0], (6, "HORE-L"))

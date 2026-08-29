@@ -93,5 +93,9 @@ class RemoteBackend:
     def start_session(self, game_id: str, executable: str, files: dict[str, str]):
         return self.json("POST", "/v1/sessions", {"game_id": game_id, "executable": executable, "files": files})
 
+    def start_rainbow_cat(self):
+        """Start the server's asset-free video/audio/input transport check."""
+        return self.json("POST", "/v1/diagnostics/rainbow-cat")
+
     def stop_session(self, session_id: str):
         return self.json("DELETE", "/v1/sessions/" + session_id)
