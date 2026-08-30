@@ -394,15 +394,16 @@ class StreamState:
         pixels = header_size + header[19] * 12
         if pixels + bytes_per_line * height > len(source):
             raise ValueError("truncated XWD pixels")
-        # Xvfb's 24-bit TrueColor pixels are B,G,R,pad in little-endian 32-bit
-        # storage. Crop the 640x400 DOS region centred in 640x480, then sample
-        # every second pixel/row into the fixed 320x200 protocol frame.
+        # Xvfb uses 24-bit TrueColor B,G,R pixels.  Its scanlines are padded to
+        # 2560 bytes, but individual pixels still occupy three bytes (not four).
+        # Crop the 640x400 DOS region centred in 640x480, then sample every
+        # second pixel/row into the fixed 320x200 protocol frame.
         output = bytearray(VIDEO_BYTES)
         destination = 0
         for y in range(VIDEO_HEIGHT):
             row = pixels + (y * 2 + 40) * bytes_per_line
             for x in range(VIDEO_WIDTH):
-                offset = row + x * 8
+                offset = row + x * 6
                 blue, green, red = source[offset], source[offset + 1], source[offset + 2]
                 color = ((red & 0xf8) << 8) | ((green & 0xfc) << 3) | (blue >> 3)
                 output[destination] = color & 0xff

@@ -89,9 +89,12 @@ class StreamBackendTests(unittest.TestCase):
         header = [100, 7, 2, 24, 640, 480, 0, 0, 32, 0, 8, 24, 640 * 4,
                   4, 0x00ff0000, 0x0000ff00, 0x000000ff, 8, 256, 0, 0, 640, 480, 0, 0]
         pixels = bytearray(640 * 480 * 4)
-        # The first sampled pixel is source (0, 40): pure red.
+        # Xvfb has 24-bit BGR pixels in a separately padded 2560-byte row.
+        # The first two sampled pixels are source (0, 40) and (2, 40).
         offset = 40 * 640 * 4
-        pixels[offset:offset + 4] = bytes((0, 0, 255, 0))
+        pixels[offset:offset + 3] = bytes((0, 0, 255))
+        pixels[offset + 6:offset + 9] = bytes((255, 0, 0))
         converted = backend.StreamState._xwd_to_rgb565(struct.pack(">25I", *header) + pixels)
         self.assertEqual(len(converted), 320 * 200 * 2)
         self.assertEqual(converted[:2], bytes((0x00, 0xf8)))
+        self.assertEqual(converted[2:4], bytes((0x1f, 0x00)))
