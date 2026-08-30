@@ -298,6 +298,23 @@ class StreamState:
             struct.pack_into("<h", mono, index // 2, left)
         return bytes(mono), output_offset + len(mono)
 
+    def audio_source_chunk(self, session_id: str, offset: int) -> tuple[bytes, int]:
+        """Return a bounded raw ALSA capture chunk for authenticated diagnostics."""
+        if offset < 0 or offset % 4:
+            raise ValueError("audio source offset must be a non-negative frame boundary")
+        with self.lock:
+            item = self.active.get(session_id)
+            if not item:
+                raise KeyError(session_id)
+            path = item["audio"]
+        if not path.exists():
+            return b"", offset
+        with path.open("rb") as source:
+            source.seek(offset)
+            raw = source.read(65536)
+        raw = raw[:len(raw) // 4 * 4]
+        return raw, offset + len(raw)
+
     def input_events(self, session_id: str, events: list[dict]) -> dict:
         if not isinstance(events, list) or not events or len(events) > 32:
             raise ValueError("events must contain between one and 32 key events")
@@ -491,6 +508,16 @@ def make_handler(state: StreamState):
             self.end_headers()
             self.wfile.write(body)
 
+        def _audio_source(self, session_id: str, offset: int):
+            body, next_offset = state.audio_source_chunk(session_id, offset)
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", f"audio/L16;rate={state.audio_rate};channels=2")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("X-Pi286-Audio-Source-Offset", str(offset))
+            self.send_header("X-Pi286-Audio-Source-Next-Offset", str(next_offset))
+            self.end_headers()
+            self.wfile.write(body)
+
         def _video(self, session_id: str):
             body, sequence, capture_ms = state.video_frame(session_id)
             self.send_response(HTTPStatus.OK)
@@ -533,6 +560,10 @@ def make_handler(state: StreamState):
                     values = parse_qs(parsed.query, strict_parsing=True)
                     offset = int(values.get("offset", ["0"])[0])
                     self._audio(path.split("/")[3], offset)
+                elif re.fullmatch(r"/v1/sessions/[^/]+/audio-source", path):
+                    values = parse_qs(parsed.query, strict_parsing=True)
+                    offset = int(values.get("offset", ["0"])[0])
+                    self._audio_source(path.split("/")[3], offset)
                 elif re.fullmatch(r"/v1/sessions/[^/]+/video", path):
                     self._video(path.split("/")[3])
                 elif path.startswith("/v1/sessions/") and path.endswith("/log"):

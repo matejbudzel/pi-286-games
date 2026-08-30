@@ -74,6 +74,16 @@ class StreamBackendTests(unittest.TestCase):
             self.assertEqual(struct.unpack("<hh", result), (1000, 3000))
             self.assertEqual(next_offset, 4)
 
+    def test_raw_audio_diagnostic_preserves_stereo_frame_boundaries(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = backend.StreamState(dict(backend.DEFAULTS, state_root=directory), "x" * 32)
+            audio = state.sessions / "source.raw"
+            audio.write_bytes(b"01234567x")
+            state.active["audio"] = {"audio": audio}
+            result, next_offset = state.audio_source_chunk("audio", 0)
+            self.assertEqual(result, b"01234567")
+            self.assertEqual(next_offset, 8)
+
     def test_alsa_capture_is_session_local_and_uses_a_file_pcm(self):
         config = backend.StreamState._alsa_capture_config(Path("/tmp/audio.raw"))
         self.assertIn("type file", config)
