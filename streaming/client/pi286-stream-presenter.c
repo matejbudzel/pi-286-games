@@ -87,12 +87,17 @@ static void parse_pad_map(char *map, const char **keys) {
 }
 
 static void render(SDL_Surface *screen, const unsigned char *frame) {
-    int x, y; SDL_LockSurface(screen);
-    memset(screen->pixels, 0, screen->pitch * screen->h);
+    int x, y, logical_pitch = screen->w * screen->format->BytesPerPixel;
+    SDL_LockSurface(screen);
+    /* The appliance SDL fbcon pillarbox backend owns a 640x480 RGB565 shadow
+       surface before copying it into the 1280x720 physical framebuffer. Some
+       older fbcon builds expose the physical line length in screen->pitch;
+       write the logical rows expected by that copy path. */
+    memset(screen->pixels, 0, logical_pitch * screen->h);
     for (y = 0; y < H; y++) for (x = 0; x < W; x++) {
         unsigned short pixel = frame[(y * W + x) * 2] | (frame[(y * W + x) * 2 + 1] << 8);
-        unsigned short *row0 = (unsigned short *)((unsigned char *)screen->pixels + (y * 2 + 40) * screen->pitch);
-        unsigned short *row1 = (unsigned short *)((unsigned char *)screen->pixels + (y * 2 + 41) * screen->pitch);
+        unsigned short *row0 = (unsigned short *)((unsigned char *)screen->pixels + (y * 2 + 40) * logical_pitch);
+        unsigned short *row1 = (unsigned short *)((unsigned char *)screen->pixels + (y * 2 + 41) * logical_pitch);
         row0[x * 2] = row0[x * 2 + 1] = row1[x * 2] = row1[x * 2 + 1] = pixel;
     }
     SDL_UnlockSurface(screen); SDL_Flip(screen);
@@ -111,8 +116,9 @@ int main(int argc, char **argv) {
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_JOYSTICK) < 0) { fprintf(stderr, "SDL_Init failed: %s\n", SDL_GetError()); return 1; }
     fprintf(stderr, "presenter: SDL initialized; opening framebuffer\n"); fflush(stderr);
     if (!(screen = SDL_SetVideoMode(640, 480, 16, SDL_FULLSCREEN))) { fprintf(stderr, "SDL_SetVideoMode failed: %s\n", SDL_GetError()); SDL_Quit(); return 1; }
-    fprintf(stderr, "presenter: surface %dx%d pitch=%d bpp=%d bytes=%d masks=%08x/%08x/%08x\n",
-            screen->w, screen->h, screen->pitch, screen->format->BitsPerPixel,
+    fprintf(stderr, "presenter: surface %dx%d pitch=%d logical-pitch=%d bpp=%d bytes=%d masks=%08x/%08x/%08x\n",
+            screen->w, screen->h, screen->pitch,
+            screen->w * screen->format->BytesPerPixel, screen->format->BitsPerPixel,
             screen->format->BytesPerPixel, screen->format->Rmask,
             screen->format->Gmask, screen->format->Bmask); fflush(stderr);
     if (SDL_NumJoysticks() > 0) joystick = SDL_JoystickOpen(0);
