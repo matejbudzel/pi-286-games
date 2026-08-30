@@ -131,7 +131,7 @@ static int local_pattern(void) {
 
 int main(int argc, char **argv) {
     const char *host, *port, *token_path, *session, *pad_keys[9] = {0}; FILE *file; char token[256], path[256], body[128], pad_map[256]; SDL_Joystick *joystick = NULL;
-    unsigned char frame[FRAME], pcm[65536]; SDL_Surface *screen, *canvas; SDL_Event event; SDL_AudioSpec audio; int audio_offset = 0, next_offset, n;
+    unsigned char frame[FRAME], pcm[65536]; SDL_Surface *screen, *canvas; SDL_Event event; SDL_AudioSpec audio, obtained; int audio_offset = 0, next_offset, n;
     fprintf(stderr, "presenter: starting\n"); fflush(stderr);
     if (argc == 2 && !strcmp(argv[1], "--local-pattern")) return local_pattern();
     if (argc != 6) { fprintf(stderr, "usage: %s HOST PORT TOKEN_FILE SESSION PAD_MAP\n", argv[0]); return 2; }
@@ -151,7 +151,11 @@ int main(int argc, char **argv) {
             screen->format->Gmask, screen->format->Bmask); fflush(stderr);
     if (SDL_NumJoysticks() > 0) joystick = SDL_JoystickOpen(0);
     memset(&audio, 0, sizeof(audio)); audio.freq = 22050; audio.format = AUDIO_S16LSB; audio.channels = 1; audio.samples = 512; audio.callback = audio_callback;
-    if (SDL_OpenAudio(&audio, NULL) < 0) { fprintf(stderr, "SDL_OpenAudio failed: %s\n", SDL_GetError()); SDL_Quit(); return 1; }
+    if (SDL_OpenAudio(&audio, &obtained) < 0) { fprintf(stderr, "SDL_OpenAudio failed: %s\n", SDL_GetError()); SDL_Quit(); return 1; }
+    fprintf(stderr, "presenter: audio %d Hz format=%#x channels=%u samples=%u\n", obtained.freq, obtained.format, obtained.channels, obtained.samples); fflush(stderr);
+    if (obtained.freq != 22050 || obtained.format != AUDIO_S16LSB || obtained.channels != 1) {
+        fprintf(stderr, "presenter: unsupported negotiated audio format\n"); SDL_CloseAudio(); SDL_FreeSurface(canvas); SDL_Quit(); return 1;
+    }
     fprintf(stderr, "presenter: ready\n"); fflush(stderr);
     SDL_PauseAudio(0);
     for (;;) {

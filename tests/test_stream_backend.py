@@ -35,6 +35,8 @@ class StreamBackendTests(unittest.TestCase):
         self.assertIn("nosound=false", config)
         self.assertIn("pcspeaker=true", config)
         self.assertIn("rate=22050", config)
+        self.assertIn("blocksize=2048", config)
+        self.assertIn("prebuffer=100", config)
         self.assertIn("mount c .", config)
         self.assertIn("GP\\GP.EXE", config)
 
