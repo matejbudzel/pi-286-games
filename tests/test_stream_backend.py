@@ -94,7 +94,13 @@ class StreamBackendTests(unittest.TestCase):
         offset = 40 * 640 * 4
         pixels[offset:offset + 3] = bytes((0, 0, 255))
         pixels[offset + 6:offset + 9] = bytes((255, 0, 0))
+        # 320x200 to 320x240 nearest-neighbour expansion duplicates its first
+        # source row before advancing to source row 42.
+        next_row = 42 * 640 * 4
+        pixels[next_row:next_row + 3] = bytes((0, 255, 0))
         converted = backend.StreamState._xwd_to_rgb565(struct.pack(">25I", *header) + pixels)
-        self.assertEqual(len(converted), 320 * 200 * 2)
+        self.assertEqual(len(converted), 320 * 240 * 2)
         self.assertEqual(converted[:2], bytes((0x00, 0xf8)))
         self.assertEqual(converted[2:4], bytes((0x1f, 0x00)))
+        self.assertEqual(converted[320 * 2:320 * 2 + 2], bytes((0x00, 0xf8)))
+        self.assertEqual(converted[320 * 4:320 * 4 + 2], bytes((0xe0, 0x07)))

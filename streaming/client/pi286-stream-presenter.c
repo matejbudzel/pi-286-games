@@ -9,7 +9,7 @@
 #include <unistd.h>
 
 #define W 320
-#define H 200
+#define H 240
 #define FRAME (W * H * 2)
 #define AUDIO_RING (22050 * 2 * 3)
 static unsigned char audio_ring[AUDIO_RING];
@@ -98,8 +98,8 @@ static void render(SDL_Surface *screen, SDL_Surface *canvas, const unsigned char
     memset(canvas->pixels, 0, canvas->pitch * canvas->h);
     for (y = 0; y < H; y++) for (x = 0; x < W; x++) {
         unsigned short pixel = frame[(y * W + x) * 2] | (frame[(y * W + x) * 2 + 1] << 8);
-        unsigned short *row0 = (unsigned short *)((unsigned char *)canvas->pixels + (y * 2 + 40) * canvas->pitch);
-        unsigned short *row1 = (unsigned short *)((unsigned char *)canvas->pixels + (y * 2 + 41) * canvas->pitch);
+        unsigned short *row0 = (unsigned short *)((unsigned char *)canvas->pixels + (y * 2) * canvas->pitch);
+        unsigned short *row1 = (unsigned short *)((unsigned char *)canvas->pixels + (y * 2 + 1) * canvas->pitch);
         row0[x * 2] = row0[x * 2 + 1] = row1[x * 2] = row1[x * 2 + 1] = pixel;
     }
     SDL_UnlockSurface(canvas);

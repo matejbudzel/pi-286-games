@@ -51,7 +51,7 @@ KEYS = {
 }
 RAINBOW_CAT_COM = bytes.fromhex("b0b6e643b8a904e64288e0e642e4610c03e661b81300cd10b800a08ec031ffb003b900faf3aab401cd1674fab400cd1680fc4875f131ffb004b900faf3aaebe6")
 VIDEO_WIDTH = 320
-VIDEO_HEIGHT = 200
+VIDEO_HEIGHT = 240
 VIDEO_BYTES = VIDEO_WIDTH * VIDEO_HEIGHT * 2
 
 
@@ -367,7 +367,7 @@ class StreamState:
                     "path": f"/v1/sessions/{session_id}/frames/{frame_id}"}
 
     def video_frame(self, session_id: str) -> bytes:
-        """Return a 320x200 RGB565LE frame for the Pi's fixed 2x presenter."""
+        """Return an aspect-correct 320x240 RGB565LE frame for the Pi."""
         with self.lock:
             item = self.active.get(session_id)
             if not item:
@@ -396,12 +396,15 @@ class StreamState:
             raise ValueError("truncated XWD pixels")
         # Xvfb uses 24-bit TrueColor B,G,R pixels.  Its scanlines are padded to
         # 2560 bytes, but individual pixels still occupy three bytes (not four).
-        # Crop the 640x400 DOS region centred in 640x480, then sample every
-        # second pixel/row into the fixed 320x200 protocol frame.
+        # Crop the 640x400 DOS region centred in 640x480.  Horizontally sample
+        # 2x, then expand the original 320x200's 6:5 pixels to square pixels
+        # using a 320x240 nearest-neighbour frame.  The Pi can therefore use a
+        # cheap exact 2x copy to its 640x480 SDL surface.
         output = bytearray(VIDEO_BYTES)
         destination = 0
         for y in range(VIDEO_HEIGHT):
-            row = pixels + (y * 2 + 40) * bytes_per_line
+            source_y = 40 + 2 * (y * 200 // VIDEO_HEIGHT)
+            row = pixels + source_y * bytes_per_line
             for x in range(VIDEO_WIDTH):
                 offset = row + x * 6
                 blue, green, red = source[offset], source[offset + 1], source[offset + 2]
