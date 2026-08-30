@@ -47,10 +47,20 @@ DEFAULTS = {
 
 KEYS = {
     "UP": "Up", "DOWN": "Down", "LEFT": "Left", "RIGHT": "Right",
-    "ENTER": "Return", "ESC": "Escape", "SPACE": "space",
+    "ENTER": "Return", "ESC": "Escape", "SPACE": "space", "BACKSPACE": "BackSpace", "TAB": "Tab",
+    "CAPSLOCK": "Caps_Lock", "NUMLOCK": "Num_Lock", "SCROLLLOCK": "Scroll_Lock", "PAUSE": "Pause",
+    "PRINT": "Print", "INSERT": "Insert", "DELETE": "Delete", "HOME": "Home", "END": "End",
+    "PAGEUP": "Prior", "PAGEDOWN": "Next",
     "CTRL": "Control_L", "ALT": "Alt_L", "SHIFT": "Shift_L",
     "F1": "F1", "F2": "F2", "F3": "F3", "F4": "F4", "F5": "F5",
-    "F6": "F6", "F7": "F7", "F8": "F8", "F9": "F9", "F10": "F10",
+    "F6": "F6", "F7": "F7", "F8": "F8", "F9": "F9", "F10": "F10", "F11": "F11", "F12": "F12",
+    "MINUS": "minus", "EQUALS": "equal", "LEFTBRACKET": "bracketleft", "RIGHTBRACKET": "bracketright",
+    "BACKSLASH": "backslash", "SEMICOLON": "semicolon", "QUOTE": "apostrophe", "BACKQUOTE": "grave",
+    "COMMA": "comma", "PERIOD": "period", "SLASH": "slash",
+    "KP0": "KP_0", "KP1": "KP_1", "KP2": "KP_2", "KP3": "KP_3", "KP4": "KP_4",
+    "KP5": "KP_5", "KP6": "KP_6", "KP7": "KP_7", "KP8": "KP_8", "KP9": "KP_9",
+    "KP_PERIOD": "KP_Decimal", "KP_DIVIDE": "KP_Divide", "KP_MULTIPLY": "KP_Multiply",
+    "KP_MINUS": "KP_Subtract", "KP_PLUS": "KP_Add", "KP_ENTER": "KP_Enter", "KP_EQUALS": "KP_Equal",
     **{character.upper(): character for character in "abcdefghijklmnopqrstuvwxyz0123456789"},
 }
 RAINBOW_CAT_COM = bytes.fromhex("b0b6e643b8a904e64288e0e642e4610c03e661b81300cd10b800a08ec031ffb003b900faf3aab401cd1674fab400cd1680fc4875f131ffb004b900faf3aaebe6")

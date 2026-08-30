@@ -131,9 +131,21 @@ static const char *dos_key(SDLKey key) {
     switch (key) {
     case SDLK_UP: return "UP"; case SDLK_DOWN: return "DOWN"; case SDLK_LEFT: return "LEFT"; case SDLK_RIGHT: return "RIGHT";
     case SDLK_RETURN: return "ENTER"; case SDLK_ESCAPE: return "ESC"; case SDLK_SPACE: return "SPACE";
+    case SDLK_BACKSPACE: return "BACKSPACE"; case SDLK_TAB: return "TAB"; case SDLK_CAPSLOCK: return "CAPSLOCK";
+    case SDLK_NUMLOCK: return "NUMLOCK"; case SDLK_SCROLLOCK: return "SCROLLLOCK"; case SDLK_PAUSE: return "PAUSE";
+    case SDLK_PRINT: return "PRINT"; case SDLK_INSERT: return "INSERT"; case SDLK_DELETE: return "DELETE";
+    case SDLK_HOME: return "HOME"; case SDLK_END: return "END"; case SDLK_PAGEUP: return "PAGEUP"; case SDLK_PAGEDOWN: return "PAGEDOWN";
     case SDLK_LCTRL: case SDLK_RCTRL: return "CTRL"; case SDLK_LALT: case SDLK_RALT: return "ALT"; case SDLK_LSHIFT: case SDLK_RSHIFT: return "SHIFT";
     case SDLK_F1: return "F1"; case SDLK_F2: return "F2"; case SDLK_F3: return "F3"; case SDLK_F4: return "F4"; case SDLK_F5: return "F5";
     case SDLK_F6: return "F6"; case SDLK_F7: return "F7"; case SDLK_F8: return "F8"; case SDLK_F9: return "F9"; case SDLK_F10: return "F10";
+    case SDLK_F11: return "F11"; case SDLK_F12: return "F12";
+    case SDLK_MINUS: return "MINUS"; case SDLK_EQUALS: return "EQUALS"; case SDLK_LEFTBRACKET: return "LEFTBRACKET"; case SDLK_RIGHTBRACKET: return "RIGHTBRACKET";
+    case SDLK_BACKSLASH: return "BACKSLASH"; case SDLK_SEMICOLON: return "SEMICOLON"; case SDLK_QUOTE: return "QUOTE"; case SDLK_BACKQUOTE: return "BACKQUOTE";
+    case SDLK_COMMA: return "COMMA"; case SDLK_PERIOD: return "PERIOD"; case SDLK_SLASH: return "SLASH";
+    case SDLK_KP0: return "KP0"; case SDLK_KP1: return "KP1"; case SDLK_KP2: return "KP2"; case SDLK_KP3: return "KP3"; case SDLK_KP4: return "KP4";
+    case SDLK_KP5: return "KP5"; case SDLK_KP6: return "KP6"; case SDLK_KP7: return "KP7"; case SDLK_KP8: return "KP8"; case SDLK_KP9: return "KP9";
+    case SDLK_KP_PERIOD: return "KP_PERIOD"; case SDLK_KP_DIVIDE: return "KP_DIVIDE"; case SDLK_KP_MULTIPLY: return "KP_MULTIPLY";
+    case SDLK_KP_MINUS: return "KP_MINUS"; case SDLK_KP_PLUS: return "KP_PLUS"; case SDLK_KP_ENTER: return "KP_ENTER"; case SDLK_KP_EQUALS: return "KP_EQUALS";
     default: break;
     }
     if ((key >= SDLK_a && key <= SDLK_z) || (key >= SDLK_0 && key <= SDLK_9)) { letter[0] = (char)key; letter[1] = 0; return letter; }

@@ -105,6 +105,9 @@ class StreamBackendTests(unittest.TestCase):
     def test_input_protocol_has_a_closed_key_set(self):
         self.assertEqual(backend.KEYS["UP"], "Up")
         self.assertEqual(backend.KEYS["SPACE"], "space")
+        self.assertEqual(backend.KEYS["BACKSPACE"], "BackSpace")
+        self.assertEqual(backend.KEYS["F12"], "F12")
+        self.assertEqual(backend.KEYS["KP_ENTER"], "KP_Enter")
         self.assertNotIn("rm -rf /", backend.KEYS)
 
     def test_rainbow_diagnostic_is_generated_and_does_not_need_game_assets(self):

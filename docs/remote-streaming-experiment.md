@@ -101,6 +101,11 @@ audio queue depth, underruns and failures; and input HTTP round-trip time,
 input failures and received payload throughput. These figures are development
 diagnostics rather than an input-to-game-response measurement.
 
+The physical keyboard otherwise passes its normal letters, digits,
+punctuation, navigation keys, function keys, and numeric keypad directly to
+the remote game. `F1` remains the appliance panic/return control. The dance
+pad is deliberately separate: its per-game button bindings stay in `ddr.conf`.
+
 `scripts/smoke-stream-backend.py` exercises cache-miss/**failed start**/upload/
 successful start/PCM transport capture/two-frame capture/stop using a
 generated, disposable DOS COM program. Run it inside the LXC after
