@@ -111,6 +111,10 @@ int main(int argc, char **argv) {
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_JOYSTICK) < 0) { fprintf(stderr, "SDL_Init failed: %s\n", SDL_GetError()); return 1; }
     fprintf(stderr, "presenter: SDL initialized; opening framebuffer\n"); fflush(stderr);
     if (!(screen = SDL_SetVideoMode(640, 480, 16, SDL_FULLSCREEN))) { fprintf(stderr, "SDL_SetVideoMode failed: %s\n", SDL_GetError()); SDL_Quit(); return 1; }
+    fprintf(stderr, "presenter: surface %dx%d pitch=%d bpp=%d bytes=%d masks=%08x/%08x/%08x\n",
+            screen->w, screen->h, screen->pitch, screen->format->BitsPerPixel,
+            screen->format->BytesPerPixel, screen->format->Rmask,
+            screen->format->Gmask, screen->format->Bmask); fflush(stderr);
     if (SDL_NumJoysticks() > 0) joystick = SDL_JoystickOpen(0);
     memset(&audio, 0, sizeof(audio)); audio.freq = 22050; audio.format = AUDIO_S16LSB; audio.channels = 1; audio.samples = 512; audio.callback = audio_callback;
     if (SDL_OpenAudio(&audio, NULL) < 0) { fprintf(stderr, "SDL_OpenAudio failed: %s\n", SDL_GetError()); SDL_Quit(); return 1; }
