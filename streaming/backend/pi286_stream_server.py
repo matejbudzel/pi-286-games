@@ -220,7 +220,7 @@ class StreamState:
     @staticmethod
     def _dosbox_config(executable: PurePosixPath, audio_rate: int) -> str:
         command = "\\".join(executable.parts)
-        return """[sdl]\nfullscreen=false\noutput=surface\nusescancodes=true\n\n[mixer]\nnosound=false\nrate=%d\nblocksize=2048\nprebuffer=100\n\n[speaker]\npcspeaker=true\npcrate=%d\n\n[sblaster]\nsbtype=none\n\n[autoexec]\n@echo off\nmount c .\nc:\n%s\nexit\n""" % (audio_rate, audio_rate, command)
+        return """[sdl]\nfullscreen=false\noutput=surface\nusescancodes=false\n\n[dosbox]\nmachine=ega\nmemsize=8\n\n[cpu]\ncore=normal\ncycles=fixed 3000\n\n[mixer]\nnosound=false\nrate=%d\nblocksize=2048\nprebuffer=100\n\n[speaker]\npcspeaker=true\npcrate=%d\ntandy=off\ndisney=false\n\n[sblaster]\nsbtype=none\n\n[midi]\nmpu401=none\nmididevice=none\n\n[autoexec]\n@echo off\nmount c .\nc:\n%s\nexit\n""" % (audio_rate, audio_rate, command)
 
     @staticmethod
     def _alsa_capture_config(audio_path: Path) -> str:
