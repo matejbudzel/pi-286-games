@@ -113,6 +113,13 @@ punctuation, navigation keys, function keys, and numeric keypad directly to
 the remote game. `F1` remains the appliance panic/return control. The dance
 pad is deliberately separate: its per-game button bindings stay in `ddr.conf`.
 
+The experimental v2 poll transport combines the current video packet, PCM
+chunk, last applied video/audio acknowledgements, and a complete held-key
+snapshot in one request/reply. While waiting, the Pi checks input every few
+milliseconds. A new held-key revision closes the older request and immediately
+starts a replacement poll; the server discards a superseded reply. This keeps
+the protocol recoverable without a permanent custom socket yet.
+
 `scripts/smoke-stream-backend.py` exercises cache-miss/**failed start**/upload/
 successful start/PCM transport capture/two-frame capture/stop using a
 generated, disposable DOS COM program. Run it inside the LXC after

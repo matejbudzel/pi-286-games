@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/select.h>
 #include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
@@ -39,6 +40,10 @@ typedef struct {
 } SessionStats;
 
 typedef struct { char keys[64][20]; int count; unsigned int revision; } HeldState;
+typedef struct { HeldState *held; int *overlay, *quit; const char **pad_keys; SessionStats *stats; } EventState;
+static EventState event_state;
+static const char *dos_key(SDLKey key);
+static int pump_events(void);
 
 static long long now_ms(void) {
     struct timespec value;
@@ -186,7 +191,7 @@ static int connect_to(const char *host, const char *port) {
     freeaddrinfo(info); return fd;
 }
 
-static int request(const char *host, const char *port, const char *token, const char *method, const char *path, const char *body, unsigned char *out, size_t cap, int *next_offset, int *capture_ms) {
+static int request(const char *host, const char *port, const char *token, const char *method, const char *path, const char *body, unsigned char *out, size_t cap, int *next_offset, int *capture_ms, unsigned int revision) {
     char header[2048], incoming[4097]; int fd, n, used = 0, length = -1; char *split;
     size_t body_len = body ? strlen(body) : 0;
     fd = connect_to(host, port); if (fd < 0) return -1;
@@ -194,7 +199,12 @@ static int request(const char *host, const char *port, const char *token, const 
     if (n < 0 || (size_t)n >= sizeof(header) || write(fd, header, n) != n) { close(fd); return -1; }
     if (next_offset) *next_offset = -1;
     if (capture_ms) *capture_ms = -1;
-    while ((n = read(fd, incoming, sizeof(incoming) - 1)) > 0) {
+    for (;;) {
+        fd_set readable; struct timeval timeout; int selected;
+        FD_ZERO(&readable); FD_SET(fd, &readable); timeout.tv_sec = 0; timeout.tv_usec = 5000;
+        selected = select(fd + 1, &readable, NULL, NULL, &timeout);
+        if (!selected) { if (pump_events() || event_state.held->revision != revision) { close(fd); return -2; } continue; }
+        if (selected < 0 || (n = read(fd, incoming, sizeof(incoming) - 1)) <= 0) break;
         incoming[n] = 0;
         if (!used) {
             split = NULL;
@@ -234,6 +244,20 @@ static const char *dos_key(SDLKey key) {
     default: break;
     }
     if ((key >= SDLK_a && key <= SDLK_z) || (key >= SDLK_0 && key <= SDLK_9)) { letter[0] = (char)key; letter[1] = 0; return letter; }
+}
+
+static int pump_events(void) {
+    SDL_Event event; int changed = 0;
+    while (SDL_PollEvent(&event)) {
+        const char *key = NULL; int pressed = 0; unsigned int before = event_state.held->revision;
+        if (event.type == SDL_QUIT || (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_F1)) { *event_state.quit = 1; return 1; }
+        if ((event.type == SDL_KEYDOWN || event.type == SDL_KEYUP) && event.key.keysym.sym == SDLK_F8) { if (event.type == SDL_KEYDOWN) *event_state.overlay = !*event_state.overlay; continue; }
+        if ((event.type == SDL_KEYDOWN || event.type == SDL_KEYUP) && (key = dos_key(event.key.keysym.sym))) pressed = event.type == SDL_KEYDOWN;
+        if ((event.type == SDL_JOYBUTTONDOWN || event.type == SDL_JOYBUTTONUP) && event.jbutton.button < 9) { key = event_state.pad_keys[event.jbutton.button]; pressed = event.type == SDL_JOYBUTTONDOWN; }
+        if (event.type == SDL_JOYBUTTONDOWN && event.jbutton.button == 9) { *event_state.quit = 1; return 1; }
+        if (key) { held_update(event_state.held, key, pressed); if (event_state.held->revision != before) { event_state.stats->input_events++; changed = 1; } }
+    }
+    return changed;
 }
 
 static void parse_pad_map(char *map, const char **keys) {
@@ -342,7 +366,7 @@ static int local_pattern(void) {
 
 int main(int argc, char **argv) {
     const char *host, *port, *token_path, *session, *pad_keys[9] = {0}; FILE *file; char token[256], path[256], body[2048], pad_map[256]; SDL_Joystick *joystick = NULL;
-    unsigned char frame[FRAME], packet[POLL_PACKET_MAX]; SDL_Surface *screen, *canvas; SDL_Event event; SDL_AudioSpec audio, obtained; Metrics metrics = {0}; SessionStats stats = {0}; HeldState held = {0}; int audio_offset = 0, next_offset, n, overlay = 0, video_count = 0, video_seq = 0, audio_length;
+    unsigned char frame[FRAME], packet[POLL_PACKET_MAX]; SDL_Surface *screen, *canvas; SDL_Event event; SDL_AudioSpec audio, obtained; Metrics metrics = {0}; SessionStats stats = {0}; HeldState held = {0}; int audio_offset = 0, next_offset, n, overlay = 0, video_count = 0, video_seq = 0, audio_length, quit = 0;
     const unsigned char *audio_data; unsigned int poll_revision, input_acked = 0;
     long long video_window = now_ms(), network_window = video_window; long long request_started, elapsed; size_t network_bytes = 0;
     fprintf(stderr, "presenter: starting\n"); fflush(stderr);
@@ -363,6 +387,7 @@ int main(int argc, char **argv) {
             screen->format->BytesPerPixel, screen->format->Rmask,
             screen->format->Gmask, screen->format->Bmask); fflush(stderr);
     if (SDL_NumJoysticks() > 0) joystick = SDL_JoystickOpen(0);
+    event_state = (EventState){&held, &overlay, &quit, pad_keys, &stats};
     memset(&audio, 0, sizeof(audio)); audio.freq = 22050; audio.format = AUDIO_S16LSB; audio.channels = 1; audio.samples = 512; audio.callback = audio_callback;
     if (SDL_OpenAudio(&audio, &obtained) < 0) { fprintf(stderr, "SDL_OpenAudio failed: %s\n", SDL_GetError()); SDL_Quit(); return 1; }
     fprintf(stderr, "presenter: audio %d Hz format=%#x channels=%u samples=%u\n", obtained.freq, obtained.format, obtained.channels, obtained.samples); fflush(stderr);
@@ -378,7 +403,7 @@ int main(int argc, char **argv) {
         if (poll_body(body, sizeof(body), &held, video_seq, audio_offset) < 0) { fprintf(stderr, "presenter: poll body too large\n"); break; }
         poll_revision = held.revision;
         request_started = now_ms();
-        n = request(host, port, token, "POST", path, body, packet, sizeof(packet), NULL, NULL);
+        n = request(host, port, token, "POST", path, body, packet, sizeof(packet), NULL, NULL, poll_revision);
         metrics.video_last_ms = (int)(now_ms() - request_started);
         if (n > 0 && apply_poll_packet(frame, packet, (size_t)n, &metrics.video_capture_ms, &video_seq, &audio_data, &audio_length, &next_offset)) {
             network_bytes += (size_t)n; video_count++; stats.video_frames++; stats.payload_bytes += (unsigned long)n;
@@ -396,18 +421,8 @@ int main(int argc, char **argv) {
         range_add(metrics.audio_queued_ms, &stats.audio_queue_min, &stats.audio_queue_max, &stats.audio_queue_total);
         elapsed = now_ms() - network_window;
         if (elapsed >= 1000) { metrics.net_kbytes = (int)(network_bytes * 1000 / elapsed / 1024); network_bytes = 0; network_window = now_ms(); }
-        while (SDL_PollEvent(&event)) {
-            const char *key = NULL; int pressed = 0;
-            if (event.type == SDL_QUIT || (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_F1)) { write_session_stats(session, &stats, &metrics); SDL_CloseAudio(); SDL_FreeSurface(canvas); SDL_Quit(); return 0; }
-            if ((event.type == SDL_KEYDOWN || event.type == SDL_KEYUP) && event.key.keysym.sym == SDLK_F8) { if (event.type == SDL_KEYDOWN) overlay = !overlay; continue; }
-            if ((event.type == SDL_KEYDOWN || event.type == SDL_KEYUP) && (key = dos_key(event.key.keysym.sym))) pressed = event.type == SDL_KEYDOWN;
-            if ((event.type == SDL_JOYBUTTONDOWN || event.type == SDL_JOYBUTTONUP) && event.jbutton.button < 9) { key = pad_keys[event.jbutton.button]; pressed = event.type == SDL_JOYBUTTONDOWN; }
-            if ((event.type == SDL_JOYBUTTONDOWN && event.jbutton.button == 9)) { if (joystick) SDL_JoystickClose(joystick); write_session_stats(session, &stats, &metrics); SDL_CloseAudio(); SDL_FreeSurface(canvas); SDL_Quit(); return 0; }
-            if (key) {
-                held_update(&held, key, pressed);
-                stats.input_events++;
-            }
-        }
+        pump_events();
+        if (quit) { if (joystick) SDL_JoystickClose(joystick); write_session_stats(session, &stats, &metrics); SDL_CloseAudio(); SDL_FreeSurface(canvas); SDL_Quit(); return 0; }
         SDL_Delay(30);
     }
 }
