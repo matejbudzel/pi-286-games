@@ -57,6 +57,9 @@ RAINBOW_CAT_COM = bytes.fromhex("b0b6e643b8a904e64288e0e642e4610c03e661b81300cd1
 VIDEO_WIDTH = 320
 VIDEO_HEIGHT = 240
 VIDEO_BYTES = VIDEO_WIDTH * VIDEO_HEIGHT * 2
+VIDEO_TILE = 16
+VIDEO_PACKET_HEADER = 16
+VIDEO_KEYFRAME_INTERVAL = 2.0
 
 
 def read_config(path: Path) -> dict[str, str]:
@@ -409,8 +412,8 @@ class StreamState:
             return {"id": frame_id, "bytes": frame.stat().st_size,
                     "path": f"/v1/sessions/{session_id}/frames/{frame_id}"}
 
-    def video_frame(self, session_id: str) -> tuple[bytes, int, int]:
-        """Return an aspect-correct 320x240 RGB565LE frame for the Pi."""
+    def video_frame(self, session_id: str, force_keyframe: bool = False) -> tuple[bytes, int, int]:
+        """Return an aspect-correct, recoverable RGB565 video packet for the Pi."""
         with self.lock:
             item = self.active.get(session_id)
             if not item:
@@ -422,10 +425,52 @@ class StreamState:
             try:
                 subprocess.run([self.config["xwd"], "-silent", "-root", "-display", item["display"], "-out", str(temporary)],
                                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=3, check=True)
+                frame = self._xwd_to_rgb565(temporary.read_bytes())
                 item["video_sequence"] = item.get("video_sequence", 0) + 1
-                return self._xwd_to_rgb565(temporary.read_bytes()), item["video_sequence"], int((time.monotonic() - started) * 1000)
+                capture_ms = int((time.monotonic() - started) * 1000)
+                keyframe = force_keyframe or not item.get("video_previous") or \
+                    time.monotonic() - item.get("video_last_keyframe", 0.0) >= VIDEO_KEYFRAME_INTERVAL
+                packet, keyframe = self._video_packet(frame, item.get("video_previous"),
+                                                       item["video_sequence"], capture_ms, keyframe)
+                item["video_previous"] = frame
+                if keyframe:
+                    item["video_last_keyframe"] = time.monotonic()
+                return packet, item["video_sequence"], capture_ms
             finally:
                 temporary.unlink(missing_ok=True)
+
+    @staticmethod
+    def _video_packet(frame: bytes, previous: bytes | None, sequence: int, capture_ms: int,
+                      keyframe: bool) -> tuple[bytes, bool]:
+        """Encode a full keyframe or changed 16x16 RGB565 tiles.
+
+        The packet is intentionally uncompressed: tiles remove EGA's static
+        areas without adding a codec or a fragile cross-platform dependency.
+        """
+        if len(frame) != VIDEO_BYTES:
+            raise ValueError("invalid RGB565 frame size")
+        if keyframe or previous is None or len(previous) != VIDEO_BYTES:
+            return struct.pack(">4sBBHII", b"P2V1", 1, 0, 0, sequence, capture_ms) + frame, True
+        tiles = bytearray()
+        count = 0
+        for tile_y in range(VIDEO_HEIGHT // VIDEO_TILE):
+            for tile_x in range(VIDEO_WIDTH // VIDEO_TILE):
+                changed = False
+                for row in range(VIDEO_TILE):
+                    offset = ((tile_y * VIDEO_TILE + row) * VIDEO_WIDTH + tile_x * VIDEO_TILE) * 2
+                    width = VIDEO_TILE * 2
+                    if frame[offset:offset + width] != previous[offset:offset + width]:
+                        changed = True
+                        break
+                if changed:
+                    tiles.extend((tile_x, tile_y))
+                    for row in range(VIDEO_TILE):
+                        offset = ((tile_y * VIDEO_TILE + row) * VIDEO_WIDTH + tile_x * VIDEO_TILE) * 2
+                        tiles.extend(frame[offset:offset + VIDEO_TILE * 2])
+                    count += 1
+        if VIDEO_PACKET_HEADER + len(tiles) >= VIDEO_PACKET_HEADER + VIDEO_BYTES:
+            return struct.pack(">4sBBHII", b"P2V1", 1, 0, 0, sequence, capture_ms) + frame, True
+        return struct.pack(">4sBBHII", b"P2V1", 2, 0, count, sequence, capture_ms) + tiles, False
 
     @staticmethod
     def _xwd_to_rgb565(source: bytes) -> bytes:
@@ -547,10 +592,10 @@ def make_handler(state: StreamState):
             self.end_headers()
             self.wfile.write(body)
 
-        def _video(self, session_id: str):
-            body, sequence, capture_ms = state.video_frame(session_id)
+        def _video(self, session_id: str, force_keyframe: bool):
+            body, sequence, capture_ms = state.video_frame(session_id, force_keyframe)
             self.send_response(HTTPStatus.OK)
-            self.send_header("Content-Type", "application/x-pi286-rgb565le")
+            self.send_header("Content-Type", "application/x-pi286-video-v1")
             self.send_header("Content-Length", str(len(body)))
             self.send_header("X-Pi286-Video-Width", str(VIDEO_WIDTH))
             self.send_header("X-Pi286-Video-Height", str(VIDEO_HEIGHT))
@@ -594,7 +639,9 @@ def make_handler(state: StreamState):
                     offset = int(values.get("offset", ["0"])[0])
                     self._audio_source(path.split("/")[3], offset)
                 elif re.fullmatch(r"/v1/sessions/[^/]+/video", path):
-                    self._video(path.split("/")[3])
+                    values = parse_qs(parsed.query, strict_parsing=True) if parsed.query else {}
+                    force_keyframe = values.get("keyframe", ["0"])[0] == "1"
+                    self._video(path.split("/")[3], force_keyframe)
                 elif path.startswith("/v1/sessions/") and path.endswith("/log"):
                     session_id = path.split("/")[3]
                     self._json(HTTPStatus.NOT_IMPLEMENTED, {"error": "log retrieval is not exposed yet", "id": session_id})

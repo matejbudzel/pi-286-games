@@ -12,6 +12,9 @@
 #define W 320
 #define H 240
 #define FRAME (W * H * 2)
+#define TILE 16
+#define VIDEO_HEADER 16
+#define VIDEO_PACKET_MAX (VIDEO_HEADER + FRAME)
 #define AUDIO_RING (22050 * 2 * 3)
 static unsigned char audio_ring[AUDIO_RING];
 static size_t audio_head, audio_count;
@@ -43,6 +46,37 @@ static void audio_metrics(Metrics *metrics) {
     metrics->audio_queued_ms = (int)(audio_count * 1000 / (22050 * 2));
     metrics->audio_underruns = (int)audio_underruns;
     SDL_UnlockAudio();
+}
+
+static unsigned int read_be16(const unsigned char *value) {
+    return ((unsigned int)value[0] << 8) | value[1];
+}
+
+static unsigned int read_be32(const unsigned char *value) {
+    return ((unsigned int)value[0] << 24) | ((unsigned int)value[1] << 16) |
+           ((unsigned int)value[2] << 8) | value[3];
+}
+
+static int apply_video_packet(unsigned char *frame, const unsigned char *packet, size_t length) {
+    unsigned int kind, count, tile, tile_x, tile_y; size_t offset, row;
+    if (length < VIDEO_HEADER || memcmp(packet, "P2V1", 4)) return 0;
+    kind = packet[4]; count = read_be16(packet + 6);
+    if (kind == 1) {
+        if (count || length != VIDEO_HEADER + FRAME) return 0;
+        memcpy(frame, packet + VIDEO_HEADER, FRAME); return 1;
+    }
+    if (kind != 2 || count > (W / TILE) * (H / TILE) || length != VIDEO_HEADER + count * (2 + TILE * TILE * 2)) return 0;
+    offset = VIDEO_HEADER;
+    for (tile = 0; tile < count; tile++) {
+        tile_x = packet[offset++]; tile_y = packet[offset++];
+        if (tile_x >= W / TILE || tile_y >= H / TILE) return 0;
+        for (row = 0; row < TILE; row++) {
+            memcpy(frame + ((tile_y * TILE + row) * W + tile_x * TILE) * 2, packet + offset, TILE * 2);
+            offset += TILE * 2;
+        }
+    }
+    (void)read_be32(packet + 8);
+    return 2;
 }
 
 static void audio_put(const unsigned char *data, size_t length) {
@@ -211,7 +245,7 @@ static int local_pattern(void) {
 
 int main(int argc, char **argv) {
     const char *host, *port, *token_path, *session, *pad_keys[9] = {0}; FILE *file; char token[256], path[256], body[128], pad_map[256]; SDL_Joystick *joystick = NULL;
-    unsigned char frame[FRAME], pcm[65536]; SDL_Surface *screen, *canvas; SDL_Event event; SDL_AudioSpec audio, obtained; Metrics metrics = {0}; int audio_offset = 0, next_offset, n, overlay = 0, video_count = 0;
+    unsigned char frame[FRAME], packet[VIDEO_PACKET_MAX], pcm[65536]; SDL_Surface *screen, *canvas; SDL_Event event; SDL_AudioSpec audio, obtained; Metrics metrics = {0}; int audio_offset = 0, next_offset, n, overlay = 0, video_count = 0, need_keyframe = 1;
     long long video_window = now_ms(), network_window = video_window; long long request_started, elapsed; size_t network_bytes = 0;
     fprintf(stderr, "presenter: starting\n"); fflush(stderr);
     if (argc == 2 && !strcmp(argv[1], "--local-pattern")) return local_pattern();
@@ -240,17 +274,18 @@ int main(int argc, char **argv) {
     fprintf(stderr, "presenter: ready\n"); fflush(stderr);
     SDL_PauseAudio(0);
     for (;;) {
-        snprintf(path, sizeof(path), "/v1/sessions/%s/video", session);
+        snprintf(path, sizeof(path), "/v1/sessions/%s/video%s", session, need_keyframe ? "?keyframe=1" : "");
         request_started = now_ms();
-        n = request(host, port, token, "GET", path, NULL, frame, sizeof(frame), NULL, &metrics.video_capture_ms);
+        n = request(host, port, token, "GET", path, NULL, packet, sizeof(packet), NULL, &metrics.video_capture_ms);
         metrics.video_last_ms = (int)(now_ms() - request_started);
-        if (n == FRAME) {
+        if (n > 0 && apply_video_packet(frame, packet, (size_t)n)) {
+            need_keyframe = 0;
             network_bytes += (size_t)n; video_count++;
             elapsed = now_ms() - video_window;
             if (elapsed >= 1000) { metrics.video_fps_tenths = (int)(video_count * 10000 / elapsed); video_count = 0; video_window = now_ms(); }
             audio_metrics(&metrics);
             render(screen, canvas, frame, overlay, &metrics);
-        } else metrics.video_fail++;
+        } else { need_keyframe = 1; metrics.video_fail++; }
         snprintf(path, sizeof(path), "/v1/sessions/%s/audio?offset=%d", session, audio_offset);
         n = request(host, port, token, "GET", path, NULL, pcm, sizeof(pcm), &next_offset, NULL);
         if (n > 0 && next_offset >= audio_offset) { audio_put(pcm, n); audio_offset = next_offset; network_bytes += (size_t)n; }

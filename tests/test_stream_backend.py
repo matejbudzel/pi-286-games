@@ -130,3 +130,16 @@ class StreamBackendTests(unittest.TestCase):
         self.assertEqual(converted[2:4], bytes((0x1f, 0x00)))
         self.assertEqual(converted[320 * 2:320 * 2 + 2], bytes((0x00, 0xf8)))
         self.assertEqual(converted[320 * 4:320 * 4 + 2], bytes((0xe0, 0x07)))
+
+    def test_video_tiles_encode_only_changed_16x16_regions_and_recover_with_keyframe(self):
+        previous = bytes(backend.VIDEO_BYTES)
+        changed = bytearray(previous)
+        changed[(16 * backend.VIDEO_WIDTH + 16) * 2] = 0xff
+        delta, keyframe = backend.StreamState._video_packet(bytes(changed), previous, 7, 12, False)
+        self.assertFalse(keyframe)
+        self.assertEqual(delta[:8], b"P2V1\x02\x00\x00\x01")
+        self.assertEqual(len(delta), backend.VIDEO_PACKET_HEADER + 2 + 16 * 16 * 2)
+        full, keyframe = backend.StreamState._video_packet(bytes(changed), previous, 8, 12, True)
+        self.assertTrue(keyframe)
+        self.assertEqual(full[:8], b"P2V1\x01\x00\x00\x00")
+        self.assertEqual(len(full), backend.VIDEO_PACKET_HEADER + backend.VIDEO_BYTES)
