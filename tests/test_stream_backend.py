@@ -125,6 +125,17 @@ class StreamBackendTests(unittest.TestCase):
     def test_rainbow_diagnostic_is_generated_and_does_not_need_game_assets(self):
         self.assertGreater(len(backend.RAINBOW_CAT_COM), 32)
         self.assertEqual(backend.RAINBOW_CAT_COM[:2], b"\xb0\xb6")
+        frame = backend.StreamState._diagnostic_frame(1)
+        self.assertEqual(len(frame), backend.VIDEO_BYTES)
+        self.assertNotEqual(frame, bytes(backend.VIDEO_BYTES))
+
+    def test_rainbow_diagnostic_audio_is_pcm_at_the_configured_rate(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = backend.StreamState({**backend.DEFAULTS, "state_root": directory}, "token")
+            audio, next_offset = state._diagnostic_audio(0)
+            self.assertEqual(len(audio), 8192)
+            self.assertEqual(next_offset, len(audio))
+            self.assertNotEqual(audio, bytes(len(audio)))
 
     def test_xwd_video_conversion_crops_and_downsamples_to_rgb565(self):
         header = [100, 7, 2, 24, 640, 480, 0, 0, 32, 0, 8, 24, 640 * 4,

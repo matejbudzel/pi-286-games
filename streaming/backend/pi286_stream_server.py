@@ -12,6 +12,7 @@ import hashlib
 import hmac
 import io
 import json
+import math
 import os
 import re
 import secrets
@@ -243,11 +244,14 @@ class StreamState:
             return self.session_status(session_id)
 
     def start_rainbow_cat(self) -> dict:
-        """Launch the built-in asset-free DOSBox stream diagnostic."""
+        """Launch the built-in asset-free stream transport diagnostic."""
         digest = hashlib.sha256(RAINBOW_CAT_COM).hexdigest()
         self.store_blob(digest, io.BytesIO(RAINBOW_CAT_COM), len(RAINBOW_CAT_COM))
-        return self.start_session({"game_id": "rainbow-cat", "executable": "RAINBOW.COM",
-                                   "files": {"RAINBOW.COM": digest}})
+        status = self.start_session({"game_id": "rainbow-cat", "executable": "RAINBOW.COM",
+                                     "files": {"RAINBOW.COM": digest}})
+        with self.lock:
+            self.active[status["id"]]["diagnostic"] = True
+        return status
 
     def _next_display(self) -> str:
         return f":{200 + (os.getpid() % 300)}"
@@ -320,6 +324,9 @@ class StreamState:
             if not item:
                 raise KeyError(session_id)
             path = item["audio"]
+            diagnostic = item.get("diagnostic", False)
+        if diagnostic:
+            return self._diagnostic_audio(output_offset)
         if not path.exists():
             return b"", output_offset
         # SDL's ALSA backend writes DOSBox's S16LE stereo mixer stream through
@@ -336,6 +343,19 @@ class StreamState:
             left, _right = struct.unpack_from("<hh", raw, index)
             struct.pack_into("<h", mono, index // 2, left)
         return bytes(mono), output_offset + len(mono)
+
+    def _diagnostic_audio(self, output_offset: int) -> tuple[bytes, int]:
+        """Generate a stable audible reference independent of DOSBox audio."""
+        samples = 4096
+        first_sample = output_offset // 2
+        output = bytearray(samples * 2)
+        for index in range(samples):
+            # Two soft tones make drop-outs and incorrect playback rate obvious.
+            phase = (first_sample + index) / self.audio_rate
+            value = int(6500 * math.sin(2 * math.pi * 440 * phase) +
+                        2500 * math.sin(2 * math.pi * 660 * phase))
+            struct.pack_into("<h", output, index * 2, value)
+        return bytes(output), output_offset + len(output)
 
     def audio_source_chunk(self, session_id: str, offset: int) -> tuple[bytes, int]:
         """Return a bounded raw ALSA capture chunk for authenticated diagnostics."""
@@ -488,6 +508,17 @@ class StreamState:
             if item["dosbox"].poll() is not None:
                 raise RuntimeError("DOSBox has already exited")
             started = time.monotonic()
+            if item.get("diagnostic"):
+                item["video_sequence"] = item.get("video_sequence", 0) + 1
+                frame = self._diagnostic_frame(item["video_sequence"])
+                keyframe = force_keyframe or not item.get("video_previous") or \
+                    time.monotonic() - item.get("video_last_keyframe", 0.0) >= VIDEO_KEYFRAME_INTERVAL
+                packet, keyframe = self._video_packet(frame, item.get("video_previous"),
+                                                       item["video_sequence"], 0, keyframe)
+                item["video_previous"] = frame
+                if keyframe:
+                    item["video_last_keyframe"] = time.monotonic()
+                return packet, item["video_sequence"], 0
             temporary = self.runtime / f"{session_id}-video-{secrets.token_hex(4)}.xwd"
             try:
                 subprocess.run([self.config["xwd"], "-silent", "-root", "-display", item["display"], "-out", str(temporary)],
@@ -505,6 +536,25 @@ class StreamState:
                 return packet, item["video_sequence"], capture_ms
             finally:
                 temporary.unlink(missing_ok=True)
+
+    @staticmethod
+    def _diagnostic_frame(sequence: int) -> bytes:
+        """Return a deliberately vivid RGB565 transport reference frame."""
+        colors = (0xf800, 0xfd20, 0xffe0, 0x07e0, 0x07ff, 0x001f, 0x781f)
+        output = bytearray(VIDEO_BYTES)
+        for y in range(VIDEO_HEIGHT):
+            for x in range(VIDEO_WIDTH):
+                color = colors[(x // 24 + y // 40) % len(colors)]
+                struct.pack_into("<H", output, (y * VIDEO_WIDTH + x) * 2, color)
+        # A small moving white/pink cat-like block makes tile updates visible.
+        cat_x = 128 + (sequence // 2) % 48
+        cat_y = 104
+        for y in range(cat_y, cat_y + 40):
+            for x in range(cat_x, cat_x + 64):
+                edge = x in (cat_x, cat_x + 63) or y in (cat_y, cat_y + 39)
+                color = 0x0000 if edge else 0xfdb7
+                struct.pack_into("<H", output, (y * VIDEO_WIDTH + x) * 2, color)
+        return bytes(output)
 
     @staticmethod
     def _video_packet(frame: bytes, previous: bytes | None, sequence: int, capture_ms: int,

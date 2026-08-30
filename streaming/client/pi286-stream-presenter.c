@@ -285,6 +285,7 @@ static const unsigned char *glyph(char value) {
     static const unsigned char n[7] = {17,25,21,19,17,17,17};
     static const unsigned char u[7] = {17,17,17,17,17,17,14};
     static const unsigned char v[7] = {17,17,17,17,17,10,4};
+    static const unsigned char t[7] = {31,4,4,4,4,4,4};
     static const unsigned char colon[7] = {0,4,0,0,0,4,0};
     static const unsigned char dot[7] = {0,0,0,0,0,6,6};
     static const unsigned char slash[7] = {1,2,4,8,16,0,0};
@@ -292,7 +293,7 @@ static const unsigned char *glyph(char value) {
     static const unsigned char blank[7] = {0,0,0,0,0,0,0};
     if (value >= '0' && value <= '9') return digits[value - '0'];
     switch (value) { case 'A': return a; case 'E': return e; case 'I': return i;
-    case 'K': return k; case 'N': return n; case 'U': return u; case 'V': return v;
+    case 'K': return k; case 'N': return n; case 'U': return u; case 'V': return v; case 'T': return t;
     case ':': return colon; case '.': return dot; case '/': return slash; case '-': return dash;
     default: return blank; }
 }
@@ -311,22 +312,23 @@ static void draw_text(SDL_Surface *canvas, int left, int top, const char *text) 
     }
 }
 
-static void draw_overlay(SDL_Surface *canvas, const Metrics *metrics) {
+static void draw_overlay(SDL_Surface *canvas, const Metrics *metrics, int diagnostic) {
     int row; unsigned short *line; char text[48];
-    for (row = 0; row < 52; row++) {
+    for (row = 0; row < (diagnostic ? 69 : 52); row++) {
         line = (unsigned short *)((unsigned char *)canvas->pixels + row * canvas->pitch);
         memset(line, 0, 324 * sizeof(*line));
     }
+    if (diagnostic) draw_text(canvas, 4, 2, "TEST: A/V");
     snprintf(text, sizeof(text), "V:%d.%d %d/%d E%d", metrics->video_fps_tenths / 10,
              metrics->video_fps_tenths % 10, metrics->video_last_ms, metrics->video_capture_ms, metrics->video_fail);
-    draw_text(canvas, 4, 2, text);
+    draw_text(canvas, 4, diagnostic ? 19 : 2, text);
     snprintf(text, sizeof(text), "A:%d U%d E%d", metrics->audio_queued_ms, metrics->audio_underruns, metrics->audio_fail);
-    draw_text(canvas, 4, 19, text);
+    draw_text(canvas, 4, diagnostic ? 36 : 19, text);
     snprintf(text, sizeof(text), "I:%d E%d N:%dK", metrics->input_last_ms, metrics->input_fail, metrics->net_kbytes);
-    draw_text(canvas, 4, 36, text);
+    draw_text(canvas, 4, diagnostic ? 53 : 36, text);
 }
 
-static void render(SDL_Surface *screen, SDL_Surface *canvas, const unsigned char *frame, int overlay, const Metrics *metrics) {
+static void render(SDL_Surface *screen, SDL_Surface *canvas, const unsigned char *frame, int overlay, const Metrics *metrics, int diagnostic) {
     int x, y;
     SDL_LockSurface(canvas);
     memset(canvas->pixels, 0, canvas->pitch * canvas->h);
@@ -336,7 +338,7 @@ static void render(SDL_Surface *screen, SDL_Surface *canvas, const unsigned char
         unsigned short *row1 = (unsigned short *)((unsigned char *)canvas->pixels + (y * 2 + 1) * canvas->pitch);
         row0[x * 2] = row0[x * 2 + 1] = row1[x * 2] = row1[x * 2 + 1] = pixel;
     }
-    if (overlay) draw_overlay(canvas, metrics);
+    if (overlay) draw_overlay(canvas, metrics, diagnostic);
     SDL_UnlockSurface(canvas);
     SDL_BlitSurface(canvas, NULL, screen, NULL); SDL_Flip(screen);
 }
@@ -353,7 +355,7 @@ static int local_pattern(void) {
         size_t offset = (size_t)(y * W + x) * 2;
         frame[offset] = color & 0xff; frame[offset + 1] = color >> 8;
     }
-    render(screen, canvas, frame, 0, NULL);
+    render(screen, canvas, frame, 0, NULL, 0);
     fprintf(stderr, "presenter: local RGB565 pattern ready; press F1 or ESC\n"); fflush(stderr);
     for (;;) {
         while (SDL_PollEvent(&event)) if (event.type == SDL_QUIT ||
@@ -367,12 +369,14 @@ static int local_pattern(void) {
 int main(int argc, char **argv) {
     const char *host, *port, *token_path, *session, *pad_keys[9] = {0}; FILE *file; char token[256], path[256], body[2048], pad_map[256]; SDL_Joystick *joystick = NULL;
     unsigned char frame[FRAME], packet[POLL_PACKET_MAX]; SDL_Surface *screen, *canvas; SDL_Event event; SDL_AudioSpec audio, obtained; Metrics metrics = {0}; SessionStats stats = {0}; HeldState held = {0}; int audio_offset = 0, next_offset, n, overlay = 0, video_count = 0, video_seq = 0, audio_length, quit = 0;
-    const unsigned char *audio_data; unsigned int poll_revision, input_acked = 0;
+    const unsigned char *audio_data; unsigned int poll_revision, input_acked = 0; int diagnostic;
     long long video_window = now_ms(), network_window = video_window; long long request_started, elapsed; size_t network_bytes = 0;
     fprintf(stderr, "presenter: starting\n"); fflush(stderr);
     if (argc == 2 && !strcmp(argv[1], "--local-pattern")) return local_pattern();
     if (argc != 6) { fprintf(stderr, "usage: %s HOST PORT TOKEN_FILE SESSION PAD_MAP\n", argv[0]); return 2; }
     host = argv[1]; port = argv[2]; token_path = argv[3]; session = argv[4];
+    diagnostic = !strncmp(session, "rainbow-cat-", 12);
+    if (diagnostic) overlay = 1;
     snprintf(pad_map, sizeof(pad_map), "%s", argv[5]); parse_pad_map(pad_map, pad_keys);
     if (!(file = fopen(token_path, "r")) || !fgets(token, sizeof(token), file)) { fprintf(stderr, "cannot read token file %s\n", token_path); return 2; }
     fclose(file); token[strcspn(token, "\r\n")] = 0;
@@ -412,7 +416,7 @@ int main(int argc, char **argv) {
             elapsed = now_ms() - video_window;
             if (elapsed >= 1000) { metrics.video_fps_tenths = (int)(video_count * 10000 / elapsed); video_count = 0; video_window = now_ms(); }
             audio_metrics(&metrics);
-            render(screen, canvas, frame, overlay, &metrics);
+            render(screen, canvas, frame, overlay, &metrics, diagnostic);
             if (audio_length > 0 && next_offset >= audio_offset) { audio_put(audio_data, (size_t)audio_length); audio_offset = next_offset; }
             if (poll_revision > input_acked) { metrics.input_last_ms = metrics.video_last_ms; input_acked = poll_revision; range_add(metrics.input_last_ms, &stats.input_rtt_min, &stats.input_rtt_max, &stats.input_rtt_total); }
         } else { video_seq = 0; metrics.video_fail++; stats.video_failures++; metrics.audio_fail++; stats.audio_failures++; }
