@@ -103,10 +103,33 @@ static void render(SDL_Surface *screen, const unsigned char *frame) {
     SDL_UnlockSurface(screen); SDL_Flip(screen);
 }
 
+static int local_pattern(void) {
+    static unsigned char frame[FRAME];
+    static const unsigned short colors[] = { 0xf800, 0x07e0, 0x001f, 0xffff, 0xffe0, 0xf81f };
+    SDL_Surface *screen; SDL_Event event; int x, y;
+    if (SDL_Init(SDL_INIT_VIDEO) < 0) { fprintf(stderr, "SDL_Init failed: %s\n", SDL_GetError()); return 1; }
+    if (!(screen = SDL_SetVideoMode(640, 480, 16, SDL_FULLSCREEN))) { fprintf(stderr, "SDL_SetVideoMode failed: %s\n", SDL_GetError()); SDL_Quit(); return 1; }
+    for (y = 0; y < H; y++) for (x = 0; x < W; x++) {
+        unsigned short color = colors[((x / 40) + (y / 25)) % (sizeof(colors) / sizeof(colors[0]))];
+        size_t offset = (size_t)(y * W + x) * 2;
+        frame[offset] = color & 0xff; frame[offset + 1] = color >> 8;
+    }
+    render(screen, frame);
+    fprintf(stderr, "presenter: local RGB565 pattern ready; press F1 or ESC\n"); fflush(stderr);
+    for (;;) {
+        while (SDL_PollEvent(&event)) if (event.type == SDL_QUIT ||
+            (event.type == SDL_KEYDOWN && (event.key.keysym.sym == SDLK_F1 || event.key.keysym.sym == SDLK_ESCAPE))) {
+            SDL_Quit(); return 0;
+        }
+        SDL_Delay(20);
+    }
+}
+
 int main(int argc, char **argv) {
     const char *host, *port, *token_path, *session, *pad_keys[9] = {0}; FILE *file; char token[256], path[256], body[128], pad_map[256]; SDL_Joystick *joystick = NULL;
     unsigned char frame[FRAME], pcm[65536]; SDL_Surface *screen; SDL_Event event; SDL_AudioSpec audio; int audio_offset = 0, next_offset, n;
     fprintf(stderr, "presenter: starting\n"); fflush(stderr);
+    if (argc == 2 && !strcmp(argv[1], "--local-pattern")) return local_pattern();
     if (argc != 6) { fprintf(stderr, "usage: %s HOST PORT TOKEN_FILE SESSION PAD_MAP\n", argv[0]); return 2; }
     host = argv[1]; port = argv[2]; token_path = argv[3]; session = argv[4];
     snprintf(pad_map, sizeof(pad_map), "%s", argv[5]); parse_pad_map(pad_map, pad_keys);
