@@ -194,11 +194,11 @@ static int connect_to(const char *host, const char *port) {
 }
 
 static int request(const char *host, const char *port, const char *token, const char *method, const char *path, const char *body, unsigned char *out, size_t cap, int *next_offset, int *capture_ms, unsigned int revision) {
-    char header[2048], incoming[4097]; int fd, n, used = 0, length = -1; char *split;
+    char request_header[2048], response_header[4097], incoming[4097]; int fd, n, used = 0, length = -1, header_used = 0, headers_done = 0; char *split;
     size_t body_len = body ? strlen(body) : 0;
     fd = connect_to(host, port); if (fd < 0) return -1;
-    n = snprintf(header, sizeof(header), "%s %s HTTP/1.1\r\nHost: %s\r\nAuthorization: Bearer %s\r\nConnection: close\r\nContent-Length: %zu\r\nContent-Type: application/json\r\n\r\n%s", method, path, host, token, body_len, body ? body : "");
-    if (n < 0 || (size_t)n >= sizeof(header) || write(fd, header, n) != n) { close(fd); return -1; }
+    n = snprintf(request_header, sizeof(request_header), "%s %s HTTP/1.1\r\nHost: %s\r\nAuthorization: Bearer %s\r\nConnection: close\r\nContent-Length: %zu\r\nContent-Type: application/json\r\n\r\n%s", method, path, host, token, body_len, body ? body : "");
+    if (n < 0 || (size_t)n >= sizeof(request_header) || write(fd, request_header, n) != n) { close(fd); return -1; }
     if (next_offset) *next_offset = -1;
     if (capture_ms) *capture_ms = -1;
     for (;;) {
@@ -207,19 +207,21 @@ static int request(const char *host, const char *port, const char *token, const 
         selected = select(fd + 1, &readable, NULL, NULL, &timeout);
         if (!selected) { if (pump_events() || event_state.held->revision != revision) { close(fd); return -2; } continue; }
         if (selected < 0 || (n = read(fd, incoming, sizeof(incoming) - 1)) <= 0) break;
-        incoming[n] = 0;
-        if (!used) {
-            split = NULL;
-            for (int i = 0; i + 3 < n; i++) if (!memcmp(incoming + i, "\r\n\r\n", 4)) { split = incoming + i + 4; break; }
-            if (!split) { close(fd); return -1; }
-            if (!memcmp(incoming, "HTTP/1.0 204", 12) || !memcmp(incoming, "HTTP/1.1 204", 12)) { close(fd); return -3; }
-            if (memcmp(incoming, "HTTP/1.0 200", 12) && memcmp(incoming, "HTTP/1.1 200", 12)) { close(fd); return -1; }
-            char *length_text = strstr(incoming, "Content-Length:");
+        if (!headers_done) {
+            if (header_used + n >= (int)sizeof(response_header)) { close(fd); return -1; }
+            memcpy(response_header + header_used, incoming, n); header_used += n; response_header[header_used] = 0;
+            split = strstr(response_header, "\r\n\r\n");
+            if (!split) continue;
+            split += 4;
+            if (!memcmp(response_header, "HTTP/1.0 204", 12) || !memcmp(response_header, "HTTP/1.1 204", 12)) { close(fd); return -3; }
+            if (memcmp(response_header, "HTTP/1.0 200", 12) && memcmp(response_header, "HTTP/1.1 200", 12)) { close(fd); return -1; }
+            char *length_text = strstr(response_header, "Content-Length:");
             if (!length_text || sscanf(length_text, "Content-Length: %d", &length) != 1 || length < 0 || (size_t)length > cap) { close(fd); return -1; }
-            if (next_offset) { char *next = strstr(incoming, "X-Pi286-Audio-Next-Offset:"); if (next) sscanf(next, "X-Pi286-Audio-Next-Offset: %d", next_offset); }
-            if (capture_ms) { char *capture = strstr(incoming, "X-Pi286-Capture-Ms:"); if (capture) sscanf(capture, "X-Pi286-Capture-Ms: %d", capture_ms); }
-            used = (int)(incoming + n - split);
-            memcpy(out, split, used);
+            if (next_offset) { char *next = strstr(response_header, "X-Pi286-Audio-Next-Offset:"); if (next) sscanf(next, "X-Pi286-Audio-Next-Offset: %d", next_offset); }
+            if (capture_ms) { char *capture = strstr(response_header, "X-Pi286-Capture-Ms:"); if (capture) sscanf(capture, "X-Pi286-Capture-Ms: %d", capture_ms); }
+            used = header_used - (int)(split - response_header);
+            if (used < 0 || (size_t)used > cap) { close(fd); return -1; }
+            memcpy(out, split, used); headers_done = 1;
         } else { if ((size_t)(used + n) > cap) { close(fd); return -1; } memcpy(out + used, incoming, n); used += n; }
     }
     close(fd); return used == length ? used : -1;

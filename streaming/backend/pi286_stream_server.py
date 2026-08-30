@@ -488,10 +488,10 @@ class StreamState:
                 raise KeyError(session_id)
             stats = item.setdefault("poll_stats", self._new_poll_stats())
             previous_arrival = stats["last_arrival"]
-            stats["last_arrival"] = started
+            stats["last_arrival"] = max(previous_arrival or started, started)
             stats["requests"] += 1
             if previous_arrival is not None:
-                stats["arrival_gap_ms"].append(int((started - previous_arrival) * 1000))
+                stats["arrival_gap_ms"].append(max(0, int((started - previous_arrival) * 1000)))
                 del stats["arrival_gap_ms"][:-2048]
             input_updated = revision >= item.get("poll_revision", -1)
             if revision >= item.get("poll_revision", -1):
@@ -502,6 +502,13 @@ class StreamState:
         video_started = time.monotonic()
         video, _sequence, _capture_ms = self.video_frame(session_id, force_keyframe)
         audio_started = time.monotonic()
+        with self.lock:
+            item = self.active.get(session_id)
+            if not item or revision < item.get("poll_revision", -1):
+                if item:
+                    # Do not generate PCM for a response the client has already superseded.
+                    self._record_poll(item, revision, input_updated, started, video_started, audio_started, "stale")
+                return None
         audio, next_audio = self.audio_chunk(session_id, audio_offset)
         with self.lock:
             item = self.active.get(session_id)
@@ -797,17 +804,21 @@ def make_handler(state: StreamState):
             self.wfile.write(body)
 
         def _poll(self, session_id: str, request: dict):
-            body = state.poll(session_id, request)
-            if body is None:
-                self.send_response(HTTPStatus.NO_CONTENT)
-                self.send_header("Content-Length", "0")
+            try:
+                body = state.poll(session_id, request)
+                if body is None:
+                    self.send_response(HTTPStatus.NO_CONTENT)
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
+                self.send_response(HTTPStatus.OK)
+                self.send_header("Content-Type", "application/x-pi286-poll-v1")
+                self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
+                self.wfile.write(body)
+            except (BrokenPipeError, ConnectionResetError):
+                # A newer Pi poll intentionally closes the older connection.
                 return
-            self.send_response(HTTPStatus.OK)
-            self.send_header("Content-Type", "application/x-pi286-poll-v1")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
 
         def _request_json(self):
             try:
