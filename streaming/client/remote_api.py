@@ -27,22 +27,22 @@ class RemoteBackend:
     def from_token_file(cls, base_url: str, token_file: Path, timeout: float = 2.0):
         return cls(base_url, token_file.read_text(encoding="utf-8"), timeout)
 
-    def _request(self, method: str, path: str, body: bytes | None = None, content_type: str = "application/json"):
+    def _request(self, method: str, path: str, body: bytes | None = None, content_type: str = "application/json", timeout: float | None = None):
         headers = {"Authorization": "Bearer " + self.token}
         if body is not None:
             headers["Content-Type"] = content_type
         req = request.Request(self.base_url + path, data=body, method=method, headers=headers)
         try:
-            return request.urlopen(req, timeout=self.timeout)
+            return request.urlopen(req, timeout=self.timeout if timeout is None else timeout)
         except error.HTTPError as exc:
             detail = exc.read().decode("utf-8", "replace")
             raise RemoteProtocolError("server rejected %s %s: %s" % (method, path, detail)) from exc
-        except error.URLError as exc:
-            raise RemoteUnavailable("remote DOSBox is unavailable: %s" % exc.reason) from exc
+        except (error.URLError, TimeoutError) as exc:
+            raise RemoteUnavailable("remote DOSBox is unavailable: %s" % getattr(exc, "reason", exc)) from exc
 
-    def json(self, method: str, path: str, payload=None):
+    def json(self, method: str, path: str, payload=None, timeout: float | None = None):
         body = None if payload is None else json.dumps(payload, separators=(",", ":")).encode("utf-8")
-        with self._request(method, path, body) as response:
+        with self._request(method, path, body, timeout=timeout) as response:
             return json.loads(response.read())
 
     def status(self):
@@ -100,4 +100,5 @@ class RemoteBackend:
         return self.json("POST", "/v1/diagnostics/rainbow-cat", {})
 
     def stop_session(self, session_id: str):
-        return self.json("DELETE", "/v1/sessions/" + session_id)
+        # Server-side process shutdown has a bounded three-second wait.
+        return self.json("DELETE", "/v1/sessions/" + session_id, timeout=5.0)
