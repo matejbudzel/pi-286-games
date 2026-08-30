@@ -284,8 +284,9 @@ class StreamState:
         if not path.exists():
             return b"", output_offset
         # SDL's ALSA backend writes DOSBox's S16LE stereo mixer stream through
-        # the session-local ALSA file PCM above.
-        # Convert a bounded snapshot to S16LE mono for the future Pi client.
+        # the session-local ALSA file PCM above. PC Speaker output is mono;
+        # use its left channel directly instead of averaging channels, because
+        # a phase difference in a broader DOSBox mix sounds like a false echo.
         source_offset = output_offset * 2
         with path.open("rb") as source:
             source.seek(source_offset)
@@ -293,8 +294,8 @@ class StreamState:
         raw = raw[:len(raw) // 4 * 4]
         mono = bytearray(len(raw) // 2)
         for index in range(0, len(raw), 4):
-            left, right = struct.unpack_from("<hh", raw, index)
-            struct.pack_into("<h", mono, index // 2, (left + right) // 2)
+            left, _right = struct.unpack_from("<hh", raw, index)
+            struct.pack_into("<h", mono, index // 2, left)
         return bytes(mono), output_offset + len(mono)
 
     def input_events(self, session_id: str, events: list[dict]) -> dict:

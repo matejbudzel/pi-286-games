@@ -57,14 +57,14 @@ class StreamBackendTests(unittest.TestCase):
     def test_frame_download_route_matches_xwd_not_a_literal_backslash(self):
         self.assertIn(r'frames/[0-9]{4}\.xwd', MODULE.read_text())
 
-    def test_audio_downmixes_stereo_s16le_to_mono(self):
+    def test_audio_uses_left_channel_as_pc_speaker_mono(self):
         with tempfile.TemporaryDirectory() as directory:
             state = backend.StreamState(dict(backend.DEFAULTS, state_root=directory), "x" * 32)
             audio = state.sessions / "audio.raw"
             audio.write_bytes(struct.pack("<hhhh", 1000, -1000, 3000, 1000))
             state.active["audio"] = {"audio": audio}
             result, next_offset = state.audio_chunk("audio", 0)
-            self.assertEqual(struct.unpack("<hh", result), (0, 2000))
+            self.assertEqual(struct.unpack("<hh", result), (1000, 3000))
             self.assertEqual(next_offset, 4)
 
     def test_alsa_capture_is_session_local_and_uses_a_file_pcm(self):
