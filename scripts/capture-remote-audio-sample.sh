@@ -54,8 +54,20 @@ fi
 
 # Six bounded responses are about 8.9 seconds as mono PCM or 4.5 seconds as
 # raw stereo PCM.
-offset=0
-while [ "$offset" -lt 393216 ]; do
+source_bytes=$(curl --fail --silent --show-error --max-time 10 \
+    -H "Authorization: Bearer $token" \
+    "http://$host:$port/v1/sessions/$session" | python3 -c 'import json, sys; print(json.load(sys.stdin)["audio_bytes"])')
+if [ "$endpoint" = "audio-source" ]; then
+    offset=$((source_bytes - 393216))
+    if [ "$offset" -lt 0 ]; then offset=0; fi
+    offset=$((offset / 4 * 4))
+else
+    offset=$((source_bytes / 2 - 393216))
+    if [ "$offset" -lt 0 ]; then offset=0; fi
+    offset=$((offset / 2 * 2))
+fi
+end_offset=$((offset + 393216))
+while [ "$offset" -lt "$end_offset" ]; do
     curl --fail --silent --show-error --max-time 10 \
         -H "Authorization: Bearer $token" \
         "http://$host:$port/v1/sessions/$session/$endpoint?offset=$offset" >> "$output"
