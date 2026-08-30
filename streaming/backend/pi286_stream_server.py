@@ -113,6 +113,10 @@ class StreamState:
         self.max_upload_bytes = int(config["max_upload_bytes"])
         self.audio_rate = int(config["audio_rate"])
         self.lock = threading.RLock()
+        # Input requests may arrive concurrently, but only one request may
+        # spend CPU assembling media. Older waiters cheaply discard themselves
+        # once a newer input revision has been accepted.
+        self.media_lock = threading.Lock()
         self.active: dict[str, dict] = {}
 
     def blob_path(self, digest: str) -> Path:
@@ -498,26 +502,34 @@ class StreamState:
                 self._sync_held_keys(item, desired)
                 item["poll_revision"] = revision
                 stats["input_updates"] += 1
-        force_keyframe = video_seq != item.get("video_sequence", 0)
-        video_started = time.monotonic()
-        video, _sequence, _capture_ms = self.video_frame(session_id, force_keyframe)
-        audio_started = time.monotonic()
-        with self.lock:
-            item = self.active.get(session_id)
-            if not item or revision < item.get("poll_revision", -1):
-                if item:
-                    # Do not generate PCM for a response the client has already superseded.
-                    self._record_poll(item, revision, input_updated, started, video_started, audio_started, "stale")
-                return None
-        audio, next_audio = self.audio_chunk(session_id, audio_offset)
-        with self.lock:
-            item = self.active.get(session_id)
-            if not item or revision < item.get("poll_revision", -1):
-                if item:
-                    self._record_poll(item, revision, input_updated, started, video_started, audio_started, "stale")
-                return None
-            self._record_poll(item, revision, input_updated, started, video_started, audio_started, "response")
-        return struct.pack(">4sIII", b"P2P1", len(video), len(audio), next_audio) + video + audio
+        with self.media_lock:
+            with self.lock:
+                item = self.active.get(session_id)
+                if not item or revision < item.get("poll_revision", -1):
+                    if item:
+                        now = time.monotonic()
+                        self._record_poll(item, revision, input_updated, started, now, now, "stale")
+                    return None
+                force_keyframe = video_seq != item.get("video_sequence", 0)
+            video_started = time.monotonic()
+            video, _sequence, _capture_ms = self.video_frame(session_id, force_keyframe)
+            audio_started = time.monotonic()
+            with self.lock:
+                item = self.active.get(session_id)
+                if not item or revision < item.get("poll_revision", -1):
+                    if item:
+                        # Do not generate PCM for a response the client has already superseded.
+                        self._record_poll(item, revision, input_updated, started, video_started, audio_started, "stale")
+                    return None
+            audio, next_audio = self.audio_chunk(session_id, audio_offset)
+            with self.lock:
+                item = self.active.get(session_id)
+                if not item or revision < item.get("poll_revision", -1):
+                    if item:
+                        self._record_poll(item, revision, input_updated, started, video_started, audio_started, "stale")
+                    return None
+                self._record_poll(item, revision, input_updated, started, video_started, audio_started, "response")
+            return struct.pack(">4sIII", b"P2P1", len(video), len(audio), next_audio) + video + audio
 
     def _sync_held_keys(self, item: dict, desired: set[str]) -> None:
         window = item["window"] or self._find_dosbox_window(item["display"])
