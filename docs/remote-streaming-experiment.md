@@ -101,6 +101,13 @@ audio queue depth, underruns and failures; and input HTTP round-trip time,
 input failures and received payload throughput. These figures are development
 diagnostics rather than an input-to-game-response measurement.
 
+When the presenter returns through `F1` or the dance-pad SELECT button, it
+writes the complete current-run summary to
+`~/.cache/pi286-stream/last-session-stats.txt` and appends one compact row to
+`~/.cache/pi286-stream/session-history.tsv`. The summary preserves the HUD
+measurements after the framebuffer has returned to the launcher, including
+request timing ranges, audio queue/underruns, input RTT, failures, and bytes.
+
 The physical keyboard otherwise passes its normal letters, digits,
 punctuation, navigation keys, function keys, and numeric keypad directly to
 the remote game. `F1` remains the appliance panic/return control. The dance

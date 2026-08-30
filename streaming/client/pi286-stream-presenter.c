@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -25,11 +26,57 @@ typedef struct {
     int audio_queued_ms, audio_underruns, audio_fail;
     int input_last_ms, input_fail, net_kbytes;
 } Metrics;
+static void audio_metrics(Metrics *metrics);
+
+typedef struct {
+    long long started_ms, video_request_total, server_capture_total, audio_queue_total, input_rtt_total;
+    unsigned long payload_bytes;
+    unsigned int video_frames, video_failures, audio_samples, audio_failures, input_events, input_failures;
+    int video_request_min, video_request_max, server_capture_min, server_capture_max;
+    int audio_queue_min, audio_queue_max, input_rtt_min, input_rtt_max;
+} SessionStats;
 
 static long long now_ms(void) {
     struct timespec value;
     clock_gettime(CLOCK_MONOTONIC, &value);
     return (long long)value.tv_sec * 1000 + value.tv_nsec / 1000000;
+}
+
+static void range_add(int value, int *minimum, int *maximum, long long *total) {
+    if (value < *minimum) *minimum = value;
+    if (value > *maximum) *maximum = value;
+    *total += value;
+}
+
+static void write_session_stats(const char *session, const SessionStats *stats, Metrics *metrics) {
+    char cache[512], directory[512], last[576], history[576]; const char *home = getenv("HOME"); FILE *file;
+    long long duration = now_ms() - stats->started_ms;
+    audio_metrics(metrics);
+    if (!home || !*home) home = "/tmp";
+    snprintf(cache, sizeof(cache), "%s/.cache", home);
+    mkdir(cache, 0700);
+    snprintf(directory, sizeof(directory), "%s/.cache/pi286-stream", home);
+    mkdir(directory, 0700);
+    snprintf(last, sizeof(last), "%s/last-session-stats.txt", directory);
+    if ((file = fopen(last, "w"))) {
+        fprintf(file, "session=%s\nduration_ms=%lld\nvideo_frames=%u\nvideo_fps_x10=%lld\nvideo_request_ms_avg=%lld\nvideo_request_ms_min=%d\nvideo_request_ms_max=%d\nserver_capture_ms_avg=%lld\nserver_capture_ms_min=%d\nserver_capture_ms_max=%d\nvideo_failures=%u\naudio_queue_ms_avg=%lld\naudio_queue_ms_min=%d\naudio_queue_ms_max=%d\naudio_underruns=%d\naudio_failures=%u\ninput_events=%u\ninput_rtt_ms_avg=%lld\ninput_rtt_ms_min=%d\ninput_rtt_ms_max=%d\ninput_failures=%u\npayload_bytes=%lu\npayload_kbytes_per_second=%lld\n",
+                session, duration, stats->video_frames, duration ? stats->video_frames * 10000 / duration : 0,
+                stats->video_frames ? stats->video_request_total / stats->video_frames : 0, stats->video_frames ? stats->video_request_min : 0, stats->video_request_max,
+                stats->video_frames ? stats->server_capture_total / stats->video_frames : 0, stats->video_frames ? stats->server_capture_min : 0, stats->server_capture_max,
+                stats->video_failures, stats->audio_samples ? stats->audio_queue_total / stats->audio_samples : 0,
+                stats->audio_samples ? stats->audio_queue_min : 0, stats->audio_queue_max, metrics->audio_underruns, stats->audio_failures,
+                stats->input_events, stats->input_events ? stats->input_rtt_total / stats->input_events : 0,
+                stats->input_events ? stats->input_rtt_min : 0, stats->input_rtt_max, stats->input_failures, stats->payload_bytes,
+                duration ? stats->payload_bytes * 1000 / duration / 1024 : 0);
+        fclose(file);
+    }
+    snprintf(history, sizeof(history), "%s/session-history.tsv", directory);
+    if ((file = fopen(history, "a"))) {
+        fprintf(file, "%lld\t%s\t%lld\t%u\t%lld\t%d\t%u\t%d\t%u\t%lu\n", (long long)time(NULL), session, duration,
+                stats->video_frames, duration ? stats->video_frames * 10000 / duration : 0, metrics->audio_underruns,
+                stats->video_failures, metrics->audio_fail, stats->input_failures, stats->payload_bytes);
+        fclose(file);
+    }
 }
 
 static void audio_callback(void *unused, Uint8 *stream, int length) {
@@ -257,7 +304,7 @@ static int local_pattern(void) {
 
 int main(int argc, char **argv) {
     const char *host, *port, *token_path, *session, *pad_keys[9] = {0}; FILE *file; char token[256], path[256], body[128], pad_map[256]; SDL_Joystick *joystick = NULL;
-    unsigned char frame[FRAME], packet[VIDEO_PACKET_MAX], pcm[65536]; SDL_Surface *screen, *canvas; SDL_Event event; SDL_AudioSpec audio, obtained; Metrics metrics = {0}; int audio_offset = 0, next_offset, n, overlay = 0, video_count = 0, need_keyframe = 1;
+    unsigned char frame[FRAME], packet[VIDEO_PACKET_MAX], pcm[65536]; SDL_Surface *screen, *canvas; SDL_Event event; SDL_AudioSpec audio, obtained; Metrics metrics = {0}; SessionStats stats = {0}; int audio_offset = 0, next_offset, n, overlay = 0, video_count = 0, need_keyframe = 1;
     long long video_window = now_ms(), network_window = video_window; long long request_started, elapsed; size_t network_bytes = 0;
     fprintf(stderr, "presenter: starting\n"); fflush(stderr);
     if (argc == 2 && !strcmp(argv[1], "--local-pattern")) return local_pattern();
@@ -285,6 +332,8 @@ int main(int argc, char **argv) {
     }
     fprintf(stderr, "presenter: ready\n"); fflush(stderr);
     SDL_PauseAudio(0);
+    stats.started_ms = now_ms();
+    stats.video_request_min = stats.server_capture_min = stats.audio_queue_min = stats.input_rtt_min = 1000000;
     for (;;) {
         snprintf(path, sizeof(path), "/v1/sessions/%s/video%s", session, need_keyframe ? "?keyframe=1" : "");
         request_started = now_ms();
@@ -292,31 +341,38 @@ int main(int argc, char **argv) {
         metrics.video_last_ms = (int)(now_ms() - request_started);
         if (n > 0 && apply_video_packet(frame, packet, (size_t)n)) {
             need_keyframe = 0;
-            network_bytes += (size_t)n; video_count++;
+            network_bytes += (size_t)n; video_count++; stats.video_frames++; stats.payload_bytes += (unsigned long)n;
+            range_add(metrics.video_last_ms, &stats.video_request_min, &stats.video_request_max, &stats.video_request_total);
+            if (metrics.video_capture_ms >= 0) range_add(metrics.video_capture_ms, &stats.server_capture_min, &stats.server_capture_max, &stats.server_capture_total);
             elapsed = now_ms() - video_window;
             if (elapsed >= 1000) { metrics.video_fps_tenths = (int)(video_count * 10000 / elapsed); video_count = 0; video_window = now_ms(); }
             audio_metrics(&metrics);
             render(screen, canvas, frame, overlay, &metrics);
-        } else { need_keyframe = 1; metrics.video_fail++; }
+        } else { need_keyframe = 1; metrics.video_fail++; stats.video_failures++; }
         snprintf(path, sizeof(path), "/v1/sessions/%s/audio?offset=%d", session, audio_offset);
         n = request(host, port, token, "GET", path, NULL, pcm, sizeof(pcm), &next_offset, NULL);
-        if (n > 0 && next_offset >= audio_offset) { audio_put(pcm, n); audio_offset = next_offset; network_bytes += (size_t)n; }
-        else if (n < 0) metrics.audio_fail++;
+        if (n > 0 && next_offset >= audio_offset) { audio_put(pcm, n); audio_offset = next_offset; network_bytes += (size_t)n; stats.payload_bytes += (unsigned long)n; }
+        else if (n < 0) { metrics.audio_fail++; stats.audio_failures++; }
+        audio_metrics(&metrics);
+        stats.audio_samples++;
+        range_add(metrics.audio_queued_ms, &stats.audio_queue_min, &stats.audio_queue_max, &stats.audio_queue_total);
         elapsed = now_ms() - network_window;
         if (elapsed >= 1000) { metrics.net_kbytes = (int)(network_bytes * 1000 / elapsed / 1024); network_bytes = 0; network_window = now_ms(); }
         while (SDL_PollEvent(&event)) {
             const char *key = NULL; int pressed = 0;
-            if (event.type == SDL_QUIT || (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_F1)) { SDL_FreeSurface(canvas); SDL_Quit(); return 0; }
+            if (event.type == SDL_QUIT || (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_F1)) { write_session_stats(session, &stats, &metrics); SDL_CloseAudio(); SDL_FreeSurface(canvas); SDL_Quit(); return 0; }
             if (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_F8) { overlay = !overlay; continue; }
             if ((event.type == SDL_KEYDOWN || event.type == SDL_KEYUP) && (key = dos_key(event.key.keysym.sym))) pressed = event.type == SDL_KEYDOWN;
             if ((event.type == SDL_JOYBUTTONDOWN || event.type == SDL_JOYBUTTONUP) && event.jbutton.button < 9) { key = pad_keys[event.jbutton.button]; pressed = event.type == SDL_JOYBUTTONDOWN; }
-            if ((event.type == SDL_JOYBUTTONDOWN && event.jbutton.button == 9)) { if (joystick) SDL_JoystickClose(joystick); SDL_FreeSurface(canvas); SDL_Quit(); return 0; }
+            if ((event.type == SDL_JOYBUTTONDOWN && event.jbutton.button == 9)) { if (joystick) SDL_JoystickClose(joystick); write_session_stats(session, &stats, &metrics); SDL_CloseAudio(); SDL_FreeSurface(canvas); SDL_Quit(); return 0; }
             if (key) {
                 snprintf(path, sizeof(path), "/v1/sessions/%s/input", session);
                 snprintf(body, sizeof(body), "{\"events\":[{\"key\":\"%s\",\"pressed\":%s}]}", key, pressed ? "true" : "false");
                 request_started = now_ms();
-                if (request(host, port, token, "POST", path, body, frame, sizeof(frame), NULL, NULL) < 0) metrics.input_fail++;
+                if (request(host, port, token, "POST", path, body, frame, sizeof(frame), NULL, NULL) < 0) { metrics.input_fail++; stats.input_failures++; }
                 metrics.input_last_ms = (int)(now_ms() - request_started);
+                stats.input_events++;
+                range_add(metrics.input_last_ms, &stats.input_rtt_min, &stats.input_rtt_max, &stats.input_rtt_total);
             }
         }
         SDL_Delay(30);
