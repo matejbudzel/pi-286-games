@@ -7,5 +7,11 @@ dosbox=/usr/bin/dosbox
 xvfb=/usr/bin/Xvfb
 xwd=/usr/bin/xwd
 xdotool=/usr/bin/xdotool
+# Keep file for the portable prototype. On a host with snd-aloop, use
+# audio_capture=loopback and the Loopback playback/capture devices below.
+arecord=/usr/bin/arecord
+audio_capture=file
+audio_playback_device=plughw:Loopback,0,0
+audio_capture_device=hw:Loopback,1,0
 audio_rate=22050
 max_upload_bytes=134217728

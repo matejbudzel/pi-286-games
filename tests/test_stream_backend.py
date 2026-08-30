@@ -90,6 +90,13 @@ class StreamBackendTests(unittest.TestCase):
         self.assertIn('slave.pcm "null"', config)
         self.assertIn('file "/tmp/audio.raw"', config)
 
+    def test_loopback_capture_is_explicit_s16le_stereo_at_the_stream_rate(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = backend.StreamState(dict(backend.DEFAULTS, state_root=directory), "x" * 32)
+            command = state._arecord_command(Path("/tmp/audio.raw"))
+            self.assertEqual(command, ["/usr/bin/arecord", "-q", "-D", "hw:Loopback,1,0",
+                                       "-f", "S16_LE", "-c", "2", "-r", "22050", "-t", "raw", "/tmp/audio.raw"])
+
     def test_audio_pump_rate_is_stereo_s16le(self):
         source = MODULE.read_text()
         self.assertIn("self.audio_rate * 2 * 2", source)

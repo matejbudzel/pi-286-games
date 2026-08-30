@@ -37,6 +37,10 @@ DEFAULTS = {
     "xvfb": "/usr/bin/Xvfb",
     "xwd": "/usr/bin/xwd",
     "xdotool": "/usr/bin/xdotool",
+    "arecord": "/usr/bin/arecord",
+    "audio_capture": "file",
+    "audio_playback_device": "plughw:Loopback,0,0",
+    "audio_capture_device": "hw:Loopback,1,0",
     "audio_rate": "22050",
     "max_upload_bytes": str(128 * 1024 * 1024),
 }
@@ -178,9 +182,16 @@ class StreamState:
             config_path = session_dir / "dosbox.conf"
             config_path.write_text(self._dosbox_config(executable_path, self.audio_rate), encoding="utf-8")
             audio_path = session_dir / "audio-s16le-stereo.raw"
+            audio_mode = self.config["audio_capture"]
+            if audio_mode not in ("file", "loopback"):
+                raise ValueError("audio_capture must be file or loopback")
             audio_fifo = session_dir / "audio-s16le-stereo.fifo"
-            os.mkfifo(audio_fifo, 0o600)
-            (session_dir / ".asoundrc").write_text(self._alsa_capture_config(audio_fifo), encoding="utf-8")
+            audio_stop = None
+            audio_thread = None
+            audio_process = None
+            if audio_mode == "file":
+                os.mkfifo(audio_fifo, 0o600)
+                (session_dir / ".asoundrc").write_text(self._alsa_capture_config(audio_fifo), encoding="utf-8")
             log = (self.runtime / f"{session_id}.log").open("ab", buffering=0)
             display = self._next_display()
             # Debian's SDL 1.2 DOSBox build does not accept Xvfb's 8-bit visual.
@@ -191,20 +202,30 @@ class StreamState:
             if xvfb.poll() is not None:
                 log.close()
                 raise RuntimeError("Xvfb failed to start; see session log")
-            audio_stop = threading.Event()
-            audio_thread = threading.Thread(target=self._audio_pump,
-                                            args=(audio_fifo, audio_path, audio_stop), daemon=True)
-            audio_thread.start()
+            if audio_mode == "file":
+                audio_stop = threading.Event()
+                audio_thread = threading.Thread(target=self._audio_pump,
+                                                args=(audio_fifo, audio_path, audio_stop), daemon=True)
+                audio_thread.start()
+            else:
+                audio_process = subprocess.Popen(self._arecord_command(audio_path), stdout=log,
+                                                 stderr=subprocess.STDOUT, start_new_session=True)
+                time.sleep(0.05)
+                if audio_process.poll() is not None:
+                    log.close()
+                    raise RuntimeError("ALSA loopback capture failed; see session log")
             environment = os.environ.copy()
             environment.update({"DISPLAY": display, "SDL_AUDIODRIVER": "alsa",
-                                "AUDIODEV": "default", "HOME": str(session_dir)})
+                                "AUDIODEV": "default" if audio_mode == "file" else self.config["audio_playback_device"],
+                                "HOME": str(session_dir)})
             dosbox = subprocess.Popen([self.config["dosbox"], "-conf", str(config_path)], cwd=game_dir,
                                       env=environment, stdout=log, stderr=subprocess.STDOUT,
                                       start_new_session=True)
             self.active[session_id] = {"dosbox": dosbox, "xvfb": xvfb, "log": log,
                                        "display": display, "started": time.time(), "frames": []}
             self.active[session_id].update({"audio": audio_path, "audio_stop": audio_stop,
-                                            "audio_thread": audio_thread, "window": None, "held_keys": set()})
+                                            "audio_thread": audio_thread, "audio_process": audio_process,
+                                            "window": None, "held_keys": set()})
             return self.session_status(session_id)
 
     def start_rainbow_cat(self) -> dict:
@@ -225,6 +246,10 @@ class StreamState:
     @staticmethod
     def _alsa_capture_config(audio_path: Path) -> str:
         return """# Session-local, headless SDL/DOSBox audio sink.\npcm.pi286_capture {\n    type file\n    slave.pcm \"null\"\n    file \"%s\"\n    format \"raw\"\n}\npcm.!default pi286_capture\n""" % audio_path
+
+    def _arecord_command(self, audio_path: Path) -> list[str]:
+        return [self.config["arecord"], "-q", "-D", self.config["audio_capture_device"],
+                "-f", "S16_LE", "-c", "2", "-r", str(self.audio_rate), "-t", "raw", str(audio_path)]
 
     def _audio_pump(self, fifo: Path, capture: Path, stop: threading.Event) -> None:
         """Drain the ALSA file FIFO at its actual PCM rate.
@@ -452,21 +477,25 @@ class StreamState:
         if not item:
             raise KeyError(session_id)
         self._release_all_keys(item)
-        for name in ("dosbox", "xvfb"):
+        for name in ("dosbox", "xvfb", "audio_process"):
             process = item[name]
-            if process.poll() is None:
+            if process and process.poll() is None:
                 os.killpg(process.pid, signal.SIGTERM)
-        item["audio_stop"].set()
+        if item["audio_stop"]:
+            item["audio_stop"].set()
         deadline = time.monotonic() + 3
-        for name in ("dosbox", "xvfb"):
+        for name in ("dosbox", "xvfb", "audio_process"):
             process = item[name]
+            if not process:
+                continue
             remaining = deadline - time.monotonic()
             try:
                 process.wait(max(0, remaining))
             except subprocess.TimeoutExpired:
                 os.killpg(process.pid, signal.SIGKILL)
                 process.wait()
-        item["audio_thread"].join(timeout=1)
+        if item["audio_thread"]:
+            item["audio_thread"].join(timeout=1)
         item["log"].close()
 
 
