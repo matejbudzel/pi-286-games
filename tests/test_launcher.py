@@ -168,6 +168,7 @@ class DiscoveryTests(unittest.TestCase):
         self.assertIn("diagnostic_index = len(games)", source)
         self.assertIn("(\"\", False), (RAINBOW_CAT_LABEL", source)
         self.assertIn("run_rainbow_cat(config)", source)
+        self.assertIn("pi286-stream-launcher-error.log", source)
 
     def test_remote_presenter_uses_the_same_fbcon_environment_and_keeps_a_log(self):
         source = inspect.getsource(launcher.run_remote_presenter)

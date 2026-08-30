@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Minimal terminal UI and DOSBox supervisor for pi-286-games."""
-import argparse, fcntl, glob, os, re, select, shlex, shutil, signal, socket, struct, subprocess, sys, tempfile, termios, time, tty, urllib.error, urllib.parse, urllib.request, zipfile
+import argparse, fcntl, glob, os, re, select, shlex, shutil, signal, socket, struct, subprocess, sys, tempfile, termios, time, traceback, tty, urllib.error, urllib.parse, urllib.request, zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -630,6 +630,9 @@ def main():
                         if result == "failed" and not error(term, pad, Game(RAINBOW_CAT_LABEL, "", "", Path(), Path()), "Vzdialený prehrávač skončil s chybou.", confirm): return 0
                     except RuntimeError as exc:
                         if not error(term, pad, Game(RAINBOW_CAT_LABEL, "", "", Path(), Path()), str(exc), confirm): return 0
+                    except Exception:
+                        Path("/tmp/pi286-stream-launcher-error.log").write_text(traceback.format_exc(), encoding="utf-8")
+                        if not error(term, pad, Game(RAINBOW_CAT_LABEL, "", "", Path(), Path()), "Vzdialený test zlyhal. Detaily sú v /tmp/pi286-stream-launcher-error.log.", confirm): return 0
                 else:
                     try:
                         ddr_keys, ddr_labels = load_ddr_mapping(games[selected])
