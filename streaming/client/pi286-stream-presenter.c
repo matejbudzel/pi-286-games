@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <time.h>
 #include <unistd.h>
 
 #define W 320
@@ -14,13 +15,34 @@
 #define AUDIO_RING (22050 * 2 * 3)
 static unsigned char audio_ring[AUDIO_RING];
 static size_t audio_head, audio_count;
+static unsigned int audio_underruns;
+
+typedef struct {
+    int video_fps_tenths, video_last_ms, video_capture_ms, video_fail;
+    int audio_queued_ms, audio_underruns, audio_fail;
+    int input_last_ms, input_fail, net_kbytes;
+} Metrics;
+
+static long long now_ms(void) {
+    struct timespec value;
+    clock_gettime(CLOCK_MONOTONIC, &value);
+    return (long long)value.tv_sec * 1000 + value.tv_nsec / 1000000;
+}
 
 static void audio_callback(void *unused, Uint8 *stream, int length) {
     size_t take, index; (void)unused;
     memset(stream, 0, length);
     take = audio_count < (size_t)length ? audio_count : (size_t)length;
+    if (take < (size_t)length) audio_underruns++;
     for (index = 0; index < take; index++) stream[index] = audio_ring[(audio_head + index) % AUDIO_RING];
     audio_head = (audio_head + take) % AUDIO_RING; audio_count -= take;
+}
+
+static void audio_metrics(Metrics *metrics) {
+    SDL_LockAudio();
+    metrics->audio_queued_ms = (int)(audio_count * 1000 / (22050 * 2));
+    metrics->audio_underruns = (int)audio_underruns;
+    SDL_UnlockAudio();
 }
 
 static void audio_put(const unsigned char *data, size_t length) {
@@ -45,13 +67,14 @@ static int connect_to(const char *host, const char *port) {
     freeaddrinfo(info); return fd;
 }
 
-static int request(const char *host, const char *port, const char *token, const char *method, const char *path, const char *body, unsigned char *out, size_t cap, int *next_offset) {
+static int request(const char *host, const char *port, const char *token, const char *method, const char *path, const char *body, unsigned char *out, size_t cap, int *next_offset, int *capture_ms) {
     char header[2048], incoming[4097]; int fd, n, used = 0, length = -1; char *split;
     size_t body_len = body ? strlen(body) : 0;
     fd = connect_to(host, port); if (fd < 0) return -1;
     n = snprintf(header, sizeof(header), "%s %s HTTP/1.1\r\nHost: %s\r\nAuthorization: Bearer %s\r\nConnection: close\r\nContent-Length: %zu\r\nContent-Type: application/json\r\n\r\n%s", method, path, host, token, body_len, body ? body : "");
     if (n < 0 || (size_t)n >= sizeof(header) || write(fd, header, n) != n) { close(fd); return -1; }
     if (next_offset) *next_offset = -1;
+    if (capture_ms) *capture_ms = -1;
     while ((n = read(fd, incoming, sizeof(incoming) - 1)) > 0) {
         incoming[n] = 0;
         if (!used) {
@@ -61,6 +84,7 @@ static int request(const char *host, const char *port, const char *token, const 
             char *length_text = strstr(incoming, "Content-Length:");
             if (!length_text || sscanf(length_text, "Content-Length: %d", &length) != 1 || length < 0 || (size_t)length > cap) { close(fd); return -1; }
             if (next_offset) { char *next = strstr(incoming, "X-Pi286-Audio-Next-Offset:"); if (next) sscanf(next, "X-Pi286-Audio-Next-Offset: %d", next_offset); }
+            if (capture_ms) { char *capture = strstr(incoming, "X-Pi286-Capture-Ms:"); if (capture) sscanf(capture, "X-Pi286-Capture-Ms: %d", capture_ms); }
             used = (int)(incoming + n - split);
             memcpy(out, split, used);
         } else { if ((size_t)(used + n) > cap) { close(fd); return -1; } memcpy(out + used, incoming, n); used += n; }
@@ -92,7 +116,62 @@ static SDL_Surface *create_canvas(SDL_Surface *screen) {
                                 screen->format->Bmask, 0);
 }
 
-static void render(SDL_Surface *screen, SDL_Surface *canvas, const unsigned char *frame) {
+static const unsigned char *glyph(char value) {
+    static const unsigned char digits[10][7] = {
+        {14,17,19,21,25,17,14}, {4,12,4,4,4,4,14}, {14,17,1,2,4,8,31},
+        {30,1,1,14,1,1,30}, {2,6,10,18,31,2,2}, {31,16,16,30,1,1,30},
+        {14,16,16,30,17,17,14}, {31,1,2,4,8,8,8}, {14,17,17,14,17,17,14},
+        {14,17,17,15,1,1,14}
+    };
+    static const unsigned char a[7] = {14,17,17,31,17,17,17};
+    static const unsigned char e[7] = {31,16,16,30,16,16,31};
+    static const unsigned char i[7] = {14,4,4,4,4,4,14};
+    static const unsigned char k[7] = {17,18,20,24,20,18,17};
+    static const unsigned char n[7] = {17,25,21,19,17,17,17};
+    static const unsigned char u[7] = {17,17,17,17,17,17,14};
+    static const unsigned char v[7] = {17,17,17,17,17,10,4};
+    static const unsigned char colon[7] = {0,4,0,0,0,4,0};
+    static const unsigned char dot[7] = {0,0,0,0,0,6,6};
+    static const unsigned char slash[7] = {1,2,4,8,16,0,0};
+    static const unsigned char dash[7] = {0,0,0,31,0,0,0};
+    static const unsigned char blank[7] = {0,0,0,0,0,0,0};
+    if (value >= '0' && value <= '9') return digits[value - '0'];
+    switch (value) { case 'A': return a; case 'E': return e; case 'I': return i;
+    case 'K': return k; case 'N': return n; case 'U': return u; case 'V': return v;
+    case ':': return colon; case '.': return dot; case '/': return slash; case '-': return dash;
+    default: return blank; }
+}
+
+static void draw_text(SDL_Surface *canvas, int left, int top, const char *text) {
+    int character, row, column, dx, dy; const unsigned char *shape;
+    unsigned short *line;
+    for (character = 0; text[character]; character++) {
+        shape = glyph(text[character]);
+        for (row = 0; row < 7; row++) for (column = 0; column < 5; column++) if (shape[row] & (1 << (4 - column))) {
+            for (dy = 0; dy < 2; dy++) {
+                line = (unsigned short *)((unsigned char *)canvas->pixels + (top + row * 2 + dy) * canvas->pitch);
+                for (dx = 0; dx < 2; dx++) line[left + character * 12 + column * 2 + dx] = 0x07e0;
+            }
+        }
+    }
+}
+
+static void draw_overlay(SDL_Surface *canvas, const Metrics *metrics) {
+    int row; unsigned short *line; char text[48];
+    for (row = 0; row < 52; row++) {
+        line = (unsigned short *)((unsigned char *)canvas->pixels + row * canvas->pitch);
+        memset(line, 0, 324 * sizeof(*line));
+    }
+    snprintf(text, sizeof(text), "V:%d.%d %d/%d E%d", metrics->video_fps_tenths / 10,
+             metrics->video_fps_tenths % 10, metrics->video_last_ms, metrics->video_capture_ms, metrics->video_fail);
+    draw_text(canvas, 4, 2, text);
+    snprintf(text, sizeof(text), "A:%d U%d E%d", metrics->audio_queued_ms, metrics->audio_underruns, metrics->audio_fail);
+    draw_text(canvas, 4, 19, text);
+    snprintf(text, sizeof(text), "I:%d E%d N:%dK", metrics->input_last_ms, metrics->input_fail, metrics->net_kbytes);
+    draw_text(canvas, 4, 36, text);
+}
+
+static void render(SDL_Surface *screen, SDL_Surface *canvas, const unsigned char *frame, int overlay, const Metrics *metrics) {
     int x, y;
     SDL_LockSurface(canvas);
     memset(canvas->pixels, 0, canvas->pitch * canvas->h);
@@ -102,6 +181,7 @@ static void render(SDL_Surface *screen, SDL_Surface *canvas, const unsigned char
         unsigned short *row1 = (unsigned short *)((unsigned char *)canvas->pixels + (y * 2 + 1) * canvas->pitch);
         row0[x * 2] = row0[x * 2 + 1] = row1[x * 2] = row1[x * 2 + 1] = pixel;
     }
+    if (overlay) draw_overlay(canvas, metrics);
     SDL_UnlockSurface(canvas);
     SDL_BlitSurface(canvas, NULL, screen, NULL); SDL_Flip(screen);
 }
@@ -118,7 +198,7 @@ static int local_pattern(void) {
         size_t offset = (size_t)(y * W + x) * 2;
         frame[offset] = color & 0xff; frame[offset + 1] = color >> 8;
     }
-    render(screen, canvas, frame);
+    render(screen, canvas, frame, 0, NULL);
     fprintf(stderr, "presenter: local RGB565 pattern ready; press F1 or ESC\n"); fflush(stderr);
     for (;;) {
         while (SDL_PollEvent(&event)) if (event.type == SDL_QUIT ||
@@ -131,7 +211,8 @@ static int local_pattern(void) {
 
 int main(int argc, char **argv) {
     const char *host, *port, *token_path, *session, *pad_keys[9] = {0}; FILE *file; char token[256], path[256], body[128], pad_map[256]; SDL_Joystick *joystick = NULL;
-    unsigned char frame[FRAME], pcm[65536]; SDL_Surface *screen, *canvas; SDL_Event event; SDL_AudioSpec audio, obtained; int audio_offset = 0, next_offset, n;
+    unsigned char frame[FRAME], pcm[65536]; SDL_Surface *screen, *canvas; SDL_Event event; SDL_AudioSpec audio, obtained; Metrics metrics = {0}; int audio_offset = 0, next_offset, n, overlay = 0, video_count = 0;
+    long long video_window = now_ms(), network_window = video_window; long long request_started, elapsed; size_t network_bytes = 0;
     fprintf(stderr, "presenter: starting\n"); fflush(stderr);
     if (argc == 2 && !strcmp(argv[1], "--local-pattern")) return local_pattern();
     if (argc != 6) { fprintf(stderr, "usage: %s HOST PORT TOKEN_FILE SESSION PAD_MAP\n", argv[0]); return 2; }
@@ -160,20 +241,35 @@ int main(int argc, char **argv) {
     SDL_PauseAudio(0);
     for (;;) {
         snprintf(path, sizeof(path), "/v1/sessions/%s/video", session);
-        if (request(host, port, token, "GET", path, NULL, frame, sizeof(frame), NULL) == FRAME) render(screen, canvas, frame);
+        request_started = now_ms();
+        n = request(host, port, token, "GET", path, NULL, frame, sizeof(frame), NULL, &metrics.video_capture_ms);
+        metrics.video_last_ms = (int)(now_ms() - request_started);
+        if (n == FRAME) {
+            network_bytes += (size_t)n; video_count++;
+            elapsed = now_ms() - video_window;
+            if (elapsed >= 1000) { metrics.video_fps_tenths = (int)(video_count * 10000 / elapsed); video_count = 0; video_window = now_ms(); }
+            audio_metrics(&metrics);
+            render(screen, canvas, frame, overlay, &metrics);
+        } else metrics.video_fail++;
         snprintf(path, sizeof(path), "/v1/sessions/%s/audio?offset=%d", session, audio_offset);
-        n = request(host, port, token, "GET", path, NULL, pcm, sizeof(pcm), &next_offset);
-        if (n > 0 && next_offset >= audio_offset) { audio_put(pcm, n); audio_offset = next_offset; }
+        n = request(host, port, token, "GET", path, NULL, pcm, sizeof(pcm), &next_offset, NULL);
+        if (n > 0 && next_offset >= audio_offset) { audio_put(pcm, n); audio_offset = next_offset; network_bytes += (size_t)n; }
+        else if (n < 0) metrics.audio_fail++;
+        elapsed = now_ms() - network_window;
+        if (elapsed >= 1000) { metrics.net_kbytes = (int)(network_bytes * 1000 / elapsed / 1024); network_bytes = 0; network_window = now_ms(); }
         while (SDL_PollEvent(&event)) {
             const char *key = NULL; int pressed = 0;
             if (event.type == SDL_QUIT || (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_F1)) { SDL_FreeSurface(canvas); SDL_Quit(); return 0; }
+            if (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_F8) { overlay = !overlay; continue; }
             if ((event.type == SDL_KEYDOWN || event.type == SDL_KEYUP) && (key = dos_key(event.key.keysym.sym))) pressed = event.type == SDL_KEYDOWN;
             if ((event.type == SDL_JOYBUTTONDOWN || event.type == SDL_JOYBUTTONUP) && event.jbutton.button < 9) { key = pad_keys[event.jbutton.button]; pressed = event.type == SDL_JOYBUTTONDOWN; }
             if ((event.type == SDL_JOYBUTTONDOWN && event.jbutton.button == 9)) { if (joystick) SDL_JoystickClose(joystick); SDL_FreeSurface(canvas); SDL_Quit(); return 0; }
             if (key) {
                 snprintf(path, sizeof(path), "/v1/sessions/%s/input", session);
                 snprintf(body, sizeof(body), "{\"events\":[{\"key\":\"%s\",\"pressed\":%s}]}", key, pressed ? "true" : "false");
-                request(host, port, token, "POST", path, body, frame, sizeof(frame), NULL);
+                request_started = now_ms();
+                if (request(host, port, token, "POST", path, body, frame, sizeof(frame), NULL, NULL) < 0) metrics.input_fail++;
+                metrics.input_last_ms = (int)(now_ms() - request_started);
             }
         }
         SDL_Delay(30);

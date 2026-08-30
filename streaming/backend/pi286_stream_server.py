@@ -367,7 +367,7 @@ class StreamState:
             return {"id": frame_id, "bytes": frame.stat().st_size,
                     "path": f"/v1/sessions/{session_id}/frames/{frame_id}"}
 
-    def video_frame(self, session_id: str) -> bytes:
+    def video_frame(self, session_id: str) -> tuple[bytes, int, int]:
         """Return an aspect-correct 320x240 RGB565LE frame for the Pi."""
         with self.lock:
             item = self.active.get(session_id)
@@ -375,11 +375,13 @@ class StreamState:
                 raise KeyError(session_id)
             if item["dosbox"].poll() is not None:
                 raise RuntimeError("DOSBox has already exited")
+            started = time.monotonic()
             temporary = self.runtime / f"{session_id}-video-{secrets.token_hex(4)}.xwd"
             try:
                 subprocess.run([self.config["xwd"], "-silent", "-root", "-display", item["display"], "-out", str(temporary)],
                                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=3, check=True)
-                return self._xwd_to_rgb565(temporary.read_bytes())
+                item["video_sequence"] = item.get("video_sequence", 0) + 1
+                return self._xwd_to_rgb565(temporary.read_bytes()), item["video_sequence"], int((time.monotonic() - started) * 1000)
             finally:
                 temporary.unlink(missing_ok=True)
 
@@ -490,12 +492,14 @@ def make_handler(state: StreamState):
             self.wfile.write(body)
 
         def _video(self, session_id: str):
-            body = state.video_frame(session_id)
+            body, sequence, capture_ms = state.video_frame(session_id)
             self.send_response(HTTPStatus.OK)
             self.send_header("Content-Type", "application/x-pi286-rgb565le")
             self.send_header("Content-Length", str(len(body)))
             self.send_header("X-Pi286-Video-Width", str(VIDEO_WIDTH))
             self.send_header("X-Pi286-Video-Height", str(VIDEO_HEIGHT))
+            self.send_header("X-Pi286-Video-Sequence", str(sequence))
+            self.send_header("X-Pi286-Capture-Ms", str(capture_ms))
             self.end_headers()
             self.wfile.write(body)
 

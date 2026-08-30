@@ -91,6 +91,15 @@ The initial HTTP API is deliberately limited:
   uploading any private game data.
 - `GET`/`DELETE /v1/sessions/<id>` inspect or terminate that instance.
 
+## Pi development overlay
+
+While a remote game is running, `F8` toggles a small local presenter overlay.
+It is never forwarded to DOSBox. The three lines show respectively video
+frames per second, end-to-end/latest server capture time and failures; local
+audio queue depth, underruns and failures; and input HTTP round-trip time,
+input failures and received payload throughput. These figures are development
+diagnostics rather than an input-to-game-response measurement.
+
 `scripts/smoke-stream-backend.py` exercises cache-miss/**failed start**/upload/
 successful start/PCM transport capture/two-frame capture/stop using a
 generated, disposable DOS COM program. Run it inside the LXC after
