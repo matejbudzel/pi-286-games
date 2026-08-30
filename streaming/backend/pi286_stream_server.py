@@ -70,6 +70,7 @@ VIDEO_BYTES = VIDEO_WIDTH * VIDEO_HEIGHT * 2
 VIDEO_TILE = 16
 VIDEO_PACKET_HEADER = 16
 VIDEO_KEYFRAME_INTERVAL = 2.0
+POLL_HEADER = 16
 
 
 def read_config(path: Path) -> dict[str, str]:
@@ -388,6 +389,62 @@ class StreamState:
                     item["held_keys"].discard(key)
             return {"accepted": len(checked), "held_keys": sorted(item["held_keys"])}
 
+    def poll(self, session_id: str, request: dict) -> bytes | None:
+        """Apply the newest complete input state and return multiplexed media.
+
+        A newer request supersedes an older in-flight poll. The latter may have
+        captured a frame already, but it must not send stale media to a client
+        that has moved on to a newer input revision.
+        """
+        if not isinstance(request, dict):
+            raise ValueError("poll object required")
+        revision = request.get("input_revision")
+        held = request.get("held_keys")
+        video_seq = request.get("video_seq", 0)
+        audio_offset = request.get("audio_offset", 0)
+        if not isinstance(revision, int) or revision < 0 or not isinstance(video_seq, int) or video_seq < 0:
+            raise ValueError("invalid poll revision")
+        if not isinstance(audio_offset, int) or audio_offset < 0 or audio_offset % 2:
+            raise ValueError("invalid poll audio offset")
+        if not isinstance(held, list) or len(held) > 64 or any(not isinstance(key, str) or key not in KEYS for key in held):
+            raise ValueError("invalid held key state")
+        desired = set(held)
+        with self.lock:
+            item = self.active.get(session_id)
+            if not item or item["dosbox"].poll() is not None:
+                raise KeyError(session_id)
+            if revision >= item.get("poll_revision", -1):
+                self._sync_held_keys(item, desired)
+                item["poll_revision"] = revision
+            current_revision = item.get("poll_revision", -1)
+        force_keyframe = video_seq != item.get("video_sequence", 0)
+        video, _sequence, _capture_ms = self.video_frame(session_id, force_keyframe)
+        audio, next_audio = self.audio_chunk(session_id, audio_offset)
+        with self.lock:
+            item = self.active.get(session_id)
+            if not item or revision < item.get("poll_revision", -1):
+                return None
+        return struct.pack(">4sIII", b"P2P1", len(video), len(audio), next_audio) + video + audio
+
+    def _sync_held_keys(self, item: dict, desired: set[str]) -> None:
+        window = item["window"] or self._find_dosbox_window(item["display"])
+        if not window:
+            raise RuntimeError("DOSBox input window is not ready")
+        item["window"] = window
+        for key in item["held_keys"] - desired:
+            self._inject_key(item, window, key, False)
+        for key in desired - item["held_keys"]:
+            self._inject_key(item, window, key, True)
+        item["held_keys"] = desired
+
+    def _inject_key(self, item: dict, window: str, key: str, pressed: bool) -> None:
+        result = subprocess.run([self.config["xdotool"], "keydown" if pressed else "keyup", "--window", str(window), KEYS[key]],
+                                env=dict(os.environ, DISPLAY=item["display"]), stdout=subprocess.DEVNULL,
+                                stderr=subprocess.PIPE, timeout=2)
+        if result.returncode:
+            item["window"] = None
+            raise RuntimeError("XTEST input injection failed")
+
     def _find_dosbox_window(self, display: str) -> str | None:
         result = subprocess.run([self.config["xdotool"], "search", "--onlyvisible", "--name", "DOSBox"],
                                 env=dict(os.environ, DISPLAY=display), stdout=subprocess.PIPE,
@@ -614,6 +671,19 @@ def make_handler(state: StreamState):
             self.end_headers()
             self.wfile.write(body)
 
+        def _poll(self, session_id: str, request: dict):
+            body = state.poll(session_id, request)
+            if body is None:
+                self.send_response(HTTPStatus.NO_CONTENT)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "application/x-pi286-poll-v1")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
         def _request_json(self):
             try:
                 length = int(self.headers.get("Content-Length", "-1"))
@@ -676,6 +746,8 @@ def make_handler(state: StreamState):
                     self._json(HTTPStatus.CREATED, state.capture_frame(self.path.split("/")[3]))
                 elif re.fullmatch(r"/v1/sessions/[^/]+/input", self.path):
                     self._json(HTTPStatus.OK, state.input_events(self.path.split("/")[3], request.get("events")))
+                elif re.fullmatch(r"/v2/sessions/[^/]+/poll", self.path):
+                    self._poll(self.path.split("/")[3], request)
                 else: self._json(HTTPStatus.NOT_FOUND, {"error": "not found"})
             except (ValueError, json.JSONDecodeError) as error: self._json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
             except RuntimeError as error: self._json(HTTPStatus.CONFLICT, {"error": str(error)})

@@ -4,6 +4,7 @@ import io
 import struct
 import tempfile
 import unittest
+from types import SimpleNamespace
 from pathlib import Path
 
 MODULE = Path(__file__).parents[1] / "streaming/backend/pi286_stream_server.py"
@@ -96,6 +97,17 @@ class StreamBackendTests(unittest.TestCase):
             command = state._arecord_command(Path("/tmp/audio.raw"))
             self.assertEqual(command, ["/usr/bin/arecord", "-q", "-D", "hw:Loopback,1,0",
                                        "-f", "S16_LE", "-c", "2", "-r", "22050", "-t", "raw", "/tmp/audio.raw"])
+
+    def test_poll_multiplexes_media_and_uses_the_latest_held_key_snapshot(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = backend.StreamState(dict(backend.DEFAULTS, state_root=directory), "x" * 32)
+            state.active["one"] = {"dosbox": SimpleNamespace(poll=lambda: None), "held_keys": set(), "video_sequence": 0}
+            state._sync_held_keys = lambda item, keys: item.update(held_keys=keys)
+            state.video_frame = lambda session, force: (b"video", 1, 2)
+            state.audio_chunk = lambda session, offset: (b"audio", offset + 5)
+            packet = state.poll("one", {"input_revision": 3, "video_seq": 0, "audio_offset": 0, "held_keys": ["UP"]})
+            self.assertEqual(packet, struct.pack(">4sIII", b"P2P1", 5, 5, 5) + b"videoaudio")
+            self.assertEqual(state.active["one"]["held_keys"], {"UP"})
 
     def test_audio_pump_rate_is_stereo_s16le(self):
         source = MODULE.read_text()

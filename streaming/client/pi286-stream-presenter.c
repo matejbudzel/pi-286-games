@@ -16,6 +16,8 @@
 #define TILE 16
 #define VIDEO_HEADER 16
 #define VIDEO_PACKET_MAX (VIDEO_HEADER + FRAME)
+#define POLL_HEADER 16
+#define POLL_PACKET_MAX (POLL_HEADER + VIDEO_PACKET_MAX + 65536)
 #define AUDIO_RING (22050 * 2 * 3)
 static unsigned char audio_ring[AUDIO_RING];
 static size_t audio_head, audio_count;
@@ -35,6 +37,8 @@ typedef struct {
     int video_request_min, video_request_max, server_capture_min, server_capture_max;
     int audio_queue_min, audio_queue_max, input_rtt_min, input_rtt_max;
 } SessionStats;
+
+typedef struct { char keys[64][20]; int count; unsigned int revision; } HeldState;
 
 static long long now_ms(void) {
     struct timespec value;
@@ -124,6 +128,40 @@ static int apply_video_packet(unsigned char *frame, const unsigned char *packet,
     }
     (void)read_be32(packet + 8);
     return 2;
+}
+
+static int apply_poll_packet(unsigned char *frame, const unsigned char *packet, size_t length, int *video_capture, int *video_seq, const unsigned char **audio, int *audio_length, int *next_audio) {
+    unsigned int video_length, pcm_length;
+    if (length < POLL_HEADER || memcmp(packet, "P2P1", 4)) return 0;
+    video_length = read_be32(packet + 4); pcm_length = read_be32(packet + 8);
+    if (video_length > VIDEO_PACKET_MAX || pcm_length > 65536 || length != POLL_HEADER + video_length + pcm_length) return 0;
+    if (!apply_video_packet(frame, packet + POLL_HEADER, video_length)) return 0;
+    *video_capture = (int)read_be32(packet + POLL_HEADER + 12);
+    *video_seq = (int)read_be32(packet + POLL_HEADER + 8);
+    *audio = packet + POLL_HEADER + video_length;
+    *audio_length = (int)pcm_length;
+    *next_audio = (int)read_be32(packet + 12);
+    return 1;
+}
+
+static void held_update(HeldState *held, const char *key, int pressed) {
+    int index;
+    for (index = 0; index < held->count; index++) if (!strcmp(held->keys[index], key)) break;
+    if (pressed && index == held->count && held->count < 64) { snprintf(held->keys[held->count++], sizeof(held->keys[0]), "%s", key); held->revision++; }
+    if (!pressed && index < held->count) { memmove(held->keys[index], held->keys[index + 1], (size_t)(held->count - index - 1) * sizeof(held->keys[0])); held->count--; held->revision++; }
+}
+
+static int poll_body(char *body, size_t size, const HeldState *held, int video_seq, int audio_offset) {
+    int used, index;
+    used = snprintf(body, size, "{\"input_revision\":%u,\"video_seq\":%d,\"audio_offset\":%d,\"held_keys\":[", held->revision, video_seq, audio_offset);
+    if (used < 0 || (size_t)used >= size) return -1;
+    for (index = 0; index < held->count; index++) {
+        int added = snprintf(body + used, size - (size_t)used, "%s\"%s\"", index ? "," : "", held->keys[index]);
+        if (added < 0 || (size_t)added >= size - (size_t)used) return -1;
+        used += added;
+    }
+    if ((size_t)used + 3 >= size) return -1;
+    memcpy(body + used, "]}", 3); return used + 2;
 }
 
 static void audio_put(const unsigned char *data, size_t length) {
@@ -303,8 +341,9 @@ static int local_pattern(void) {
 }
 
 int main(int argc, char **argv) {
-    const char *host, *port, *token_path, *session, *pad_keys[9] = {0}; FILE *file; char token[256], path[256], body[128], pad_map[256]; SDL_Joystick *joystick = NULL;
-    unsigned char frame[FRAME], packet[VIDEO_PACKET_MAX], pcm[65536]; SDL_Surface *screen, *canvas; SDL_Event event; SDL_AudioSpec audio, obtained; Metrics metrics = {0}; SessionStats stats = {0}; int audio_offset = 0, next_offset, n, overlay = 0, video_count = 0, need_keyframe = 1;
+    const char *host, *port, *token_path, *session, *pad_keys[9] = {0}; FILE *file; char token[256], path[256], body[2048], pad_map[256]; SDL_Joystick *joystick = NULL;
+    unsigned char frame[FRAME], packet[POLL_PACKET_MAX]; SDL_Surface *screen, *canvas; SDL_Event event; SDL_AudioSpec audio, obtained; Metrics metrics = {0}; SessionStats stats = {0}; HeldState held = {0}; int audio_offset = 0, next_offset, n, overlay = 0, video_count = 0, video_seq = 0, audio_length;
+    const unsigned char *audio_data; unsigned int poll_revision, input_acked = 0;
     long long video_window = now_ms(), network_window = video_window; long long request_started, elapsed; size_t network_bytes = 0;
     fprintf(stderr, "presenter: starting\n"); fflush(stderr);
     if (argc == 2 && !strcmp(argv[1], "--local-pattern")) return local_pattern();
@@ -335,12 +374,13 @@ int main(int argc, char **argv) {
     stats.started_ms = now_ms();
     stats.video_request_min = stats.server_capture_min = stats.audio_queue_min = stats.input_rtt_min = 1000000;
     for (;;) {
-        snprintf(path, sizeof(path), "/v1/sessions/%s/video%s", session, need_keyframe ? "?keyframe=1" : "");
+        snprintf(path, sizeof(path), "/v2/sessions/%s/poll", session);
+        if (poll_body(body, sizeof(body), &held, video_seq, audio_offset) < 0) { fprintf(stderr, "presenter: poll body too large\n"); break; }
+        poll_revision = held.revision;
         request_started = now_ms();
-        n = request(host, port, token, "GET", path, NULL, packet, sizeof(packet), NULL, &metrics.video_capture_ms);
+        n = request(host, port, token, "POST", path, body, packet, sizeof(packet), NULL, NULL);
         metrics.video_last_ms = (int)(now_ms() - request_started);
-        if (n > 0 && apply_video_packet(frame, packet, (size_t)n)) {
-            need_keyframe = 0;
+        if (n > 0 && apply_poll_packet(frame, packet, (size_t)n, &metrics.video_capture_ms, &video_seq, &audio_data, &audio_length, &next_offset)) {
             network_bytes += (size_t)n; video_count++; stats.video_frames++; stats.payload_bytes += (unsigned long)n;
             range_add(metrics.video_last_ms, &stats.video_request_min, &stats.video_request_max, &stats.video_request_total);
             if (metrics.video_capture_ms >= 0) range_add(metrics.video_capture_ms, &stats.server_capture_min, &stats.server_capture_max, &stats.server_capture_total);
@@ -348,11 +388,9 @@ int main(int argc, char **argv) {
             if (elapsed >= 1000) { metrics.video_fps_tenths = (int)(video_count * 10000 / elapsed); video_count = 0; video_window = now_ms(); }
             audio_metrics(&metrics);
             render(screen, canvas, frame, overlay, &metrics);
-        } else { need_keyframe = 1; metrics.video_fail++; stats.video_failures++; }
-        snprintf(path, sizeof(path), "/v1/sessions/%s/audio?offset=%d", session, audio_offset);
-        n = request(host, port, token, "GET", path, NULL, pcm, sizeof(pcm), &next_offset, NULL);
-        if (n > 0 && next_offset >= audio_offset) { audio_put(pcm, n); audio_offset = next_offset; network_bytes += (size_t)n; stats.payload_bytes += (unsigned long)n; }
-        else if (n < 0) { metrics.audio_fail++; stats.audio_failures++; }
+            if (audio_length > 0 && next_offset >= audio_offset) { audio_put(audio_data, (size_t)audio_length); audio_offset = next_offset; }
+            if (poll_revision > input_acked) { metrics.input_last_ms = metrics.video_last_ms; input_acked = poll_revision; range_add(metrics.input_last_ms, &stats.input_rtt_min, &stats.input_rtt_max, &stats.input_rtt_total); }
+        } else { video_seq = 0; metrics.video_fail++; stats.video_failures++; metrics.audio_fail++; stats.audio_failures++; }
         audio_metrics(&metrics);
         stats.audio_samples++;
         range_add(metrics.audio_queued_ms, &stats.audio_queue_min, &stats.audio_queue_max, &stats.audio_queue_total);
@@ -361,18 +399,13 @@ int main(int argc, char **argv) {
         while (SDL_PollEvent(&event)) {
             const char *key = NULL; int pressed = 0;
             if (event.type == SDL_QUIT || (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_F1)) { write_session_stats(session, &stats, &metrics); SDL_CloseAudio(); SDL_FreeSurface(canvas); SDL_Quit(); return 0; }
-            if (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_F8) { overlay = !overlay; continue; }
+            if ((event.type == SDL_KEYDOWN || event.type == SDL_KEYUP) && event.key.keysym.sym == SDLK_F8) { if (event.type == SDL_KEYDOWN) overlay = !overlay; continue; }
             if ((event.type == SDL_KEYDOWN || event.type == SDL_KEYUP) && (key = dos_key(event.key.keysym.sym))) pressed = event.type == SDL_KEYDOWN;
             if ((event.type == SDL_JOYBUTTONDOWN || event.type == SDL_JOYBUTTONUP) && event.jbutton.button < 9) { key = pad_keys[event.jbutton.button]; pressed = event.type == SDL_JOYBUTTONDOWN; }
             if ((event.type == SDL_JOYBUTTONDOWN && event.jbutton.button == 9)) { if (joystick) SDL_JoystickClose(joystick); write_session_stats(session, &stats, &metrics); SDL_CloseAudio(); SDL_FreeSurface(canvas); SDL_Quit(); return 0; }
             if (key) {
-                snprintf(path, sizeof(path), "/v1/sessions/%s/input", session);
-                snprintf(body, sizeof(body), "{\"events\":[{\"key\":\"%s\",\"pressed\":%s}]}", key, pressed ? "true" : "false");
-                request_started = now_ms();
-                if (request(host, port, token, "POST", path, body, frame, sizeof(frame), NULL, NULL) < 0) { metrics.input_fail++; stats.input_failures++; }
-                metrics.input_last_ms = (int)(now_ms() - request_started);
+                held_update(&held, key, pressed);
                 stats.input_events++;
-                range_add(metrics.input_last_ms, &stats.input_rtt_min, &stats.input_rtt_max, &stats.input_rtt_total);
             }
         }
         SDL_Delay(30);
