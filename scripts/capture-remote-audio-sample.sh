@@ -6,8 +6,9 @@ set -eu
 # appliance's normal ALSA output for playback.
 output=${XDG_CACHE_HOME:-"$HOME/.cache"}/pi286-stream-audio-sample.pcm
 raw_output=${XDG_CACHE_HOME:-"$HOME/.cache"}/pi286-stream-audio-source-sample.pcm
+mode=${1:-}
 
-if [ "${1:-}" = "--play" ]; then
+if [ "$mode" = "--play" ]; then
     if pgrep -f '/opt/pi286/stream/bin/pi286-stream-presenter ' >/dev/null 2>&1; then
         echo "Najprv ukonči vzdialenú hru klávesom F1." >&2
         exit 1
@@ -19,7 +20,7 @@ if [ "${1:-}" = "--play" ]; then
     exec aplay -D default -r 22050 -f S16_LE -c 1 "$output"
 fi
 
-if [ "${1:-}" = "--play-raw" ]; then
+if [ "$mode" = "--play-raw" ]; then
     if pgrep -f '/opt/pi286/stream/bin/pi286-stream-presenter ' >/dev/null 2>&1; then
         echo "Najprv ukonči vzdialenú hru klávesom F1." >&2
         exit 1
@@ -43,7 +44,7 @@ token_file=$4
 session=$5
 token=$(tr -d '\r\n' < "$token_file")
 mkdir -p "$(dirname "$output")"
-if [ "${1:-}" = "--raw" ]; then
+if [ "$mode" = "--raw" ]; then
     output=$raw_output
     endpoint=audio-source
 else
