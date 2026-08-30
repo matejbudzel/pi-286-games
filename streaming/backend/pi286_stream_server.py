@@ -510,7 +510,13 @@ class StreamState:
             started = time.monotonic()
             if item.get("diagnostic"):
                 item["video_sequence"] = item.get("video_sequence", 0) + 1
-                frame = self._diagnostic_frame(item["video_sequence"])
+                cat_y = item.setdefault("diagnostic_cat_y", 104)
+                if "UP" in item["held_keys"]:
+                    cat_y -= 3
+                if "DOWN" in item["held_keys"]:
+                    cat_y += 3
+                item["diagnostic_cat_y"] = max(0, min(VIDEO_HEIGHT - 40, cat_y))
+                frame = self._diagnostic_frame(item["video_sequence"], item["diagnostic_cat_y"])
                 keyframe = force_keyframe or not item.get("video_previous") or \
                     time.monotonic() - item.get("video_last_keyframe", 0.0) >= VIDEO_KEYFRAME_INTERVAL
                 packet, keyframe = self._video_packet(frame, item.get("video_previous"),
@@ -538,7 +544,7 @@ class StreamState:
                 temporary.unlink(missing_ok=True)
 
     @staticmethod
-    def _diagnostic_frame(sequence: int) -> bytes:
+    def _diagnostic_frame(sequence: int, cat_y: int = 104) -> bytes:
         """Return a deliberately vivid RGB565 transport reference frame."""
         colors = (0xf800, 0xfd20, 0xffe0, 0x07e0, 0x07ff, 0x001f, 0x781f)
         output = bytearray(VIDEO_BYTES)
@@ -548,7 +554,6 @@ class StreamState:
                 struct.pack_into("<H", output, (y * VIDEO_WIDTH + x) * 2, color)
         # A small moving white/pink cat-like block makes tile updates visible.
         cat_x = 128 + (sequence // 2) % 48
-        cat_y = 104
         for y in range(cat_y, cat_y + 40):
             for x in range(cat_x, cat_x + 64):
                 edge = x in (cat_x, cat_x + 63) or y in (cat_y, cat_y + 39)

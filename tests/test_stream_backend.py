@@ -128,6 +128,7 @@ class StreamBackendTests(unittest.TestCase):
         frame = backend.StreamState._diagnostic_frame(1)
         self.assertEqual(len(frame), backend.VIDEO_BYTES)
         self.assertNotEqual(frame, bytes(backend.VIDEO_BYTES))
+        self.assertNotEqual(frame, backend.StreamState._diagnostic_frame(1, 0))
 
     def test_rainbow_diagnostic_audio_is_pcm_at_the_configured_rate(self):
         with tempfile.TemporaryDirectory() as directory:
