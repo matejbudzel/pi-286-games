@@ -112,6 +112,12 @@ writes the complete current-run summary to
 `~/.cache/pi286-stream/session-history.tsv`. The summary preserves the HUD
 measurements after the framebuffer has returned to the launcher, including
 request timing ranges, audio queue/underruns, input RTT, failures, and bytes.
+It also separates completed polls from locally cancelled and server-stale
+polls, so intentional supersession is not reported as a media failure. The
+backend persists a bounded per-session request trace in
+`/srv/pi286-stream/runtime/<session>-poll-stats.json` and emits the same
+summary to its service log; it includes request arrival gaps and response,
+video, and audio assembly timings.
 
 The physical keyboard otherwise passes its normal letters, digits,
 punctuation, navigation keys, function keys, and numeric keypad directly to

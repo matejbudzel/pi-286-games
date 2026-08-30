@@ -240,7 +240,8 @@ class StreamState:
                                        "display": display, "started": time.time(), "frames": []}
             self.active[session_id].update({"audio": audio_path, "audio_stop": audio_stop,
                                             "audio_thread": audio_thread, "audio_process": audio_process,
-                                            "window": None, "held_keys": set()})
+                                            "window": None, "held_keys": set(),
+                                            "poll_stats": self._new_poll_stats()})
             return self.session_status(session_id)
 
     def start_rainbow_cat(self) -> dict:
@@ -314,7 +315,58 @@ class StreamState:
                     "audio_bytes": item["audio"].stat().st_size if item["audio"].exists() else 0,
                     "held_keys": sorted(item["held_keys"]),
                     "audio": f"/v1/sessions/{session_id}/audio?offset=0",
-                    "log": f"/v1/sessions/{session_id}/log"}
+                    "log": f"/v1/sessions/{session_id}/log",
+                    "poll_stats": self._poll_stats_snapshot(item["poll_stats"])}
+
+    @staticmethod
+    def _new_poll_stats() -> dict:
+        return {"started_at": time.time(), "last_arrival": None, "requests": 0,
+                "responses": 0, "stale": 0, "input_updates": 0, "failed": 0,
+                "total_ms": [], "video_ms": [], "audio_ms": [], "arrival_gap_ms": [],
+                "trace": []}
+
+    @staticmethod
+    def _poll_stats_snapshot(stats: dict) -> dict:
+        def timing(name: str) -> dict:
+            values = stats[name]
+            return {"count": len(values), "avg": int(sum(values) / len(values)) if values else 0,
+                    "min": min(values) if values else 0, "max": max(values) if values else 0}
+        return {"requests": stats["requests"], "responses": stats["responses"],
+                "stale": stats["stale"], "input_updates": stats["input_updates"],
+                "failed": stats["failed"], "total_ms": timing("total_ms"),
+                "video_ms": timing("video_ms"), "audio_ms": timing("audio_ms"),
+                "arrival_gap_ms": timing("arrival_gap_ms"), "recent": list(stats["trace"])}
+
+    def _record_poll(self, item: dict, revision: int, input_updated: bool,
+                     started: float, video_started: float, audio_started: float,
+                     result: str) -> None:
+        """Keep a bounded timing trace for post-session transport diagnosis."""
+        finished = time.monotonic()
+        stats = item["poll_stats"]
+        video_ms = int((audio_started - video_started) * 1000)
+        audio_ms = int((finished - audio_started) * 1000)
+        total_ms = int((finished - started) * 1000)
+        for name, value in (("total_ms", total_ms), ("video_ms", video_ms), ("audio_ms", audio_ms)):
+            stats[name].append(value)
+            del stats[name][:-2048]
+        if result == "response":
+            stats["responses"] += 1
+        elif result == "stale":
+            stats["stale"] += 1
+        else:
+            stats["failed"] += 1
+        trace = {"revision": revision, "input_updated": input_updated, "result": result,
+                 "gap_ms": stats["arrival_gap_ms"][-1] if stats["arrival_gap_ms"] else 0,
+                 "video_ms": video_ms, "audio_ms": audio_ms, "total_ms": total_ms}
+        stats["trace"].append(trace)
+        del stats["trace"][:-32]
+
+    def _persist_poll_stats(self, session_id: str, item: dict) -> None:
+        path = self.runtime / f"{session_id}-poll-stats.json"
+        path.write_text(json.dumps({"session": session_id,
+                                    "ended_at": time.time(),
+                                    "poll_stats": self._poll_stats_snapshot(item["poll_stats"])},
+                                   indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
     def audio_chunk(self, session_id: str, output_offset: int) -> tuple[bytes, int]:
         if output_offset < 0 or output_offset % 2:
@@ -429,21 +481,35 @@ class StreamState:
         if not isinstance(held, list) or len(held) > 64 or any(not isinstance(key, str) or key not in KEYS for key in held):
             raise ValueError("invalid held key state")
         desired = set(held)
+        started = time.monotonic()
         with self.lock:
             item = self.active.get(session_id)
             if not item or item["dosbox"].poll() is not None:
                 raise KeyError(session_id)
+            stats = item.setdefault("poll_stats", self._new_poll_stats())
+            previous_arrival = stats["last_arrival"]
+            stats["last_arrival"] = started
+            stats["requests"] += 1
+            if previous_arrival is not None:
+                stats["arrival_gap_ms"].append(int((started - previous_arrival) * 1000))
+                del stats["arrival_gap_ms"][:-2048]
+            input_updated = revision >= item.get("poll_revision", -1)
             if revision >= item.get("poll_revision", -1):
                 self._sync_held_keys(item, desired)
                 item["poll_revision"] = revision
-            current_revision = item.get("poll_revision", -1)
+                stats["input_updates"] += 1
         force_keyframe = video_seq != item.get("video_sequence", 0)
+        video_started = time.monotonic()
         video, _sequence, _capture_ms = self.video_frame(session_id, force_keyframe)
+        audio_started = time.monotonic()
         audio, next_audio = self.audio_chunk(session_id, audio_offset)
         with self.lock:
             item = self.active.get(session_id)
             if not item or revision < item.get("poll_revision", -1):
+                if item:
+                    self._record_poll(item, revision, input_updated, started, video_started, audio_started, "stale")
                 return None
+            self._record_poll(item, revision, input_updated, started, video_started, audio_started, "response")
         return struct.pack(">4sIII", b"P2P1", len(video), len(audio), next_audio) + video + audio
 
     def _sync_held_keys(self, item: dict, desired: set[str]) -> None:
@@ -643,6 +709,10 @@ class StreamState:
             item = self.active.pop(session_id, None)
         if not item:
             raise KeyError(session_id)
+        self._persist_poll_stats(session_id, item)
+        print("pi286 stream session metrics " + json.dumps({"session": session_id,
+                                                             "poll_stats": self._poll_stats_snapshot(item["poll_stats"])},
+                                                            sort_keys=True), flush=True)
         self._release_all_keys(item)
         for name in ("dosbox", "xvfb", "audio_process"):
             process = item[name]

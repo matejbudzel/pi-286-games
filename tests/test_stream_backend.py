@@ -108,6 +108,11 @@ class StreamBackendTests(unittest.TestCase):
             packet = state.poll("one", {"input_revision": 3, "video_seq": 0, "audio_offset": 0, "held_keys": ["UP"]})
             self.assertEqual(packet, struct.pack(">4sIII", b"P2P1", 5, 5, 5) + b"videoaudio")
             self.assertEqual(state.active["one"]["held_keys"], {"UP"})
+            stats = state._poll_stats_snapshot(state.active["one"]["poll_stats"])
+            self.assertEqual(stats["requests"], 1)
+            self.assertEqual(stats["responses"], 1)
+            self.assertEqual(stats["stale"], 0)
+            self.assertEqual(stats["total_ms"]["count"], 1)
 
     def test_audio_pump_rate_is_stereo_s16le(self):
         source = MODULE.read_text()

@@ -34,7 +34,8 @@ static void audio_metrics(Metrics *metrics);
 typedef struct {
     long long started_ms, video_request_total, server_capture_total, audio_queue_total, input_rtt_total;
     unsigned long payload_bytes;
-    unsigned int video_frames, video_failures, audio_samples, audio_failures, input_events, input_failures;
+    unsigned int video_frames, video_failures, audio_samples, audio_failures, input_events, input_acks, input_failures;
+    unsigned int polls_started, polls_completed, polls_cancelled, polls_stale, polls_failed;
     int video_request_min, video_request_max, server_capture_min, server_capture_max;
     int audio_queue_min, audio_queue_max, input_rtt_min, input_rtt_max;
 } SessionStats;
@@ -68,14 +69,15 @@ static void write_session_stats(const char *session, const SessionStats *stats, 
     mkdir(directory, 0700);
     snprintf(last, sizeof(last), "%s/last-session-stats.txt", directory);
     if ((file = fopen(last, "w"))) {
-        fprintf(file, "session=%s\nduration_ms=%lld\nvideo_frames=%u\nvideo_fps_x10=%lld\nvideo_request_ms_avg=%lld\nvideo_request_ms_min=%d\nvideo_request_ms_max=%d\nserver_capture_ms_avg=%lld\nserver_capture_ms_min=%d\nserver_capture_ms_max=%d\nvideo_failures=%u\naudio_queue_ms_avg=%lld\naudio_queue_ms_min=%d\naudio_queue_ms_max=%d\naudio_underruns=%d\naudio_failures=%u\ninput_events=%u\ninput_rtt_ms_avg=%lld\ninput_rtt_ms_min=%d\ninput_rtt_ms_max=%d\ninput_failures=%u\npayload_bytes=%lu\npayload_kbytes_per_second=%lld\n",
-                session, duration, stats->video_frames, duration ? stats->video_frames * 10000 / duration : 0,
+        fprintf(file, "session=%s\nduration_ms=%lld\npolls_started=%u\npolls_completed=%u\npolls_cancelled=%u\npolls_stale=%u\npolls_failed=%u\nvideo_frames=%u\nvideo_fps_x10=%lld\nvideo_request_ms_avg=%lld\nvideo_request_ms_min=%d\nvideo_request_ms_max=%d\nserver_capture_ms_avg=%lld\nserver_capture_ms_min=%d\nserver_capture_ms_max=%d\nvideo_failures=%u\naudio_queue_ms_avg=%lld\naudio_queue_ms_min=%d\naudio_queue_ms_max=%d\naudio_underruns=%d\naudio_failures=%u\ninput_events=%u\ninput_acks=%u\ninput_rtt_ms_avg=%lld\ninput_rtt_ms_min=%d\ninput_rtt_ms_max=%d\ninput_failures=%u\npayload_bytes=%lu\npayload_kbytes_per_second=%lld\n",
+                session, duration, stats->polls_started, stats->polls_completed, stats->polls_cancelled, stats->polls_stale, stats->polls_failed,
+                stats->video_frames, duration ? stats->video_frames * 10000 / duration : 0,
                 stats->video_frames ? stats->video_request_total / stats->video_frames : 0, stats->video_frames ? stats->video_request_min : 0, stats->video_request_max,
                 stats->video_frames ? stats->server_capture_total / stats->video_frames : 0, stats->video_frames ? stats->server_capture_min : 0, stats->server_capture_max,
                 stats->video_failures, stats->audio_samples ? stats->audio_queue_total / stats->audio_samples : 0,
                 stats->audio_samples ? stats->audio_queue_min : 0, stats->audio_queue_max, metrics->audio_underruns, stats->audio_failures,
-                stats->input_events, stats->input_events ? stats->input_rtt_total / stats->input_events : 0,
-                stats->input_events ? stats->input_rtt_min : 0, stats->input_rtt_max, stats->input_failures, stats->payload_bytes,
+                stats->input_events, stats->input_acks, stats->input_acks ? stats->input_rtt_total / stats->input_acks : 0,
+                stats->input_acks ? stats->input_rtt_min : 0, stats->input_rtt_max, stats->input_failures, stats->payload_bytes,
                 duration ? stats->payload_bytes * 1000 / duration / 1024 : 0);
         fclose(file);
     }
@@ -209,7 +211,9 @@ static int request(const char *host, const char *port, const char *token, const 
         if (!used) {
             split = NULL;
             for (int i = 0; i + 3 < n; i++) if (!memcmp(incoming + i, "\r\n\r\n", 4)) { split = incoming + i + 4; break; }
-            if (!split || memcmp(incoming, "HTTP/1.0 200", 12) && memcmp(incoming, "HTTP/1.1 200", 12)) { close(fd); return -1; }
+            if (!split) { close(fd); return -1; }
+            if (!memcmp(incoming, "HTTP/1.0 204", 12) || !memcmp(incoming, "HTTP/1.1 204", 12)) { close(fd); return -3; }
+            if (memcmp(incoming, "HTTP/1.0 200", 12) && memcmp(incoming, "HTTP/1.1 200", 12)) { close(fd); return -1; }
             char *length_text = strstr(incoming, "Content-Length:");
             if (!length_text || sscanf(length_text, "Content-Length: %d", &length) != 1 || length < 0 || (size_t)length > cap) { close(fd); return -1; }
             if (next_offset) { char *next = strstr(incoming, "X-Pi286-Audio-Next-Offset:"); if (next) sscanf(next, "X-Pi286-Audio-Next-Offset: %d", next_offset); }
@@ -407,9 +411,11 @@ int main(int argc, char **argv) {
         if (poll_body(body, sizeof(body), &held, video_seq, audio_offset) < 0) { fprintf(stderr, "presenter: poll body too large\n"); break; }
         poll_revision = held.revision;
         request_started = now_ms();
+        stats.polls_started++;
         n = request(host, port, token, "POST", path, body, packet, sizeof(packet), NULL, NULL, poll_revision);
         metrics.video_last_ms = (int)(now_ms() - request_started);
         if (n > 0 && apply_poll_packet(frame, packet, (size_t)n, &metrics.video_capture_ms, &video_seq, &audio_data, &audio_length, &next_offset)) {
+            stats.polls_completed++;
             network_bytes += (size_t)n; video_count++; stats.video_frames++; stats.payload_bytes += (unsigned long)n;
             range_add(metrics.video_last_ms, &stats.video_request_min, &stats.video_request_max, &stats.video_request_total);
             if (metrics.video_capture_ms >= 0) range_add(metrics.video_capture_ms, &stats.server_capture_min, &stats.server_capture_max, &stats.server_capture_total);
@@ -418,8 +424,16 @@ int main(int argc, char **argv) {
             audio_metrics(&metrics);
             render(screen, canvas, frame, overlay, &metrics, diagnostic);
             if (audio_length > 0 && next_offset >= audio_offset) { audio_put(audio_data, (size_t)audio_length); audio_offset = next_offset; }
-            if (poll_revision > input_acked) { metrics.input_last_ms = metrics.video_last_ms; input_acked = poll_revision; range_add(metrics.input_last_ms, &stats.input_rtt_min, &stats.input_rtt_max, &stats.input_rtt_total); }
-        } else { video_seq = 0; metrics.video_fail++; stats.video_failures++; metrics.audio_fail++; stats.audio_failures++; }
+            if (poll_revision > input_acked) { metrics.input_last_ms = metrics.video_last_ms; input_acked = poll_revision; stats.input_acks++; range_add(metrics.input_last_ms, &stats.input_rtt_min, &stats.input_rtt_max, &stats.input_rtt_total); }
+        } else if (n == -2) {
+            /* Input changed while this request was in flight: its response is deliberately irrelevant. */
+            stats.polls_cancelled++;
+        } else if (n == -3) {
+            /* The backend noticed a newer request and intentionally sent no media. */
+            stats.polls_stale++;
+        } else {
+            video_seq = 0; metrics.video_fail++; stats.video_failures++; metrics.audio_fail++; stats.audio_failures++; stats.polls_failed++;
+        }
         audio_metrics(&metrics);
         stats.audio_samples++;
         range_add(metrics.audio_queued_ms, &stats.audio_queue_min, &stats.audio_queue_max, &stats.audio_queue_total);
