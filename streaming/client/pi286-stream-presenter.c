@@ -86,40 +86,44 @@ static void parse_pad_map(char *map, const char **keys) {
     while (index < 9) { char *comma = strchr(part, ','); if (comma) *comma = 0; keys[index++] = *part ? part : NULL; if (!comma) break; part = comma + 1; }
 }
 
-static void render(SDL_Surface *screen, const unsigned char *frame) {
-    int x, y, logical_pitch = screen->w * screen->format->BytesPerPixel;
-    SDL_LockSurface(screen);
-    /* The appliance SDL fbcon pillarbox backend owns a 640x480 RGB565 shadow
-       surface before copying it into the 1280x720 physical framebuffer. Some
-       older fbcon builds expose the physical line length in screen->pitch;
-       write the logical rows expected by that copy path. */
-    memset(screen->pixels, 0, logical_pitch * screen->h);
+static SDL_Surface *create_canvas(SDL_Surface *screen) {
+    return SDL_CreateRGBSurface(SDL_SWSURFACE, screen->w, screen->h, 16,
+                                screen->format->Rmask, screen->format->Gmask,
+                                screen->format->Bmask, 0);
+}
+
+static void render(SDL_Surface *screen, SDL_Surface *canvas, const unsigned char *frame) {
+    int x, y;
+    SDL_LockSurface(canvas);
+    memset(canvas->pixels, 0, canvas->pitch * canvas->h);
     for (y = 0; y < H; y++) for (x = 0; x < W; x++) {
         unsigned short pixel = frame[(y * W + x) * 2] | (frame[(y * W + x) * 2 + 1] << 8);
-        unsigned short *row0 = (unsigned short *)((unsigned char *)screen->pixels + (y * 2 + 40) * logical_pitch);
-        unsigned short *row1 = (unsigned short *)((unsigned char *)screen->pixels + (y * 2 + 41) * logical_pitch);
+        unsigned short *row0 = (unsigned short *)((unsigned char *)canvas->pixels + (y * 2 + 40) * canvas->pitch);
+        unsigned short *row1 = (unsigned short *)((unsigned char *)canvas->pixels + (y * 2 + 41) * canvas->pitch);
         row0[x * 2] = row0[x * 2 + 1] = row1[x * 2] = row1[x * 2 + 1] = pixel;
     }
-    SDL_UnlockSurface(screen); SDL_Flip(screen);
+    SDL_UnlockSurface(canvas);
+    SDL_BlitSurface(canvas, NULL, screen, NULL); SDL_Flip(screen);
 }
 
 static int local_pattern(void) {
     static unsigned char frame[FRAME];
     static const unsigned short colors[] = { 0xf800, 0x07e0, 0x001f, 0xffff, 0xffe0, 0xf81f };
-    SDL_Surface *screen; SDL_Event event; int x, y;
+    SDL_Surface *screen, *canvas; SDL_Event event; int x, y;
     if (SDL_Init(SDL_INIT_VIDEO) < 0) { fprintf(stderr, "SDL_Init failed: %s\n", SDL_GetError()); return 1; }
     if (!(screen = SDL_SetVideoMode(640, 480, 16, SDL_FULLSCREEN))) { fprintf(stderr, "SDL_SetVideoMode failed: %s\n", SDL_GetError()); SDL_Quit(); return 1; }
+    if (!(canvas = create_canvas(screen))) { fprintf(stderr, "SDL_CreateRGBSurface failed: %s\n", SDL_GetError()); SDL_Quit(); return 1; }
     for (y = 0; y < H; y++) for (x = 0; x < W; x++) {
         unsigned short color = colors[((x / 40) + (y / 25)) % (sizeof(colors) / sizeof(colors[0]))];
         size_t offset = (size_t)(y * W + x) * 2;
         frame[offset] = color & 0xff; frame[offset + 1] = color >> 8;
     }
-    render(screen, frame);
+    render(screen, canvas, frame);
     fprintf(stderr, "presenter: local RGB565 pattern ready; press F1 or ESC\n"); fflush(stderr);
     for (;;) {
         while (SDL_PollEvent(&event)) if (event.type == SDL_QUIT ||
             (event.type == SDL_KEYDOWN && (event.key.keysym.sym == SDLK_F1 || event.key.keysym.sym == SDLK_ESCAPE))) {
-            SDL_Quit(); return 0;
+            SDL_FreeSurface(canvas); SDL_Quit(); return 0;
         }
         SDL_Delay(20);
     }
@@ -127,7 +131,7 @@ static int local_pattern(void) {
 
 int main(int argc, char **argv) {
     const char *host, *port, *token_path, *session, *pad_keys[9] = {0}; FILE *file; char token[256], path[256], body[128], pad_map[256]; SDL_Joystick *joystick = NULL;
-    unsigned char frame[FRAME], pcm[65536]; SDL_Surface *screen; SDL_Event event; SDL_AudioSpec audio; int audio_offset = 0, next_offset, n;
+    unsigned char frame[FRAME], pcm[65536]; SDL_Surface *screen, *canvas; SDL_Event event; SDL_AudioSpec audio; int audio_offset = 0, next_offset, n;
     fprintf(stderr, "presenter: starting\n"); fflush(stderr);
     if (argc == 2 && !strcmp(argv[1], "--local-pattern")) return local_pattern();
     if (argc != 6) { fprintf(stderr, "usage: %s HOST PORT TOKEN_FILE SESSION PAD_MAP\n", argv[0]); return 2; }
@@ -139,6 +143,7 @@ int main(int argc, char **argv) {
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_JOYSTICK) < 0) { fprintf(stderr, "SDL_Init failed: %s\n", SDL_GetError()); return 1; }
     fprintf(stderr, "presenter: SDL initialized; opening framebuffer\n"); fflush(stderr);
     if (!(screen = SDL_SetVideoMode(640, 480, 16, SDL_FULLSCREEN))) { fprintf(stderr, "SDL_SetVideoMode failed: %s\n", SDL_GetError()); SDL_Quit(); return 1; }
+    if (!(canvas = create_canvas(screen))) { fprintf(stderr, "SDL_CreateRGBSurface failed: %s\n", SDL_GetError()); SDL_Quit(); return 1; }
     fprintf(stderr, "presenter: surface %dx%d pitch=%d logical-pitch=%d bpp=%d bytes=%d masks=%08x/%08x/%08x\n",
             screen->w, screen->h, screen->pitch,
             screen->w * screen->format->BytesPerPixel, screen->format->BitsPerPixel,
@@ -151,16 +156,16 @@ int main(int argc, char **argv) {
     SDL_PauseAudio(0);
     for (;;) {
         snprintf(path, sizeof(path), "/v1/sessions/%s/video", session);
-        if (request(host, port, token, "GET", path, NULL, frame, sizeof(frame), NULL) == FRAME) render(screen, frame);
+        if (request(host, port, token, "GET", path, NULL, frame, sizeof(frame), NULL) == FRAME) render(screen, canvas, frame);
         snprintf(path, sizeof(path), "/v1/sessions/%s/audio?offset=%d", session, audio_offset);
         n = request(host, port, token, "GET", path, NULL, pcm, sizeof(pcm), &next_offset);
         if (n > 0 && next_offset >= audio_offset) { audio_put(pcm, n); audio_offset = next_offset; }
         while (SDL_PollEvent(&event)) {
             const char *key = NULL; int pressed = 0;
-            if (event.type == SDL_QUIT || (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_F1)) { SDL_Quit(); return 0; }
+            if (event.type == SDL_QUIT || (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_F1)) { SDL_FreeSurface(canvas); SDL_Quit(); return 0; }
             if ((event.type == SDL_KEYDOWN || event.type == SDL_KEYUP) && (key = dos_key(event.key.keysym.sym))) pressed = event.type == SDL_KEYDOWN;
             if ((event.type == SDL_JOYBUTTONDOWN || event.type == SDL_JOYBUTTONUP) && event.jbutton.button < 9) { key = pad_keys[event.jbutton.button]; pressed = event.type == SDL_JOYBUTTONDOWN; }
-            if ((event.type == SDL_JOYBUTTONDOWN && event.jbutton.button == 9)) { if (joystick) SDL_JoystickClose(joystick); SDL_Quit(); return 0; }
+            if ((event.type == SDL_JOYBUTTONDOWN && event.jbutton.button == 9)) { if (joystick) SDL_JoystickClose(joystick); SDL_FreeSurface(canvas); SDL_Quit(); return 0; }
             if (key) {
                 snprintf(path, sizeof(path), "/v1/sessions/%s/input", session);
                 snprintf(body, sizeof(body), "{\"events\":[{\"key\":\"%s\",\"pressed\":%s}]}", key, pressed ? "true" : "false");
