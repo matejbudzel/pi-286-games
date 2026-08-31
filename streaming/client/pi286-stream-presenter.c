@@ -351,11 +351,21 @@ static int pump_events(void) {
     SDL_Event event; int changed = 0;
     while (SDL_PollEvent(&event)) {
         const char *key = NULL; int pressed = 0; unsigned int before = event_state.held->revision;
-        if (event.type == SDL_QUIT || (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_F1)) { *event_state.quit = 1; return 1; }
+        if (event.type == SDL_QUIT) {
+            fprintf(stderr, "presenter: SDL requested quit\n"); fflush(stderr);
+            *event_state.quit = 1; return 1;
+        }
+        if (event.type == SDL_KEYDOWN && event.key.keysym.sym == SDLK_F1) {
+            fprintf(stderr, "presenter: F1 requested quit\n"); fflush(stderr);
+            *event_state.quit = 1; return 1;
+        }
         if ((event.type == SDL_KEYDOWN || event.type == SDL_KEYUP) && event.key.keysym.sym == SDLK_F8) { if (event.type == SDL_KEYDOWN) *event_state.overlay = !*event_state.overlay; continue; }
         if ((event.type == SDL_KEYDOWN || event.type == SDL_KEYUP) && (key = dos_key(event.key.keysym.sym))) pressed = event.type == SDL_KEYDOWN;
         if ((event.type == SDL_JOYBUTTONDOWN || event.type == SDL_JOYBUTTONUP) && event.jbutton.button < 9) { key = event_state.pad_keys[event.jbutton.button]; pressed = event.type == SDL_JOYBUTTONDOWN; }
-        if (event.type == SDL_JOYBUTTONDOWN && event.jbutton.button == 9) { *event_state.quit = 1; return 1; }
+        if (event.type == SDL_JOYBUTTONDOWN && event.jbutton.button == 9) {
+            fprintf(stderr, "presenter: dance-pad SELECT requested quit\n"); fflush(stderr);
+            *event_state.quit = 1; return 1;
+        }
         if (key) { held_update(event_state.held, key, pressed); if (event_state.held->revision != before) { event_state.stats->input_events++; changed = 1; } }
     }
     return changed;
@@ -542,7 +552,7 @@ int main(int argc, char **argv) {
                     if (poll_body(body, sizeof(body), &held, video_seq, audio_offset) < 0 || !websocket_send_text(fd, body)) { fprintf(stderr, "presenter: websocket acknowledgement failed (%d)\n", errno); metrics.input_fail++; stats.input_failures++; close(fd); fd = -1; }
                     else sent_revision = (int)held.revision;
                 } else if (n < 0) { fprintf(stderr, "presenter: invalid websocket frame\n"); metrics.video_fail++; stats.video_failures++; metrics.audio_fail++; stats.audio_failures++; stats.polls_failed++; close(fd); fd = -1; }
-                else { close(fd); fd = -1; }
+                else { fprintf(stderr, "presenter: server sent websocket close frame\n"); close(fd); fd = -1; }
             }
             if (pump_events()) { /* Send latest held state below without waiting for media. */ }
             if (fd >= 0 && !quit && (int)held.revision != sent_revision) {

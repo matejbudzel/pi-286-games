@@ -1030,6 +1030,7 @@ def make_handler(state: StreamState):
                     if readable:
                         opcode, payload = websocket_wire.read_frame(self.rfile, True)
                         if opcode == 8:
+                            print("pi286 stream websocket session %s closed by client" % session_id, flush=True)
                             self.connection.sendall(websocket_wire.pack_frame(b"", 8))
                             return
                         if opcode == 9:
@@ -1049,9 +1050,11 @@ def make_handler(state: StreamState):
                     next_media = time.monotonic() + 1 / 30
                     if body is not None:
                         self.connection.sendall(websocket_wire.pack_frame(body))
-            except (EOFError, BrokenPipeError, ConnectionResetError):
+            except (EOFError, BrokenPipeError, ConnectionResetError) as error:
+                print("pi286 stream websocket session %s disconnected: %s" % (session_id, type(error).__name__), flush=True)
                 return
             except (ValueError, json.JSONDecodeError, KeyError, RuntimeError) as error:
+                print("pi286 stream websocket session %s failed: %s" % (session_id, error), flush=True)
                 self.connection.sendall(websocket_wire.pack_frame(json.dumps({"error": str(error)}).encode(), 8))
             finally:
                 # A WebSocket owns its media session. Closing a tab normally
