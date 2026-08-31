@@ -11,4 +11,5 @@ class StreamPresenterSourceTests(unittest.TestCase):
         self.assertIn("O_NONBLOCK", source)
         self.assertIn("SDL_INIT_EVENTTHREAD", source)
         self.assertIn("Media acknowledgements carry", source)
+        self.assertIn("'A' + key - SDLK_a", source)
         self.assertIn("[poll|websocket]", source)

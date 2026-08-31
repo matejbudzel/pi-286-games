@@ -350,7 +350,9 @@ static const char *dos_key(SDLKey key) {
     case SDLK_KP_MINUS: return "KP_MINUS"; case SDLK_KP_PLUS: return "KP_PLUS"; case SDLK_KP_ENTER: return "KP_ENTER"; case SDLK_KP_EQUALS: return "KP_EQUALS";
     default: break;
     }
-    if ((key >= SDLK_a && key <= SDLK_z) || (key >= SDLK_0 && key <= SDLK_9)) { letter[0] = (char)key; letter[1] = 0; return letter; }
+    if (key >= SDLK_a && key <= SDLK_z) { letter[0] = (char)('A' + key - SDLK_a); letter[1] = 0; return letter; }
+    if (key >= SDLK_0 && key <= SDLK_9) { letter[0] = (char)key; letter[1] = 0; return letter; }
+    return NULL;
 }
 
 static int pump_events(void) {
