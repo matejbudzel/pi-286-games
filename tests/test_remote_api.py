@@ -41,6 +41,19 @@ class RemoteApiTests(unittest.TestCase):
         self.assertEqual(files, {"GP/GAME.EXE": digest})
         self.assertEqual(blobs[0]["size"], len(payload))
 
+    def test_executable_is_resolved_from_a_single_archive_wrapper_directory(self):
+        files = {"GRANDPRIX/GPEGA.EXE": "a" * 64, "GRANDPRIX/README.TXT": "b" * 64}
+        self.assertEqual(RemoteBackend.executable_in_manifest("GPEGA.EXE", files), "GRANDPRIX/GPEGA.EXE")
+
+    def test_executable_resolution_keeps_an_explicit_relative_path(self):
+        files = {"GP/GPEGA.EXE": "a" * 64}
+        self.assertEqual(RemoteBackend.executable_in_manifest("GP\\GPEGA.EXE", files), "GP/GPEGA.EXE")
+
+    def test_executable_resolution_rejects_ambiguous_basename(self):
+        files = {"A/GAME.EXE": "a" * 64, "B/GAME.EXE": "b" * 64}
+        with self.assertRaises(RemoteProtocolError):
+            RemoteBackend.executable_in_manifest("GAME.EXE", files)
+
     def test_empty_directory_is_not_a_valid_remote_game(self):
         with tempfile.TemporaryDirectory() as temporary:
             with self.assertRaises(RemoteProtocolError):

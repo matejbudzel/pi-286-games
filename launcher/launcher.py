@@ -545,7 +545,7 @@ def run_remote_game(game, config, term, data, ddr_keys):
         install_screen(term, game, "Pripravujem vzdialenú hru", "Nahrávam herné dáta " + name, percent)
     install_screen(term, game, "Pripravujem vzdialenú hru", "Kontrolujem herné dáta...", 0)
     files, _ = backend.sync_directory(data, progress)
-    executable = shlex.split(game.command)[0].replace("/", "\\")
+    executable = backend.executable_in_manifest(shlex.split(game.command)[0], files)
     session = backend.start_session(re.sub(r"[^a-z0-9_-]", "-", game.data_dir.lower()), executable, files,
                                     video_scaling(config))
     try:

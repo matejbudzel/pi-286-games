@@ -90,6 +90,30 @@ class RemoteBackend:
             progress(total, total, "")
         return files, {"total": total, "transferred": transferred, "files": len(files)}
 
+    @staticmethod
+    def executable_in_manifest(command: str, files: dict[str, str]) -> str:
+        """Return the manifest path corresponding to a DOS launch command.
+
+        Game archives sometimes contain a single top-level directory. Local
+        DOSBox happens to find a bare executable name in that layout, whereas
+        the remote session manifest must name the file exactly. Prefer the
+        requested relative path, then an unambiguous basename match.
+        """
+        executable = command.replace("\\", "/")
+        if executable in files:
+            return executable
+        folded = executable.casefold()
+        exact_casefold = [path for path in files if path.casefold() == folded]
+        if len(exact_casefold) == 1:
+            return exact_casefold[0]
+        basename = executable.rsplit("/", 1)[-1].casefold()
+        basename_matches = [path for path in files if path.rsplit("/", 1)[-1].casefold() == basename]
+        if len(basename_matches) == 1:
+            return basename_matches[0]
+        if not basename_matches:
+            raise RemoteProtocolError("spúšťací súbor %s nie je medzi hernými dátami" % executable)
+        raise RemoteProtocolError("spúšťací súbor %s nie je jednoznačný v herných dátach" % executable)
+
     def start_session(self, game_id: str, executable: str, files: dict[str, str], video_scaling: str = "nearest"):
         return self.json("POST", "/v1/sessions", {"game_id": game_id, "executable": executable,
                                                       "files": files, "video_scaling": video_scaling})

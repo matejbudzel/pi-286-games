@@ -52,7 +52,7 @@ class WebRuntime:
                 raise ValueError("unknown game")
             data = Path(self.config["game_data_root"]).expanduser() / game.data_dir
             files, _summary = self.backend.sync_directory(data)
-            executable = shlex.split(game.command)[0].replace("/", "\\")
+            executable = self.backend.executable_in_manifest(shlex.split(game.command)[0], files)
             remote = self.backend.start_session(re.sub(r"[^a-z0-9_-]", "-", game.data_dir.lower()), executable,
                                                 files, scaling)
         local_id = secrets.token_urlsafe(12)
