@@ -46,7 +46,8 @@ class StreamBackendTests(unittest.TestCase):
         self.assertIn("blocksize=2048", config)
         self.assertIn("prebuffer=100", config)
         self.assertIn("mount c .", config)
-        self.assertIn("GP\\GP.EXE", config)
+        self.assertIn("cd \\GP", config)
+        self.assertIn("\nGP.EXE\nexit", config)
 
     def test_xvfb_uses_a_visual_accepted_by_debian_dosbox(self):
         source = MODULE.read_text()

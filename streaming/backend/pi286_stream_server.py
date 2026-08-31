@@ -268,8 +268,13 @@ class StreamState:
 
     @staticmethod
     def _dosbox_config(executable: PurePosixPath, audio_rate: int) -> str:
-        command = "\\".join(executable.parts)
-        return """[sdl]\nfullscreen=false\noutput=surface\nusescancodes=false\n\n[dosbox]\nmachine=ega\nmemsize=8\n\n[cpu]\ncore=normal\ncycles=fixed 3000\n\n[mixer]\nnosound=false\nrate=%d\nblocksize=2048\nprebuffer=100\n\n[speaker]\npcspeaker=true\npcrate=%d\ntandy=off\ndisney=false\n\n[sblaster]\nsbtype=none\n\n[midi]\nmpu401=none\nmididevice=none\n\n[autoexec]\n@echo off\nmount c .\nc:\n%s\nexit\n""" % (audio_rate, audio_rate, command)
+        # Archives commonly wrap a game in one directory. DOS programs often
+        # load data relative to the current DOS directory, so entering that
+        # directory is required before launching the executable.
+        directory = "\\".join(executable.parent.parts)
+        change_directory = "cd \\%s\n" % directory if directory else ""
+        command = executable.name
+        return """[sdl]\nfullscreen=false\noutput=surface\nusescancodes=false\n\n[dosbox]\nmachine=ega\nmemsize=8\n\n[cpu]\ncore=normal\ncycles=fixed 3000\n\n[mixer]\nnosound=false\nrate=%d\nblocksize=2048\nprebuffer=100\n\n[speaker]\npcspeaker=true\npcrate=%d\ntandy=off\ndisney=false\n\n[sblaster]\nsbtype=none\n\n[midi]\nmpu401=none\nmididevice=none\n\n[autoexec]\n@echo off\nmount c .\nc:\n%s%s\nexit\n""" % (audio_rate, audio_rate, change_directory, command)
 
     @staticmethod
     def _alsa_capture_config(audio_path: Path) -> str:
@@ -865,6 +870,12 @@ def make_handler(state: StreamState):
             except (BrokenPipeError, ConnectionResetError):
                 # A newer Pi poll intentionally closes the older connection.
                 return
+            except KeyError:
+                self._json(HTTPStatus.NOT_FOUND, {"error": "unknown or exited session"})
+            except RuntimeError as error:
+                self._json(HTTPStatus.CONFLICT, {"error": str(error)})
+            except ValueError as error:
+                self._json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
 
         def _request_json(self):
             try:
