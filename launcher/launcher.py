@@ -25,6 +25,25 @@ HDMI_PCM = "plughw:0,0"
 AUDIO_VOLUME_KEY = "audio_volume_percent"
 RAINBOW_CAT_LABEL = "Dúhová mačka"
 VIDEO_SCALING_MODES = ("nearest", "linear-v", "crt-lite")
+LAUNCHER_SPLASH_SECONDS = 4.0
+SPLASH_ART = (
+    "██╗  ██╗ ██████╗  ██████╗██╗  ██╗ ██████╗ ██╗   ██╗ █████╗ ███╗   ██╗███████╗",
+    "██║ ██╔╝██╔═══██╗██╔════╝██║ ██╔╝██╔═══██╗██║   ██║██╔══██╗████╗  ██║██╔════╝",
+    "█████╔╝ ██║   ██║██║     █████╔╝ ██║   ██║██║   ██║███████║██╔██╗ ██║█████╗  ",
+    "██╔═██╗ ██║   ██║██║     ██╔═██╗ ██║   ██║╚██╗ ██╔╝██╔══██║██║╚██╗██║██╔══╝  ",
+    "██║  ██╗╚██████╔╝╚██████╗██║  ██╗╚██████╔╝ ╚████╔╝ ██║  ██║██║ ╚████║███████╗",
+    "╚═╝  ╚═╝ ╚═════╝  ╚═════╝╚═╝  ╚═╝ ╚═════╝   ╚═══╝  ╚═╝  ╚═╝╚═╝  ╚═══╝╚══════╝",
+    "",
+    "██╗  ██╗██████╗ ██╗   ██╗",
+    "██║  ██║██╔══██╗╚██╗ ██╔╝",
+    "███████║██████╔╝ ╚████╔╝ ",
+    "██╔══██║██╔══██╗  ╚██╔╝  ",
+    "██║  ██║██║  ██║   ██║   ",
+    "╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝   ",
+    "",
+    "KOCKOVANÉ HRY",
+)
+SPLASH_COLORS = ("\x1b[91m", "\x1b[93m", "\x1b[92m", "\x1b[96m", "\x1b[94m", "\x1b[95m")
 PAD_ACTIONS = {2: "UP", 1: "DOWN", 0: "LEFT", 3: "RIGHT", 8: "START", 9: "SELECT"}
 PAD_LAYOUT = ((6, "HORE-L"), (2, "HORE"), (7, "HORE-P"), (0, "VĽAVO"), (3, "VPRAVO"), (4, "DOLE-L"), (1, "DOLE"), (5, "DOLE-P"))
 DOSBOX_KEY_ACTIONS = {"UP": "key_up", "DOWN": "key_down", "LEFT": "key_left", "RIGHT": "key_right", "SPACE": "key_space", "ENTER": "key_enter", "ESC": "key_esc", "LSHIFT": "key_lshift", "LCTRL": "key_lctrl"}
@@ -224,6 +243,27 @@ class Terminal:
         if top_corner:
             out.append("\x1b[1;%dH\x1b[90m%s\x1b[0m" % (max(1, size.columns - len(top_corner) + 1), top_corner[:size.columns]))
         sys.stdout.write("".join(out)); sys.stdout.flush()
+    @staticmethod
+    def splash_lines(columns):
+        """Use the full block logo only when it cannot wrap on this console."""
+        return SPLASH_ART if columns >= max(len(line) for line in SPLASH_ART) else ("KOCKOVANÉ HRY",)
+    @staticmethod
+    def rainbow(text, columns):
+        left = " " * max(0, (columns - len(text)) // 2)
+        if not text: return "\r\n"
+        return left + "".join(SPLASH_COLORS[(index * len(SPLASH_COLORS)) // max(1, len(text))] + character
+                               for index, character in enumerate(text)) + "\x1b[0m\r\n"
+    def splash(self, seconds=LAUNCHER_SPLASH_SECONDS):
+        try: size = os.get_terminal_size(sys.stdout.fileno())
+        except OSError: size = shutil.get_terminal_size((80, 24))
+        lines = self.splash_lines(size.columns)
+        out = ["\x1b[2J\x1b[H", "\r\n" * max(0, (size.lines - len(lines)) // 2)]
+        out.extend(self.rainbow(line, size.columns) for line in lines)
+        sys.stdout.write("".join(out)); sys.stdout.flush()
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            # Discard accidental boot-time input instead of selecting a game.
+            self.key(min(.1, deadline - time.monotonic()))
 
 def sound_status(percent=None):
     """Return the appliance audio state without treating it as a video failure."""
@@ -606,6 +646,7 @@ def main():
     diagnostic_index = len(games); bye_index = diagnostic_index + 1
     volume = volume_percent(config.get(AUDIO_VOLUME_KEY, "96")); set_audio_volume(volume)
     with Terminal() as term, DancePad() as pad:
+        term.splash()
         while True:
             if redraw:
                 lines = [(g.name, n == selected) for n, g in enumerate(games)] + [("", False), (RAINBOW_CAT_LABEL, selected == diagnostic_index), ("", False), ("Bye bye!", selected == bye_index)]

@@ -24,6 +24,11 @@ class DiscoveryTests(unittest.TestCase):
         self.assertLessEqual(len(launcher.Terminal.line("A very long title", True, 5)), 5)
         self.assertLessEqual(len(launcher.Terminal.line("A very long title", False, 1)), 1)
 
+    def test_splash_uses_block_logo_only_when_it_fits_and_keeps_diacritics(self):
+        self.assertEqual(launcher.Terminal.splash_lines(200), launcher.SPLASH_ART)
+        self.assertEqual(launcher.Terminal.splash_lines(60), ("KOCKOVANÉ HRY",))
+        self.assertIn("KOCKOVANÉ HRY", launcher.SPLASH_ART)
+
     def test_game_running_screen_names_game_and_panic_key(self):
         captured = []
         original = launcher.Terminal.draw
