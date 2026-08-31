@@ -39,6 +39,9 @@ class StreamBackendTests(unittest.TestCase):
         self.assertIn("core=normal", config)
         self.assertIn("cycles=fixed 3000", config)
         self.assertIn("pcspeaker=true", config)
+        self.assertIn("windowresolution=320x240", config)
+        self.assertIn("aspect=true", config)
+        self.assertIn("scaler=none", config)
         self.assertIn("tandy=off", config)
         self.assertIn("disney=false", config)
         self.assertIn("mpu401=none", config)
@@ -51,7 +54,7 @@ class StreamBackendTests(unittest.TestCase):
 
     def test_xvfb_uses_a_visual_accepted_by_debian_dosbox(self):
         source = MODULE.read_text()
-        self.assertIn('"640x480x24"', source)
+        self.assertIn('"320x240x24"', source)
         self.assertIn('"-fbdir"', source)
 
     def test_stable_xvfb_frame_requires_two_identical_copies(self):
@@ -175,6 +178,15 @@ class StreamBackendTests(unittest.TestCase):
         self.assertEqual(converted[2:4], bytes((0x1f, 0x00)))
         self.assertEqual(converted[320 * 2:320 * 2 + 2], bytes((0x00, 0xf8)))
         self.assertEqual(converted[320 * 4:320 * 4 + 2], bytes((0xe0, 0x07)))
+
+    def test_xwd_native_canvas_conversion_does_not_resample(self):
+        header = [100, 7, 2, 24, 320, 240, 0, 0, 32, 0, 8, 24, 320 * 4,
+                  4, 0x00ff0000, 0x0000ff00, 0x000000ff, 8, 256, 0, 0, 320, 240, 0, 0]
+        pixels = bytearray(320 * 240 * 4)
+        pixels[0:3] = bytes((0xff, 0x00, 0x00))      # BGR: blue
+        pixels[3:6] = bytes((0x00, 0xff, 0x00))      # BGR: green
+        converted = backend.StreamState._xwd_to_rgb565(struct.pack(">25I", *header) + pixels)
+        self.assertEqual(converted[:4], bytes((0x1f, 0x00, 0xe0, 0x07)))
 
     def test_video_scaling_is_deterministic_before_tile_encoding(self):
         header = [100, 7, 2, 24, 640, 480, 0, 0, 32, 0, 8, 24, 640 * 4,

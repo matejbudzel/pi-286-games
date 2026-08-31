@@ -220,9 +220,10 @@ class StreamState:
             display = self._next_display()
             framebuffer_directory = session_dir / self.config["xvfb_fbdir"]
             framebuffer_directory.mkdir(mode=0o700)
-            # Debian's SDL 1.2 DOSBox build does not accept Xvfb's 8-bit visual.
-            # This is server-only capture; the future Pi protocol remains 8-bit.
-            xvfb = subprocess.Popen([self.config["xvfb"], display, "-screen", "0", "640x480x24",
+            # DOSBox renders the EGA image directly into the protocol's 320x240
+            # aspect-correct canvas. The Pi/browser applies the inexpensive 2x
+            # presentation scale; do not render and then downscale 640x480 here.
+            xvfb = subprocess.Popen([self.config["xvfb"], display, "-screen", "0", "320x240x24",
                                      "-fbdir", str(framebuffer_directory), "-nolisten", "tcp"],
                                     stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
             time.sleep(0.15)
@@ -279,7 +280,7 @@ class StreamState:
         directory = "\\".join(executable.parent.parts)
         change_directory = "cd \\%s\n" % directory if directory else ""
         command = executable.name
-        return """[sdl]\nfullscreen=false\noutput=surface\nusescancodes=false\n\n[dosbox]\nmachine=ega\nmemsize=8\n\n[cpu]\ncore=normal\ncycles=fixed 3000\n\n[mixer]\nnosound=false\nrate=%d\nblocksize=2048\nprebuffer=100\n\n[speaker]\npcspeaker=true\npcrate=%d\ntandy=off\ndisney=false\n\n[sblaster]\nsbtype=none\n\n[midi]\nmpu401=none\nmididevice=none\n\n[autoexec]\n@echo off\nmount c .\nc:\n%s%s\nexit\n""" % (audio_rate, audio_rate, change_directory, command)
+        return """[sdl]\nfullscreen=false\nwindowresolution=320x240\noutput=surface\nusescancodes=false\n\n[dosbox]\nmachine=ega\nmemsize=8\n\n[cpu]\ncore=normal\ncycles=fixed 3000\n\n[render]\naspect=true\nscaler=none\n\n[mixer]\nnosound=false\nrate=%d\nblocksize=2048\nprebuffer=100\n\n[speaker]\npcspeaker=true\npcrate=%d\ntandy=off\ndisney=false\n\n[sblaster]\nsbtype=none\n\n[midi]\nmpu401=none\nmididevice=none\n\n[autoexec]\n@echo off\nmount c .\nc:\n%s%s\nexit\n""" % (audio_rate, audio_rate, change_directory, command)
 
     @staticmethod
     def _alsa_capture_config(audio_path: Path) -> str:
@@ -733,11 +734,15 @@ class StreamState:
         header = struct.unpack_from(">25I", source)
         header_size, width, height = header[0], header[4], header[5]
         byte_order, bits_per_pixel, bytes_per_line = header[7], header[11], header[12]
-        if width != 640 or height != 480 or bits_per_pixel not in (24, 32) or byte_order != 0 or bytes_per_line != 640 * 4:
+        if bits_per_pixel not in (24, 32) or byte_order != 0:
             raise ValueError("unexpected Xvfb image format")
         pixels = header_size + header[19] * 12
         if pixels + bytes_per_line * height > len(source):
             raise ValueError("truncated XWD pixels")
+        if width == VIDEO_WIDTH and height == VIDEO_HEIGHT and bytes_per_line == VIDEO_WIDTH * 4:
+            return StreamState._xwd_direct_to_rgb565(source, pixels, bytes_per_line)
+        if width != 640 or height != 480 or bytes_per_line != 640 * 4:
+            raise ValueError("unexpected Xvfb image dimensions")
         # Xvfb uses 24-bit TrueColor B,G,R pixels.  Its scanlines are padded to
         # 2560 bytes, but individual pixels still occupy three bytes (not four).
         # Crop the 640x400 DOS region centred in 640x480.  Horizontally sample
@@ -765,6 +770,22 @@ class StreamState:
                     color = ((color & 0xf800) * 7 // 8 & 0xf800) | ((color & 0x07e0) * 7 // 8 & 0x07e0) | ((color & 0x001f) * 7 // 8 & 0x001f)
                 output[destination] = color & 0xff
                 output[destination + 1] = color >> 8
+                destination += 2
+        return bytes(output)
+
+    @staticmethod
+    def _xwd_direct_to_rgb565(source: bytes, pixels: int, bytes_per_line: int) -> bytes:
+        """Convert the native 320x240 Xvfb BGR image without resampling."""
+        output = bytearray(VIDEO_BYTES)
+        destination = 0
+        red = [(value & 0xf8) << 8 for value in range(256)]
+        green = [(value & 0xfc) << 3 for value in range(256)]
+        blue = [value >> 3 for value in range(256)]
+        for y in range(VIDEO_HEIGHT):
+            row = pixels + y * bytes_per_line
+            for offset in range(row, row + VIDEO_WIDTH * 3, 3):
+                color = red[source[offset + 2]] | green[source[offset + 1]] | blue[source[offset]]
+                output[destination], output[destination + 1] = color & 0xff, color >> 8
                 destination += 2
         return bytes(output)
 
