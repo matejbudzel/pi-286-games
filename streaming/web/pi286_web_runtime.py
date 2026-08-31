@@ -46,10 +46,12 @@ class WebRuntime:
     def game_list(self) -> list[dict[str, str]]:
         return [{"id": game.data_dir, "name": game.name} for game in self.games.values()]
 
-    def start(self, game_id: str, scaling: str) -> dict[str, str]:
+    def start(self, game_id: str, scaling: str, transport: str = "poll") -> dict[str, str]:
         scaling = video_scaling({"video_scaling": scaling})
+        if transport not in ("poll", "websocket"):
+            transport = "poll"
         if game_id == "rainbow-cat":
-            remote = self.backend.start_rainbow_cat(scaling)
+            remote = self.backend.start_rainbow_cat(scaling, transport)
         else:
             game = self.games.get(game_id)
             if not game:
@@ -58,7 +60,7 @@ class WebRuntime:
             files, _summary = self.backend.sync_directory(data)
             executable = self.backend.executable_in_manifest(shlex.split(game.command)[0], files)
             remote = self.backend.start_session(re.sub(r"[^a-z0-9_-]", "-", game.data_dir.lower()), executable,
-                                                files, scaling)
+                                                files, scaling, transport)
         local_id = secrets.token_urlsafe(12)
         self.sessions[local_id] = remote["id"]
         return {"id": local_id, "name": "Dúhová mačka" if game_id == "rainbow-cat" else self.games[game_id].name,
@@ -177,7 +179,8 @@ def make_handler(runtime: WebRuntime):
                     game_id = payload.get("game_id")
                     if not isinstance(game_id, str):
                         raise ValueError("game_id required")
-                    self.send_json(HTTPStatus.CREATED, runtime.start(game_id, str(payload.get("video_scaling", "nearest"))))
+                    self.send_json(HTTPStatus.CREATED, runtime.start(game_id, str(payload.get("video_scaling", "nearest")),
+                                                                       str(payload.get("transport", "poll"))))
                     return
                 prefix = "/api/sessions/"
                 if path.startswith(prefix) and path.endswith("/poll"):

@@ -106,6 +106,16 @@ The initial HTTP API is deliberately limited:
   private game data.
 - `GET`/`DELETE /v1/sessions/<id>` inspect or terminate that instance.
 
+Each session declares either `poll` or `websocket` at creation, so experiments
+cannot accidentally mix the two media transports. WebSocket carries both media
+and complete held-key snapshots on one connection: input is consumed eagerly,
+while media generation is capped at 30 Hz. This avoids a second input protocol
+and keeps key ordering reliable. A WebSocket session is stopped as soon as its
+connection closes. HTTP-poll sessions have an eight-second activity watchdog
+(`session_idle_seconds`); a tab/client which disappears without DELETE therefore
+cannot leave DOSBox running indefinitely. There is intentionally no automatic
+session reconnection: reconnecting starts a fresh game session.
+
 ## Pi development overlay
 
 While a remote game is running, `F8` toggles a small local presenter overlay.

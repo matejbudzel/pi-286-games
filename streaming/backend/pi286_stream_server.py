@@ -52,6 +52,9 @@ DEFAULTS = {
     "audio_playback_device": "plughw:Loopback,0,0",
     "audio_capture_device": "hw:Loopback,1,0",
     "audio_rate": "22050",
+    # A lost browser/Pi must not leave its headless DOSBox process alive.
+    # WebSockets additionally stop immediately when their TCP connection closes.
+    "session_idle_seconds": "8",
     "max_upload_bytes": str(128 * 1024 * 1024),
 }
 
@@ -122,6 +125,9 @@ class StreamState:
             directory.mkdir(parents=True, exist_ok=True)
         self.max_upload_bytes = int(config["max_upload_bytes"])
         self.audio_rate = int(config["audio_rate"])
+        self.session_idle_seconds = float(config["session_idle_seconds"])
+        if self.session_idle_seconds <= 0:
+            raise ValueError("session_idle_seconds must be positive")
         self.lock = threading.RLock()
         # Input requests may arrive concurrently, but only one request may
         # spend CPU assembling media. Older waiters cheaply discard themselves
@@ -178,8 +184,11 @@ class StreamState:
         executable = request.get("executable")
         files = request.get("files")
         video_scaling = request.get("video_scaling", "nearest")
+        transport = request.get("transport", "poll")
         if video_scaling not in VIDEO_SCALING_MODES:
             video_scaling = "nearest"
+        if transport not in ("poll", "websocket"):
+            raise ValueError("transport must be poll or websocket")
         if not isinstance(game_id, str) or not SESSION_RE.fullmatch(game_id):
             raise ValueError("invalid game_id")
         if not isinstance(executable, str):
@@ -263,15 +272,18 @@ class StreamState:
                                             "window": None, "held_keys": set(),
                                             "poll_stats": self._new_poll_stats(),
                                             "video_scaling": video_scaling,
+                                            "transport": transport,
+                                            "last_client_activity": time.monotonic(),
                                             "framebuffer": framebuffer_directory / "Xvfb_screen0"})
             return self.session_status(session_id)
 
-    def start_rainbow_cat(self, video_scaling: str = "nearest") -> dict:
+    def start_rainbow_cat(self, video_scaling: str = "nearest", transport: str = "poll") -> dict:
         """Launch the built-in asset-free stream transport diagnostic."""
         digest = hashlib.sha256(RAINBOW_CAT_COM).hexdigest()
         self.store_blob(digest, io.BytesIO(RAINBOW_CAT_COM), len(RAINBOW_CAT_COM))
         status = self.start_session({"game_id": "rainbow-cat", "executable": "RAINBOW.COM",
-                                     "files": {"RAINBOW.COM": digest}, "video_scaling": video_scaling})
+                                     "files": {"RAINBOW.COM": digest}, "video_scaling": video_scaling,
+                                     "transport": transport})
         with self.lock:
             self.active[status["id"]]["diagnostic"] = True
         return status
@@ -342,9 +354,31 @@ class StreamState:
                     "audio_bytes": item["audio"].stat().st_size if item["audio"].exists() else 0,
                     "held_keys": sorted(item["held_keys"]),
                     "video_scaling": item.get("video_scaling", "nearest"),
+                    "transport": item.get("transport", "poll"),
                     "audio": f"/v1/sessions/{session_id}/audio?offset=0",
                     "log": f"/v1/sessions/{session_id}/log",
                     "poll_stats": self._poll_stats_snapshot(item["poll_stats"])}
+
+    def touch_session(self, session_id: str) -> None:
+        """Record real client activity, rather than internal media work."""
+        with self.lock:
+            item = self.active.get(session_id)
+            if not item:
+                raise KeyError(session_id)
+            item["last_client_activity"] = time.monotonic()
+
+    def reap_idle_sessions(self) -> None:
+        """Bound sessions whose client disappeared without a clean DELETE."""
+        now = time.monotonic()
+        with self.lock:
+            expired = [session_id for session_id, item in self.active.items()
+                       if now - item.get("last_client_activity", now) >= self.session_idle_seconds]
+        for session_id in expired:
+            print(f"pi286 stream session idle timeout: {session_id}", flush=True)
+            try:
+                self.stop_session(session_id)
+            except KeyError:
+                pass
 
     @staticmethod
     def _new_poll_stats() -> dict:
@@ -932,6 +966,7 @@ def make_handler(state: StreamState):
         def _poll(self, session_id: str, request: dict):
             try:
                 started = time.monotonic()
+                state.touch_session(session_id)
                 body = state.poll(session_id, request)
                 elapsed_ms = int((time.monotonic() - started) * 1000)
                 if body is None:
@@ -967,12 +1002,15 @@ def make_handler(state: StreamState):
             self.send_header("Sec-WebSocket-Accept", websocket_wire.accept_key(key))
             self.end_headers()
             request = {"input_revision": 0, "video_seq": 0, "audio_offset": 0, "held_keys": []}
+            state.touch_session(session_id)
+            next_media = time.monotonic()
             try:
                 while True:
-                    # Media is latest-state only; 60 Hz caps idle CPU while
-                    # still leaving a substantially shorter input delay than
-                    # serial HTTP polling.
-                    readable, _, _ = select.select([self.connection], [], [], 1 / 60)
+                    # Control is consumed as soon as it arrives. Media is
+                    # latest-state only and capped separately at 30 Hz, so a
+                    # burst of key changes cannot turn into a media backlog.
+                    readable, _, _ = select.select([self.connection], [], [],
+                                                    max(0, next_media - time.monotonic()))
                     if readable:
                         opcode, payload = websocket_wire.read_frame(self.rfile, True)
                         if opcode == 8:
@@ -987,13 +1025,25 @@ def make_handler(state: StreamState):
                         if not isinstance(incoming, dict):
                             raise ValueError("websocket control must be an object")
                         request.update(incoming)
+                        state.touch_session(session_id)
+                        continue
+                    if time.monotonic() < next_media:
+                        continue
                     body = state.poll(session_id, request)
+                    next_media = time.monotonic() + 1 / 30
                     if body is not None:
                         self.connection.sendall(websocket_wire.pack_frame(body))
             except (EOFError, BrokenPipeError, ConnectionResetError):
                 return
             except (ValueError, json.JSONDecodeError, KeyError, RuntimeError) as error:
                 self.connection.sendall(websocket_wire.pack_frame(json.dumps({"error": str(error)}).encode(), 8))
+            finally:
+                # A WebSocket owns its media session. Closing a tab normally
+                # closes TCP; do not leave headless DOSBox running forever.
+                try:
+                    state.stop_session(session_id)
+                except KeyError:
+                    pass
 
         def _request_json(self):
             try:
@@ -1034,7 +1084,11 @@ def make_handler(state: StreamState):
                     force_keyframe = values.get("keyframe", ["0"])[0] == "1"
                     self._video(path.split("/")[3], force_keyframe)
                 elif re.fullmatch(r"/v3/sessions/[^/]+/stream", path):
-                    self._websocket(path.split("/")[3])
+                    session_id = path.split("/")[3]
+                    if state.session_status(session_id).get("transport") != "websocket":
+                        self._json(HTTPStatus.CONFLICT, {"error": "session was created for HTTP polling"})
+                    else:
+                        self._websocket(session_id)
                 elif path.startswith("/v1/sessions/") and path.endswith("/log"):
                     session_id = path.split("/")[3]
                     self._json(HTTPStatus.NOT_IMPLEMENTED, {"error": "log retrieval is not exposed yet", "id": session_id})
@@ -1088,6 +1142,16 @@ def make_handler(state: StreamState):
     return Handler
 
 
+class StreamHTTPServer(ThreadingHTTPServer):
+    """HTTP server with a small process-lifecycle watchdog."""
+    def __init__(self, address, handler, state: StreamState):
+        super().__init__(address, handler)
+        self.state = state
+
+    def service_actions(self):
+        self.state.reap_idle_sessions()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=Path, required=True)
@@ -1096,7 +1160,7 @@ def main() -> None:
     token = Path(config["token_file"]).read_text(encoding="utf-8").strip()
     if len(token) < 32: raise SystemExit("token must contain at least 32 characters")
     state = StreamState(config, token)
-    server = ThreadingHTTPServer((config["bind"], int(config["port"])), make_handler(state))
+    server = StreamHTTPServer((config["bind"], int(config["port"])), make_handler(state), state)
     print(f"pi286 stream backend listening on {config['bind']}:{config['port']}", flush=True)
     server.serve_forever()
 

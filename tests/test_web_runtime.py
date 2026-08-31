@@ -26,13 +26,13 @@ class WebRuntimeTests(unittest.TestCase):
         calls = []
 
         class Backend:
-            def start_rainbow_cat(self, scaling):
-                calls.append(scaling)
+            def start_rainbow_cat(self, scaling, transport):
+                calls.append((scaling, transport))
                 return {"id": "remote-id"}
 
         runtime = web.WebRuntime.__new__(web.WebRuntime)
         runtime.backend, runtime.games, runtime.sessions = Backend(), {}, {}
         result = runtime.start("rainbow-cat", "not-a-mode")
-        self.assertEqual(calls, ["nearest"])
+        self.assertEqual(calls, [("nearest", "poll")])
         self.assertEqual(result["video_scaling"], "nearest")
         self.assertEqual(runtime.sessions[result["id"]], "remote-id")

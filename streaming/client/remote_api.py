@@ -114,15 +114,18 @@ class RemoteBackend:
             raise RemoteProtocolError("spúšťací súbor %s nie je medzi hernými dátami" % executable)
         raise RemoteProtocolError("spúšťací súbor %s nie je jednoznačný v herných dátach" % executable)
 
-    def start_session(self, game_id: str, executable: str, files: dict[str, str], video_scaling: str = "nearest"):
+    def start_session(self, game_id: str, executable: str, files: dict[str, str], video_scaling: str = "nearest",
+                      transport: str = "poll"):
         return self.json("POST", "/v1/sessions", {"game_id": game_id, "executable": executable,
-                                                      "files": files, "video_scaling": video_scaling})
+                                                      "files": files, "video_scaling": video_scaling,
+                                                      "transport": transport})
 
-    def start_rainbow_cat(self, video_scaling: str = "nearest"):
+    def start_rainbow_cat(self, video_scaling: str = "nearest", transport: str = "poll"):
         """Start the server's asset-free video/audio/input transport check."""
         # The small server parses every POST body as JSON, including this
         # asset-free endpoint which otherwise needs no request fields.
-        return self.json("POST", "/v1/diagnostics/rainbow-cat", {"video_scaling": video_scaling})
+        return self.json("POST", "/v1/diagnostics/rainbow-cat", {"video_scaling": video_scaling,
+                                                                       "transport": transport})
 
     def stop_session(self, session_id: str):
         # Server-side process shutdown has a bounded three-second wait.

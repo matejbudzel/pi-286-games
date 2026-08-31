@@ -94,9 +94,10 @@ function websocketStart() {
 async function start(gameId) {
   textStatus("Pripravujem hru…");
   audioContext = new AudioContext(); await audioContext.resume(); audioNext = audioContext.currentTime;
-  const response = await fetch("/api/sessions", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({game_id: gameId, video_scaling: document.querySelector("#scaling").value})});
+  const transport = document.querySelector("#transport").value;
+  const response = await fetch("/api/sessions", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({game_id: gameId, video_scaling: document.querySelector("#scaling").value, transport})});
   if (!response.ok) { textStatus(`Štart zlyhal: ${await response.text()}`); return; }
-  session = (await response.json()).id; videoSeq = 0; audioOffset = 0; hudWindow = performance.now(); hudPolls = hudFrames = hudPollHz = hudFrameHz = hudPollMs = hudBackendMs = hudServerMs = hudDecodeMs = hudCaptureMs = hudVideoBytes = hudAudioBytes = 0; frame.fill(0); draw(); updateHud(); menu.hidden = true; player.hidden = false; if (document.querySelector("#transport").value === "websocket") websocketStart(); else poll();
+  session = (await response.json()).id; videoSeq = 0; audioOffset = 0; hudWindow = performance.now(); hudPolls = hudFrames = hudPollHz = hudFrameHz = hudPollMs = hudBackendMs = hudServerMs = hudDecodeMs = hudCaptureMs = hudVideoBytes = hudAudioBytes = 0; frame.fill(0); draw(); updateHud(); menu.hidden = true; player.hidden = false; if (transport === "websocket") websocketStart(); else poll();
 }
 async function stop() {
   const closing = session; session = null; if (ws) { ws.onclose = null; ws.close(); ws = null; } held.clear(); player.hidden = true; menu.hidden = false;

@@ -3,6 +3,7 @@ import importlib.util
 import io
 import struct
 import tempfile
+import time
 import unittest
 from types import SimpleNamespace
 from pathlib import Path
@@ -127,6 +128,23 @@ class StreamBackendTests(unittest.TestCase):
             self.assertEqual(stats["responses"], 1)
             self.assertEqual(stats["stale"], 0)
             self.assertEqual(stats["total_ms"]["count"], 1)
+
+    def test_idle_session_reaper_stops_only_expired_sessions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = backend.StreamState({**backend.DEFAULTS, "state_root": directory,
+                                         "session_idle_seconds": "0.01"}, "x" * 32)
+            state.active = {"expired": {"last_client_activity": 0},
+                            "fresh": {"last_client_activity": time.monotonic()}}
+            stopped = []
+            state.stop_session = stopped.append
+            state.reap_idle_sessions()
+            self.assertEqual(stopped, ["expired"])
+
+    def test_websocket_media_rate_is_capped_at_30_hz(self):
+        source = MODULE.read_text()
+        self.assertIn("next_media = time.monotonic()", source)
+        self.assertIn("next_media = time.monotonic() + 1 / 30", source)
+        self.assertIn("state.touch_session(session_id)", source)
 
     def test_empty_held_snapshot_does_not_require_dosbox_input_window(self):
         state = backend.StreamState.__new__(backend.StreamState)
