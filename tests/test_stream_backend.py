@@ -163,11 +163,11 @@ class StreamBackendTests(unittest.TestCase):
         header = [100, 7, 2, 24, 640, 480, 0, 0, 32, 0, 8, 24, 640 * 4,
                   4, 0x00ff0000, 0x0000ff00, 0x000000ff, 8, 256, 0, 0, 640, 480, 0, 0]
         pixels = bytearray(640 * 480 * 4)
-        # Xvfb has 24-bit BGR pixels in a separately padded 2560-byte row.
+        # Xvfb has B,G,R,padding pixels in a 2560-byte row.
         # The first two sampled pixels are source (0, 40) and (2, 40).
         offset = 40 * 640 * 4
         pixels[offset:offset + 3] = bytes((0, 0, 255))
-        pixels[offset + 6:offset + 9] = bytes((255, 0, 0))
+        pixels[offset + 8:offset + 11] = bytes((255, 0, 0))
         # 320x200 to 320x240 nearest-neighbour expansion duplicates its first
         # source row before advancing to source row 42.
         next_row = 42 * 640 * 4
@@ -184,7 +184,7 @@ class StreamBackendTests(unittest.TestCase):
                   4, 0x00ff0000, 0x0000ff00, 0x000000ff, 8, 256, 0, 0, 320, 240, 0, 0]
         pixels = bytearray(320 * 240 * 4)
         pixels[0:3] = bytes((0xff, 0x00, 0x00))      # BGR: blue
-        pixels[3:6] = bytes((0x00, 0xff, 0x00))      # BGR: green
+        pixels[4:7] = bytes((0x00, 0xff, 0x00))      # BGR: green
         converted = backend.StreamState._xwd_to_rgb565(struct.pack(">25I", *header) + pixels)
         self.assertEqual(converted[:4], bytes((0x1f, 0x00, 0xe0, 0x07)))
 

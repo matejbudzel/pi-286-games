@@ -743,8 +743,8 @@ class StreamState:
             return StreamState._xwd_direct_to_rgb565(source, pixels, bytes_per_line)
         if width != 640 or height != 480 or bytes_per_line != 640 * 4:
             raise ValueError("unexpected Xvfb image dimensions")
-        # Xvfb uses 24-bit TrueColor B,G,R pixels.  Its scanlines are padded to
-        # 2560 bytes, but individual pixels still occupy three bytes (not four).
+        # Xvfb's 24-bit TrueColor visual is stored as B,G,R,padding in this
+        # 32-bits-per-pixel XWD image.
         # Crop the 640x400 DOS region centred in 640x480.  Horizontally sample
         # 2x, then expand the original 320x200's 6:5 pixels to square pixels
         # using a 320x240 frame. The Pi can therefore use a cheap exact 2x
@@ -757,10 +757,10 @@ class StreamState:
             row = pixels + (40 + 2 * source_row) * bytes_per_line
             next_row = pixels + (40 + 2 * min(199, source_row + 1)) * bytes_per_line
             for x in range(VIDEO_WIDTH):
-                offset = row + x * 6
+                offset = row + x * 8
                 blue, green, red = source[offset], source[offset + 1], source[offset + 2]
                 if video_scaling in ("linear-v", "crt-lite") and remainder:
-                    next_offset = next_row + x * 6
+                    next_offset = next_row + x * 8
                     next_blue, next_green, next_red = source[next_offset], source[next_offset + 1], source[next_offset + 2]
                     blue = (blue * (VIDEO_HEIGHT - remainder) + next_blue * remainder) // VIDEO_HEIGHT
                     green = (green * (VIDEO_HEIGHT - remainder) + next_green * remainder) // VIDEO_HEIGHT
@@ -783,7 +783,7 @@ class StreamState:
         blue = [value >> 3 for value in range(256)]
         for y in range(VIDEO_HEIGHT):
             row = pixels + y * bytes_per_line
-            for offset in range(row, row + VIDEO_WIDTH * 3, 3):
+            for offset in range(row, row + VIDEO_WIDTH * 4, 4):
                 color = red[source[offset + 2]] | green[source[offset + 1]] | blue[source[offset]]
                 output[destination], output[destination + 1] = color & 0xff, color >> 8
                 destination += 2
