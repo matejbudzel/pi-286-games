@@ -1020,13 +1020,16 @@ def make_handler(state: StreamState):
             request = {"input_revision": 0, "video_seq": 0, "audio_offset": 0, "held_keys": []}
             state.touch_session(session_id)
             next_media = time.monotonic()
+            media_requested = False
             try:
                 while True:
-                    # Control is consumed as soon as it arrives. Media is
-                    # latest-state only and capped separately at 30 Hz, so a
-                    # burst of key changes cannot turn into a media backlog.
+                    # A client asks for the next frame with its initial
+                    # control message and then acknowledges each frame after
+                    # it has rendered it.  This preserves immediate input
+                    # while preventing an ARMv6 presenter from accumulating
+                    # full-screen packets faster than it can draw them.
                     readable, _, _ = select.select([self.connection], [], [],
-                                                    max(0, next_media - time.monotonic()))
+                                                    max(0, next_media - time.monotonic()) if media_requested else 1)
                     if readable:
                         opcode, payload = websocket_wire.read_frame(self.rfile, True)
                         if opcode == 8:
@@ -1043,6 +1046,9 @@ def make_handler(state: StreamState):
                             raise ValueError("websocket control must be an object")
                         request.update(incoming)
                         state.touch_session(session_id)
+                        media_requested = True
+                        continue
+                    if not media_requested:
                         continue
                     if time.monotonic() < next_media:
                         continue
@@ -1050,6 +1056,7 @@ def make_handler(state: StreamState):
                     next_media = time.monotonic() + 1 / 30
                     if body is not None:
                         self.connection.sendall(websocket_wire.pack_frame(body))
+                        media_requested = False
             except (EOFError, BrokenPipeError, ConnectionResetError) as error:
                 print("pi286 stream websocket session %s disconnected: %s" % (session_id, type(error).__name__), flush=True)
                 return
