@@ -27,6 +27,7 @@ RAINBOW_CAT_LABEL = "Dúhová mačka"
 VIDEO_SCALING_MODES = ("nearest", "linear-v", "crt-lite")
 LAUNCHER_SPLASH_SECONDS = 4.0
 SPLASH_ART = (
+    "                                                                         ´   ",
     "██╗  ██╗ ██████╗  ██████╗██╗  ██╗ ██████╗ ██╗   ██╗ █████╗ ███╗   ██╗███████╗",
     "██║ ██╔╝██╔═══██╗██╔════╝██║ ██╔╝██╔═══██╗██║   ██║██╔══██╗████╗  ██║██╔════╝",
     "█████╔╝ ██║   ██║██║     █████╔╝ ██║   ██║██║   ██║███████║██╔██╗ ██║█████╗  ",
@@ -34,14 +35,13 @@ SPLASH_ART = (
     "██║  ██╗╚██████╔╝╚██████╗██║  ██╗╚██████╔╝ ╚████╔╝ ██║  ██║██║ ╚████║███████╗",
     "╚═╝  ╚═╝ ╚═════╝  ╚═════╝╚═╝  ╚═╝ ╚═════╝   ╚═══╝  ╚═╝  ╚═╝╚═╝  ╚═══╝╚══════╝",
     "",
+    "",
     "██╗  ██╗██████╗ ██╗   ██╗",
     "██║  ██║██╔══██╗╚██╗ ██╔╝",
     "███████║██████╔╝ ╚████╔╝ ",
     "██╔══██║██╔══██╗  ╚██╔╝  ",
     "██║  ██║██║  ██║   ██║   ",
     "╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝   ",
-    "",
-    "KOCKOVANÉ HRY",
 )
 SPLASH_COLORS = ("\x1b[91m", "\x1b[93m", "\x1b[92m", "\x1b[96m", "\x1b[94m", "\x1b[95m")
 PAD_ACTIONS = {2: "UP", 1: "DOWN", 0: "LEFT", 3: "RIGHT", 8: "START", 9: "SELECT"}
@@ -245,20 +245,20 @@ class Terminal:
         sys.stdout.write("".join(out)); sys.stdout.flush()
     @staticmethod
     def splash_lines(columns):
-        """Use the full block logo only when it cannot wrap on this console."""
-        return SPLASH_ART if columns >= max(len(line) for line in SPLASH_ART) else ("KOCKOVANÉ HRY",)
+        """Use the full block logo only when it fits a normal 80-column console."""
+        return SPLASH_ART if columns >= 80 else ("KOCKOVANÉ HRY",)
     @staticmethod
-    def rainbow(text, columns):
+    def rainbow(text, columns, row):
         left = " " * max(0, (columns - len(text)) // 2)
         if not text: return "\r\n"
-        return left + "".join(SPLASH_COLORS[(index * len(SPLASH_COLORS)) // max(1, len(text))] + character
+        return left + "".join(SPLASH_COLORS[((index + row * 4) * len(SPLASH_COLORS) // max(1, columns)) % len(SPLASH_COLORS)] + character
                                for index, character in enumerate(text)) + "\x1b[0m\r\n"
     def splash(self, seconds=LAUNCHER_SPLASH_SECONDS):
         try: size = os.get_terminal_size(sys.stdout.fileno())
         except OSError: size = shutil.get_terminal_size((80, 24))
         lines = self.splash_lines(size.columns)
         out = ["\x1b[2J\x1b[H", "\r\n" * max(0, (size.lines - len(lines)) // 2)]
-        out.extend(self.rainbow(line, size.columns) for line in lines)
+        out.extend(self.rainbow(line, size.columns, row) for row, line in enumerate(lines))
         sys.stdout.write("".join(out)); sys.stdout.flush()
         deadline = time.monotonic() + seconds
         while time.monotonic() < deadline:

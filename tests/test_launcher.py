@@ -36,9 +36,9 @@ class DiscoveryTests(unittest.TestCase):
             launcher.Terminal.draw, launcher.next_input = original_draw, original_input
 
     def test_splash_uses_block_logo_only_when_it_fits_and_keeps_diacritics(self):
-        self.assertEqual(launcher.Terminal.splash_lines(200), launcher.SPLASH_ART)
-        self.assertEqual(launcher.Terminal.splash_lines(60), ("KOCKOVANÉ HRY",))
-        self.assertIn("KOCKOVANÉ HRY", launcher.SPLASH_ART)
+        self.assertEqual(launcher.Terminal.splash_lines(80), launcher.SPLASH_ART)
+        self.assertEqual(launcher.Terminal.splash_lines(79), ("KOCKOVANÉ HRY",))
+        self.assertIn("´", launcher.SPLASH_ART[0])
 
     def test_game_running_screen_names_game_and_panic_key(self):
         captured = []
