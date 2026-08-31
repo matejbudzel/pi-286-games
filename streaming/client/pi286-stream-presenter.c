@@ -1,6 +1,7 @@
 /* Minimal Pi 1 SDL 1.2 fbcon presenter for the experimental remote backend. */
 #include <SDL.h>
 #include <arpa/inet.h>
+#include <fcntl.h>
 #include <netdb.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -227,6 +228,85 @@ static int request(const char *host, const char *port, const char *token, const 
     close(fd); return used == length ? used : -1;
 }
 
+static int write_all(int fd, const void *data, size_t length) {
+    const unsigned char *cursor = data; ssize_t written;
+    while (length) {
+        written = write(fd, cursor, length);
+        if (written <= 0) return 0;
+        cursor += written; length -= (size_t)written;
+    }
+    return 1;
+}
+
+static int read_all(int fd, void *data, size_t length) {
+    unsigned char *cursor = data; ssize_t received;
+    while (length) {
+        received = read(fd, cursor, length);
+        if (received <= 0) return 0;
+        cursor += received; length -= (size_t)received;
+    }
+    return 1;
+}
+
+static void random_bytes(unsigned char *data, size_t length) {
+    int random = open("/dev/urandom", O_RDONLY); size_t got = 0;
+    if (random >= 0) { while (got < length) { ssize_t n = read(random, data + got, length - got); if (n <= 0) break; got += (size_t)n; } close(random); }
+    while (got < length) data[got++] = (unsigned char)rand();
+}
+
+static void base64_16(const unsigned char *source, char *output) {
+    static const char alphabet[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    int source_at = 0, output_at = 0;
+    while (source_at < 15) {
+        output[output_at++] = alphabet[source[source_at] >> 2];
+        output[output_at++] = alphabet[((source[source_at] & 3) << 4) | (source[source_at + 1] >> 4)];
+        output[output_at++] = alphabet[((source[source_at + 1] & 15) << 2) | (source[source_at + 2] >> 6)];
+        output[output_at++] = alphabet[source[source_at + 2] & 63]; source_at += 3;
+    }
+    output[output_at++] = alphabet[source[15] >> 2];
+    output[output_at++] = alphabet[(source[15] & 3) << 4];
+    output[output_at++] = '='; output[output_at++] = '='; output[output_at] = 0;
+}
+
+static int websocket_open(const char *host, const char *port, const char *token, const char *session) {
+    char header[4096], key[25]; unsigned char nonce[16]; int fd, used = 0; ssize_t n;
+    random_bytes(nonce, sizeof(nonce)); base64_16(nonce, key);
+    fd = connect_to(host, port); if (fd < 0) return -1;
+    n = snprintf(header, sizeof(header), "GET /v3/sessions/%s/stream HTTP/1.1\r\nHost: %s\r\nAuthorization: Bearer %s\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: %s\r\n\r\n", session, host, token, key);
+    if (n < 0 || (size_t)n >= sizeof(header) || !write_all(fd, header, (size_t)n)) { close(fd); return -1; }
+    while (used + 1 < (int)sizeof(header)) {
+        n = read(fd, header + used, 1); if (n != 1) { close(fd); return -1; }
+        used += 1; header[used] = 0;
+        if (used >= 4 && !memcmp(header + used - 4, "\r\n\r\n", 4)) break;
+    }
+    if (memcmp(header, "HTTP/1.1 101", 12) && memcmp(header, "HTTP/1.0 101", 12)) { close(fd); return -1; }
+    return fd;
+}
+
+static int websocket_send_text(int fd, const char *body) {
+    unsigned char header[14], mask[4], masked[2048]; size_t length = strlen(body), index, header_length;
+    if (length > sizeof(masked)) return 0;
+    random_bytes(mask, sizeof(mask)); header[0] = 0x81;
+    if (length < 126) { header[1] = 0x80 | (unsigned char)length; header_length = 2; }
+    else { header[1] = 0x80 | 126; header[2] = (unsigned char)(length >> 8); header[3] = (unsigned char)length; header_length = 4; }
+    memcpy(header + header_length, mask, sizeof(mask)); header_length += sizeof(mask);
+    for (index = 0; index < length; index++) masked[index] = (unsigned char)body[index] ^ mask[index % 4];
+    return write_all(fd, header, header_length) && write_all(fd, masked, length);
+}
+
+/* Return payload length, zero for close, or -1 for malformed/failed frame. */
+static int websocket_read_frame(int fd, unsigned char *out, size_t capacity) {
+    unsigned char header[10]; unsigned long long length; int opcode;
+    if (!read_all(fd, header, 2) || (header[0] & 0x70) || (header[1] & 0x80)) return -1;
+    opcode = header[0] & 15; length = header[1] & 127;
+    if (!(header[0] & 0x80)) return -1;
+    if (length == 126) { if (!read_all(fd, header, 2)) return -1; length = ((unsigned long long)header[0] << 8) | header[1]; }
+    else if (length == 127) { if (!read_all(fd, header, 8)) return -1; length = 0; for (int index = 0; index < 8; index++) length = (length << 8) | header[index]; }
+    if (length > capacity || (opcode != 2 && opcode != 8)) return -1;
+    if (!read_all(fd, out, (size_t)length)) return -1;
+    return opcode == 8 ? 0 : (int)length;
+}
+
 static const char *dos_key(SDLKey key) {
     static char letter[2];
     switch (key) {
@@ -373,14 +453,16 @@ static int local_pattern(void) {
 }
 
 int main(int argc, char **argv) {
-    const char *host, *port, *token_path, *session, *pad_keys[9] = {0}; FILE *file; char token[256], path[256], body[2048], pad_map[256]; SDL_Joystick *joystick = NULL;
+    const char *host, *port, *token_path, *session, *transport, *pad_keys[9] = {0}; FILE *file; char token[256], path[256], body[2048], pad_map[256]; SDL_Joystick *joystick = NULL;
     unsigned char frame[FRAME], packet[POLL_PACKET_MAX]; SDL_Surface *screen, *canvas; SDL_Event event; SDL_AudioSpec audio, obtained; Metrics metrics = {0}; SessionStats stats = {0}; HeldState held = {0}; int audio_offset = 0, next_offset, n, overlay = 0, video_count = 0, video_seq = 0, audio_length, quit = 0;
     const unsigned char *audio_data; unsigned int poll_revision, input_acked = 0; int diagnostic;
     long long video_window = now_ms(), network_window = video_window; long long request_started, elapsed; size_t network_bytes = 0;
     fprintf(stderr, "presenter: starting\n"); fflush(stderr);
     if (argc == 2 && !strcmp(argv[1], "--local-pattern")) return local_pattern();
-    if (argc != 6) { fprintf(stderr, "usage: %s HOST PORT TOKEN_FILE SESSION PAD_MAP\n", argv[0]); return 2; }
+    if (argc != 6 && argc != 7) { fprintf(stderr, "usage: %s HOST PORT TOKEN_FILE SESSION PAD_MAP [poll|websocket]\n", argv[0]); return 2; }
     host = argv[1]; port = argv[2]; token_path = argv[3]; session = argv[4];
+    transport = argc == 7 ? argv[6] : "poll";
+    if (strcmp(transport, "poll") && strcmp(transport, "websocket")) { fprintf(stderr, "presenter: invalid transport %s\n", transport); return 2; }
     diagnostic = !strncmp(session, "rainbow-cat-", 12);
     if (diagnostic) overlay = 1;
     snprintf(pad_map, sizeof(pad_map), "%s", argv[5]); parse_pad_map(pad_map, pad_keys);
@@ -408,6 +490,48 @@ int main(int argc, char **argv) {
     SDL_PauseAudio(0);
     stats.started_ms = now_ms();
     stats.video_request_min = stats.server_capture_min = stats.audio_queue_min = stats.input_rtt_min = 1000000;
+    if (!strcmp(transport, "websocket")) {
+        int fd, sent_revision;
+        fd = websocket_open(host, port, token, session);
+        if (fd < 0 || poll_body(body, sizeof(body), &held, video_seq, audio_offset) < 0 || !websocket_send_text(fd, body)) {
+            fprintf(stderr, "presenter: websocket connection failed\n"); if (fd >= 0) close(fd); SDL_CloseAudio(); SDL_FreeSurface(canvas); SDL_Quit(); return 1;
+        }
+        sent_revision = (int)held.revision;
+        fprintf(stderr, "presenter: websocket connected\n"); fflush(stderr);
+        for (;;) {
+            fd_set readable; struct timeval timeout; int selected;
+            FD_ZERO(&readable); FD_SET(fd, &readable); timeout.tv_sec = 0; timeout.tv_usec = 10000;
+            selected = select(fd + 1, &readable, NULL, NULL, &timeout);
+            if (selected > 0) {
+                request_started = now_ms(); n = websocket_read_frame(fd, packet, sizeof(packet)); metrics.video_last_ms = (int)(now_ms() - request_started);
+                if (n > 0 && apply_poll_packet(frame, packet, (size_t)n, &metrics.video_capture_ms, &video_seq, &audio_data, &audio_length, &next_offset)) {
+                    stats.polls_completed++; network_bytes += (size_t)n; video_count++; stats.video_frames++; stats.payload_bytes += (unsigned long)n;
+                    range_add(metrics.video_last_ms, &stats.video_request_min, &stats.video_request_max, &stats.video_request_total);
+                    if (metrics.video_capture_ms >= 0) range_add(metrics.video_capture_ms, &stats.server_capture_min, &stats.server_capture_max, &stats.server_capture_total);
+                    elapsed = now_ms() - video_window;
+                    if (elapsed >= 1000) { metrics.video_fps_tenths = (int)(video_count * 10000 / elapsed); video_count = 0; video_window = now_ms(); }
+                    audio_metrics(&metrics); render(screen, canvas, frame, overlay, &metrics, diagnostic);
+                    if (audio_length > 0 && next_offset > audio_offset) { audio_put(audio_data, (size_t)audio_length); audio_offset = next_offset; }
+                    if ((unsigned int)sent_revision > input_acked) { metrics.input_last_ms = metrics.video_last_ms; input_acked = (unsigned int)sent_revision; stats.input_acks++; range_add(metrics.input_last_ms, &stats.input_rtt_min, &stats.input_rtt_max, &stats.input_rtt_total); }
+                    /* Media acknowledgements carry the latest delta sequence
+                     * and PCM offset, even while no key state has changed. */
+                    if (poll_body(body, sizeof(body), &held, video_seq, audio_offset) < 0 || !websocket_send_text(fd, body)) { metrics.input_fail++; stats.input_failures++; close(fd); fd = -1; }
+                    else sent_revision = (int)held.revision;
+                } else if (n < 0) { metrics.video_fail++; stats.video_failures++; metrics.audio_fail++; stats.audio_failures++; stats.polls_failed++; }
+                else { close(fd); fd = -1; }
+            }
+            if (pump_events()) { /* Send latest held state below without waiting for media. */ }
+            if (fd >= 0 && !quit && (int)held.revision != sent_revision) {
+                if (poll_body(body, sizeof(body), &held, video_seq, audio_offset) < 0 || !websocket_send_text(fd, body)) { metrics.input_fail++; stats.input_failures++; close(fd); fd = -1; }
+                else sent_revision = (int)held.revision;
+            }
+            audio_metrics(&metrics); stats.audio_samples++;
+            range_add(metrics.audio_queued_ms, &stats.audio_queue_min, &stats.audio_queue_max, &stats.audio_queue_total);
+            elapsed = now_ms() - network_window;
+            if (elapsed >= 1000) { metrics.net_kbytes = (int)(network_bytes * 1000 / elapsed / 1024); network_bytes = 0; network_window = now_ms(); }
+            if (quit || fd < 0) { if (fd >= 0) close(fd); if (joystick) SDL_JoystickClose(joystick); write_session_stats(session, &stats, &metrics); SDL_CloseAudio(); SDL_FreeSurface(canvas); SDL_Quit(); return quit ? 0 : 1; }
+        }
+    }
     for (;;) {
         snprintf(path, sizeof(path), "/v2/sessions/%s/poll", session);
         if (poll_body(body, sizeof(body), &held, video_seq, audio_offset) < 0) { fprintf(stderr, "presenter: poll body too large\n"); break; }
@@ -425,7 +549,7 @@ int main(int argc, char **argv) {
             if (elapsed >= 1000) { metrics.video_fps_tenths = (int)(video_count * 10000 / elapsed); video_count = 0; video_window = now_ms(); }
             audio_metrics(&metrics);
             render(screen, canvas, frame, overlay, &metrics, diagnostic);
-            if (audio_length > 0 && next_offset >= audio_offset) { audio_put(audio_data, (size_t)audio_length); audio_offset = next_offset; }
+            if (audio_length > 0 && next_offset > audio_offset) { audio_put(audio_data, (size_t)audio_length); audio_offset = next_offset; }
             if (poll_revision > input_acked) { metrics.input_last_ms = metrics.video_last_ms; input_acked = poll_revision; stats.input_acks++; range_add(metrics.input_last_ms, &stats.input_rtt_min, &stats.input_rtt_max, &stats.input_rtt_total); }
         } else if (n == -2) {
             /* Input changed while this request was in flight: its response is deliberately irrelevant. */

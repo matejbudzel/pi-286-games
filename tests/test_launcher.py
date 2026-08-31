@@ -185,6 +185,12 @@ class DiscoveryTests(unittest.TestCase):
     def test_remote_pad_map_preserves_button_order_and_normalizes_modifiers(self):
         self.assertEqual(launcher.remote_pad_map({0: "LEFT", 2: "UP", 8: "LCTRL"}), "LEFT,,UP,,,,,,CTRL")
 
+    def test_remote_transport_defaults_to_poll_and_accepts_websocket(self):
+        self.assertEqual(launcher.remote_transport({}), "poll")
+        self.assertEqual(launcher.remote_transport({"remote_dosbox_transport": "websocket"}), "websocket")
+        with self.assertRaises(RuntimeError):
+            launcher.remote_transport({"remote_dosbox_transport": "udp"})
+
     def test_menu_includes_the_remote_diagnostic_between_games_and_bye_bye(self):
         source = inspect.getsource(launcher.main)
         self.assertIn("RAINBOW_CAT_LABEL", source)
@@ -198,6 +204,7 @@ class DiscoveryTests(unittest.TestCase):
         self.assertIn("environment.update(dosbox_environment(config))", source)
         self.assertIn('/tmp/pi286-stream-presenter.log', source)
         self.assertIn('Path(config["remote_dosbox_token_file"]).expanduser()', source)
+        self.assertIn("transport", source)
 
     def test_ddr_button_mapping_is_the_known_pad_layout(self):
         self.assertEqual(launcher.PAD_ACTIONS, {2: "UP", 1: "DOWN", 0: "LEFT", 3: "RIGHT", 8: "START", 9: "SELECT"})

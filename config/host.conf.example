@@ -13,6 +13,7 @@ dosbox_backend=local
 # remote_dosbox_url=http://192.168.100.194:28680
 # remote_dosbox_token_file=~/.config/pi286-stream.token
 # remote_dosbox_presenter=/opt/pi286/stream/bin/pi286-stream-presenter
+# remote_dosbox_transport=websocket
 
 # Shared display preference. The remote backend applies it before its tile
 # comparison; missing/unknown values safely use nearest. Local DOSBox will

@@ -121,6 +121,12 @@ connection closes. HTTP-poll sessions have an eight-second activity watchdog
 cannot leave DOSBox running indefinitely. There is intentionally no automatic
 session reconnection: reconnecting starts a fresh game session.
 
+The ARMv6 SDL presenter supports both transports. Set
+`remote_dosbox_transport=websocket` in the Pi's host-local configuration to
+test its native RFC 6455 client; omit it or set `poll` for the established HTTP
+fallback. The presenter uses no WebSocket library: it emits masked text control
+frames and consumes binary `P2P1` media frames directly.
+
 ## Pi development overlay
 
 While a remote game is running, `F8` toggles a small local presenter overlay.
