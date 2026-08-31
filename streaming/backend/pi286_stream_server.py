@@ -16,6 +16,7 @@ import math
 import os
 import re
 import secrets
+import select
 import shutil
 import signal
 import subprocess
@@ -26,6 +27,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path, PurePosixPath
 from urllib.parse import parse_qs, urlsplit
+from streaming import websocket_wire
 
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 SESSION_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
@@ -949,6 +951,48 @@ def make_handler(state: StreamState):
             except ValueError as error:
                 self._json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
 
+        def _websocket(self, session_id: str):
+            key = self.headers.get("Sec-WebSocket-Key", "")
+            if self.headers.get("Upgrade", "").lower() != "websocket" or not key:
+                self._json(HTTPStatus.BAD_REQUEST, {"error": "websocket upgrade required"})
+                return
+            self.send_response(HTTPStatus.SWITCHING_PROTOCOLS)
+            self.send_header("Upgrade", "websocket")
+            self.send_header("Connection", "Upgrade")
+            self.send_header("Sec-WebSocket-Accept", websocket_wire.accept_key(key))
+            self.end_headers()
+            request = {"input_revision": 0, "video_seq": 0, "audio_offset": 0, "held_keys": []}
+            self.connection.setblocking(False)
+            try:
+                while True:
+                    # Media is latest-state only; 60 Hz caps idle CPU while
+                    # still leaving a substantially shorter input delay than
+                    # serial HTTP polling.
+                    readable, _, _ = select.select([self.connection], [], [], 1 / 60)
+                    if readable:
+                        self.connection.setblocking(True)
+                        opcode, payload = websocket_wire.read_frame(self.rfile, True)
+                        self.connection.setblocking(False)
+                        if opcode == 8:
+                            self.connection.sendall(websocket_wire.pack_frame(b"", 8))
+                            return
+                        if opcode == 9:
+                            self.connection.sendall(websocket_wire.pack_frame(payload, 10))
+                            continue
+                        if opcode != 1:
+                            raise ValueError("websocket control must be JSON text")
+                        incoming = json.loads(payload)
+                        if not isinstance(incoming, dict):
+                            raise ValueError("websocket control must be an object")
+                        request.update(incoming)
+                    body = state.poll(session_id, request)
+                    if body is not None:
+                        self.connection.sendall(websocket_wire.pack_frame(body))
+            except (EOFError, BrokenPipeError, ConnectionResetError):
+                return
+            except (ValueError, json.JSONDecodeError, KeyError, RuntimeError) as error:
+                self.connection.sendall(websocket_wire.pack_frame(json.dumps({"error": str(error)}).encode(), 8))
+
         def _request_json(self):
             try:
                 length = int(self.headers.get("Content-Length", "-1"))
@@ -987,6 +1031,8 @@ def make_handler(state: StreamState):
                     values = parse_qs(parsed.query, strict_parsing=True) if parsed.query else {}
                     force_keyframe = values.get("keyframe", ["0"])[0] == "1"
                     self._video(path.split("/")[3], force_keyframe)
+                elif re.fullmatch(r"/v3/sessions/[^/]+/stream", path):
+                    self._websocket(path.split("/")[3])
                 elif path.startswith("/v1/sessions/") and path.endswith("/log"):
                     session_id = path.split("/")[3]
                     self._json(HTTPStatus.NOT_IMPLEMENTED, {"error": "log retrieval is not exposed yet", "id": session_id})
