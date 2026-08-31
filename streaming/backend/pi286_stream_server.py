@@ -220,10 +220,9 @@ class StreamState:
             display = self._next_display()
             framebuffer_directory = session_dir / self.config["xvfb_fbdir"]
             framebuffer_directory.mkdir(mode=0o700)
-            # DOSBox renders the EGA image directly into the protocol's 320x240
-            # aspect-correct canvas. The Pi/browser applies the inexpensive 2x
-            # presentation scale; do not render and then downscale 640x480 here.
-            xvfb = subprocess.Popen([self.config["xvfb"], display, "-screen", "0", "320x240x24",
+            # SDL 1.2 DOSBox 0.74 requires a 640x480 X root. Its smaller
+            # window mode is positioned outside the root by its legacy scaler.
+            xvfb = subprocess.Popen([self.config["xvfb"], display, "-screen", "0", "640x480x24",
                                      "-fbdir", str(framebuffer_directory), "-nolisten", "tcp"],
                                     stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
             time.sleep(0.15)
@@ -280,7 +279,7 @@ class StreamState:
         directory = "\\".join(executable.parent.parts)
         change_directory = "cd \\%s\n" % directory if directory else ""
         command = executable.name
-        return """[sdl]\nfullscreen=false\nwindowresolution=320x240\noutput=surface\nusescancodes=false\n\n[dosbox]\nmachine=ega\nmemsize=8\n\n[cpu]\ncore=normal\ncycles=fixed 3000\n\n[render]\naspect=true\nscaler=none\n\n[mixer]\nnosound=false\nrate=%d\nblocksize=2048\nprebuffer=100\n\n[speaker]\npcspeaker=true\npcrate=%d\ntandy=off\ndisney=false\n\n[sblaster]\nsbtype=none\n\n[midi]\nmpu401=none\nmididevice=none\n\n[autoexec]\n@echo off\nmount c .\nc:\n%s%s\nexit\n""" % (audio_rate, audio_rate, change_directory, command)
+        return """[sdl]\nfullscreen=false\noutput=surface\nusescancodes=false\n\n[dosbox]\nmachine=ega\nmemsize=8\n\n[cpu]\ncore=normal\ncycles=fixed 3000\n\n[mixer]\nnosound=false\nrate=%d\nblocksize=2048\nprebuffer=100\n\n[speaker]\npcspeaker=true\npcrate=%d\ntandy=off\ndisney=false\n\n[sblaster]\nsbtype=none\n\n[midi]\nmpu401=none\nmididevice=none\n\n[autoexec]\n@echo off\nmount c .\nc:\n%s%s\nexit\n""" % (audio_rate, audio_rate, change_directory, command)
 
     @staticmethod
     def _alsa_capture_config(audio_path: Path) -> str:
@@ -580,25 +579,6 @@ class StreamState:
         windows = result.stdout.split()
         return windows[-1] if windows else None
 
-    def _place_dosbox_window(self, item: dict) -> None:
-        """Keep SDL's 320x240 window inside the equally sized Xvfb root.
-
-        SDL 1.2 centres this window using stale 640x480 assumptions and can
-        place it at negative coordinates. The direct root capture would then
-        contain only its bottom-right quadrant.
-        """
-        if item.get("window_positioned"):
-            return
-        window = item.get("window") or self._find_dosbox_window(item["display"])
-        if not window:
-            return
-        result = subprocess.run([self.config["xdotool"], "windowmove", str(window), "0", "0"],
-                                env=dict(os.environ, DISPLAY=item["display"]), stdout=subprocess.DEVNULL,
-                                stderr=subprocess.DEVNULL, timeout=2)
-        if result.returncode == 0:
-            item["window"] = window
-            item["window_positioned"] = True
-
     def _release_all_keys(self, item: dict) -> None:
         window = item.get("window")
         if not window:
@@ -651,7 +631,6 @@ class StreamState:
                 if keyframe:
                     item["video_last_keyframe"] = time.monotonic()
                 return packet, item["video_sequence"], 0
-            self._place_dosbox_window(item)
             temporary = self.runtime / f"{session_id}-video-{secrets.token_hex(4)}.xwd"
             try:
                 source = self._stable_xvfb_frame(item["framebuffer"])

@@ -39,9 +39,6 @@ class StreamBackendTests(unittest.TestCase):
         self.assertIn("core=normal", config)
         self.assertIn("cycles=fixed 3000", config)
         self.assertIn("pcspeaker=true", config)
-        self.assertIn("windowresolution=320x240", config)
-        self.assertIn("aspect=true", config)
-        self.assertIn("scaler=none", config)
         self.assertIn("tandy=off", config)
         self.assertIn("disney=false", config)
         self.assertIn("mpu401=none", config)
@@ -54,9 +51,8 @@ class StreamBackendTests(unittest.TestCase):
 
     def test_xvfb_uses_a_visual_accepted_by_debian_dosbox(self):
         source = MODULE.read_text()
-        self.assertIn('"320x240x24"', source)
+        self.assertIn('"640x480x24"', source)
         self.assertIn('"-fbdir"', source)
-        self.assertIn('"windowmove", str(window), "0", "0"', source)
 
     def test_stable_xvfb_frame_requires_two_identical_copies(self):
         with tempfile.TemporaryDirectory() as directory:
