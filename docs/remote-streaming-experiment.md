@@ -61,6 +61,10 @@ an 8 GiB `local-lvm` disk, DHCP on `vmbr0`, and `onboot=0`. At provisioning it
 received only `dosbox` (Debian 0.74-3), `xvfb`, `openssh-server`, and Python 3.
 The non-login `pi286stream` account owns `/srv/pi286-stream/{sessions,runtime}`.
 
+`/etc/pi286-stream.conf` is created from the example only on first install.
+Later backend deployments preserve its local choices, including
+`audio_capture=loopback` on hosts configured with `snd-aloop`.
+
 No game files are installed in the container. The backend is implemented in
 `streaming/backend/pi286_stream_server.py` and installed with
 `scripts/install-stream-backend-lxc.sh`. It listens on TCP 28680 with a
