@@ -636,9 +636,9 @@ class StreamState:
                 source = self._stable_xvfb_frame(item["framebuffer"])
                 if source is None:
                     # Direct Xvfb memory reads are much faster than running xwd
-                    # per frame. If it changes during our stability check, use a
-                    # server-serialized XGetImage snapshot rather than emit a
-                    # possibly torn frame.
+                    # per frame. The direct check is heuristic, not a locking
+                    # protocol. If it observes a concurrent update, use a
+                    # server-serialized XGetImage snapshot instead.
                     subprocess.run([self.config["xwd"], "-silent", "-root", "-display", item["display"], "-out", str(temporary)],
                                    stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=3, check=True)
                     source = temporary.read_bytes()
@@ -661,9 +661,9 @@ class StreamState:
         """Read an Xvfb `-fbdir` XWD image only when two copies agree.
 
         The file is shared memory exposed as an XWD file and has no reader
-        lock. Consecutive identical complete copies provide a cheap guard
-        against an update in progress; callers fall back to XGetImage if it
-        stays unstable.
+        lock. Consecutive identical complete copies catch common concurrent
+        updates but are not a formal atomic snapshot. Callers fall back to
+        XGetImage when the check stays unstable.
         """
         for _ in range(3):
             try:
