@@ -84,6 +84,7 @@ VIDEO_TILE = 16
 VIDEO_PACKET_HEADER = 16
 VIDEO_KEYFRAME_INTERVAL = 2.0
 POLL_HEADER = 16
+PCM_CHUNK_BYTES = 4096
 VIDEO_SCALING_MODES = ("nearest", "linear-v", "crt-lite")
 
 
@@ -450,7 +451,10 @@ class StreamState:
         source_offset = output_offset * 2
         with path.open("rb") as source:
             source.seek(source_offset)
-            raw = source.read(65536 * 2)
+            # Keep media packets short enough that the client can acknowledge
+            # PCM consumption precisely. A multi-second chunk combined with a
+            # small browser audio queue makes discarded data sound like gaps.
+            raw = source.read(PCM_CHUNK_BYTES * 2)
         raw = raw[:len(raw) // 4 * 4]
         mono = bytearray(len(raw) // 2)
         for index in range(0, len(raw), 4):

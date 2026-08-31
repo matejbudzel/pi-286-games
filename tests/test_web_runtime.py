@@ -21,6 +21,8 @@ class WebRuntimeTests(unittest.TestCase):
         self.assertIn("updateHud()", script)
         self.assertIn('event.key === "F8"', script)
         self.assertIn("X-Pi286-Web-Backend-Ms", script)
+        self.assertIn("Do not acknowledge data", script)
+        self.assertIn("nextAudioOffset", script)
 
     def test_diagnostic_session_keeps_lxc_credentials_server_side(self):
         calls = []

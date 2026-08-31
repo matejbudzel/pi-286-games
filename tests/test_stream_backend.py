@@ -90,6 +90,10 @@ class StreamBackendTests(unittest.TestCase):
             self.assertEqual(struct.unpack("<hh", result), (1000, 3000))
             self.assertEqual(next_offset, 4)
 
+    def test_audio_transport_chunks_are_short_and_pcm_aligned(self):
+        self.assertEqual(backend.PCM_CHUNK_BYTES % 2, 0)
+        self.assertLessEqual(backend.PCM_CHUNK_BYTES, 4096)
+
     def test_raw_audio_diagnostic_preserves_stereo_frame_boundaries(self):
         with tempfile.TemporaryDirectory() as directory:
             state = backend.StreamState(dict(backend.DEFAULTS, state_root=directory), "x" * 32)

@@ -48,13 +48,16 @@ function applyVideo(packet) {
   videoSeq = sequence; hudFrames++; draw(); return capture;
 }
 function queueAudio(packet) {
-  if (!packet.length || !audioContext) return;
+  if (!packet.length || !audioContext) return true;
   const now = audioContext.currentTime;
-  if (audioNext > now + .35) return;
+  // Do not acknowledge data that did not enter Web Audio's queue. The server
+  // will repeat it on the next packet instead of silently creating a PCM gap.
+  if (audioNext > now + .35) return false;
   const samples = packet.length / 2, audio = audioContext.createBuffer(1, samples, 22050), out = audio.getChannelData(0), view = new DataView(packet.buffer, packet.byteOffset, packet.byteLength);
   for (let i = 0; i < samples; i++) out[i] = view.getInt16(i * 2, true) / 32768;
   const node = audioContext.createBufferSource(); node.buffer = audio; node.connect(audioContext.destination);
   audioNext = Math.max(audioNext, now + .05); node.start(audioNext); audioNext += audio.duration;
+  return true;
 }
 async function poll() {
   if (!session || polling) return; polling = true;
@@ -66,9 +69,9 @@ async function poll() {
     const backendMs = Number(response.headers.get("X-Pi286-Web-Backend-Ms")), serverMs = Number(response.headers.get("X-Pi286-Server-Poll-Ms"));
     const bytes = new Uint8Array(await response.arrayBuffer()), view = new DataView(bytes.buffer), decodeStarted = performance.now();
     if (String.fromCharCode(...bytes.slice(0, 4)) !== "P2P1") throw Error("neplatný poll paket");
-    const videoLength = view.getUint32(4), audioLength = view.getUint32(8); audioOffset = view.getUint32(12);
+    const videoLength = view.getUint32(4), audioLength = view.getUint32(8), nextAudioOffset = view.getUint32(12);
     hudPollMs = Math.round(performance.now() - started); hudBackendMs = Number.isFinite(backendMs) && backendMs >= 0 ? backendMs : 0; hudServerMs = Number.isFinite(serverMs) && serverMs >= 0 ? serverMs : 0; hudVideoBytes = videoLength; hudAudioBytes = audioLength; hudPolls++;
-    hudCaptureMs = applyVideo(bytes.slice(16, 16 + videoLength)); queueAudio(bytes.slice(16 + videoLength, 16 + videoLength + audioLength)); hudDecodeMs = Math.round(performance.now() - decodeStarted); updateHud();
+    hudCaptureMs = applyVideo(bytes.slice(16, 16 + videoLength)); if (queueAudio(bytes.slice(16 + videoLength, 16 + videoLength + audioLength))) audioOffset = nextAudioOffset; hudDecodeMs = Math.round(performance.now() - decodeStarted); updateHud();
   } catch (error) { textStatus(`Chyba streamu: ${error.message}`); await stop(); }
   finally { polling = false; if (session) setTimeout(poll, 0); }
 }
@@ -84,9 +87,9 @@ function websocketStart() {
     try {
       const bytes = new Uint8Array(event.data), view = new DataView(bytes.buffer), started = performance.now();
       if (String.fromCharCode(...bytes.slice(0, 4)) !== "P2P1") throw Error("neplatný websocket paket");
-      const videoLength = view.getUint32(4), audioLength = view.getUint32(8); audioOffset = view.getUint32(12);
+      const videoLength = view.getUint32(4), audioLength = view.getUint32(8), nextAudioOffset = view.getUint32(12);
       hudPollMs = hudBackendMs = hudServerMs = 0; hudVideoBytes = videoLength; hudAudioBytes = audioLength; hudPolls++;
-      hudCaptureMs = applyVideo(bytes.slice(16, 16 + videoLength)); queueAudio(bytes.slice(16 + videoLength, 16 + videoLength + audioLength)); hudDecodeMs = Math.round(performance.now() - started); updateHud(); websocketControl();
+      hudCaptureMs = applyVideo(bytes.slice(16, 16 + videoLength)); if (queueAudio(bytes.slice(16 + videoLength, 16 + videoLength + audioLength))) audioOffset = nextAudioOffset; hudDecodeMs = Math.round(performance.now() - started); updateHud(); websocketControl();
     } catch (error) { textStatus(`Chyba websocketu: ${error.message}`); stop(); }
   };
   ws.onclose = () => { if (session) { textStatus("WebSocket skončil; skús HTTP polling."); stop(); } };
