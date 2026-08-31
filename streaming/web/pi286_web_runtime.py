@@ -214,21 +214,16 @@ def make_handler(runtime: WebRuntime):
                 self.send_response(HTTPStatus.SWITCHING_PROTOCOLS)
                 self.send_header("Upgrade", "websocket"); self.send_header("Connection", "Upgrade")
                 self.send_header("Sec-WebSocket-Accept", websocket_wire.accept_key(key)); self.end_headers()
-                self.connection.setblocking(False); backend_socket.setblocking(False)
                 try:
                     while True:
                         readable, _, _ = select.select([self.connection, backend_socket], [], [], 1)
                         if self.connection in readable:
-                            self.connection.setblocking(True)
                             opcode, payload = websocket_wire.read_frame(self.rfile, True)
-                            self.connection.setblocking(False)
                             if opcode == 8:
                                 backend_socket.sendall(websocket_wire.pack_frame(b"", 8, True)); return
                             backend_socket.sendall(websocket_wire.pack_frame(payload, opcode, True))
                         if backend_socket in readable:
-                            backend_socket.setblocking(True)
                             opcode, payload = websocket_wire.read_frame(backend_reader, False)
-                            backend_socket.setblocking(False)
                             if opcode == 8:
                                 self.connection.sendall(websocket_wire.pack_frame(payload, 8)); return
                             self.connection.sendall(websocket_wire.pack_frame(payload, opcode))

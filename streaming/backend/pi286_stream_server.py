@@ -967,7 +967,6 @@ def make_handler(state: StreamState):
             self.send_header("Sec-WebSocket-Accept", websocket_wire.accept_key(key))
             self.end_headers()
             request = {"input_revision": 0, "video_seq": 0, "audio_offset": 0, "held_keys": []}
-            self.connection.setblocking(False)
             try:
                 while True:
                     # Media is latest-state only; 60 Hz caps idle CPU while
@@ -975,9 +974,7 @@ def make_handler(state: StreamState):
                     # serial HTTP polling.
                     readable, _, _ = select.select([self.connection], [], [], 1 / 60)
                     if readable:
-                        self.connection.setblocking(True)
                         opcode, payload = websocket_wire.read_frame(self.rfile, True)
-                        self.connection.setblocking(False)
                         if opcode == 8:
                             self.connection.sendall(websocket_wire.pack_frame(b"", 8))
                             return
