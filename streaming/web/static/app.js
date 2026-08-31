@@ -1,5 +1,6 @@
 "use strict";
 const width = 320, height = 240, frame = new Uint8Array(width * height * 2);
+const audioBufferTarget = .50, audioStartLead = .10;
 const canvas = document.querySelector("#screen"), ctx = canvas.getContext("2d"), source = document.createElement("canvas");
 source.width = width; source.height = height;
 const sourceCtx = source.getContext("2d"), image = sourceCtx.createImageData(width, height);
@@ -53,11 +54,11 @@ function queueAudio(packet) {
   const now = audioContext.currentTime;
   // Do not acknowledge data that did not enter Web Audio's queue. The server
   // will repeat it on the next packet instead of silently creating a PCM gap.
-  if (audioNext > now + .35) return "deferred";
+  if (audioNext > now + audioBufferTarget) return "deferred";
   const samples = packet.length / 2, audio = audioContext.createBuffer(1, samples, 22050), out = audio.getChannelData(0), view = new DataView(packet.buffer, packet.byteOffset, packet.byteLength);
   for (let i = 0; i < samples; i++) out[i] = view.getInt16(i * 2, true) / 32768;
   const node = audioContext.createBufferSource(); node.buffer = audio; node.connect(audioContext.destination);
-  audioNext = Math.max(audioNext, now + .05); node.start(audioNext); audioNext += audio.duration;
+  audioNext = Math.max(audioNext, now + audioStartLead); node.start(audioNext); audioNext += audio.duration;
   return "queued";
 }
 function acceptAudio(packet, nextAudioOffset) {

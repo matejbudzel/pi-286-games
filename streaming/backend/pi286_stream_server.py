@@ -464,7 +464,9 @@ class StreamState:
 
     def _diagnostic_audio(self, output_offset: int) -> tuple[bytes, int]:
         """Generate a stable audible reference independent of DOSBox audio."""
-        samples = 4096
+        # Match normal transport packet duration (~93 ms at 22.05 kHz) so the
+        # diagnostic exercises the same browser jitter-buffer behaviour.
+        samples = PCM_CHUNK_BYTES // 2
         first_sample = output_offset // 2
         output = bytearray(samples * 2)
         for index in range(samples):

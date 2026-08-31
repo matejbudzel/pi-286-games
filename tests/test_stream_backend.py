@@ -180,7 +180,7 @@ class StreamBackendTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             state = backend.StreamState({**backend.DEFAULTS, "state_root": directory}, "token")
             audio, next_offset = state._diagnostic_audio(0)
-            self.assertEqual(len(audio), 8192)
+            self.assertEqual(len(audio), backend.PCM_CHUNK_BYTES)
             self.assertEqual(next_offset, len(audio))
             self.assertNotEqual(audio, bytes(len(audio)))
 
