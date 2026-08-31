@@ -14,6 +14,13 @@ class WebRuntimeTests(unittest.TestCase):
         for name, _content_type in web.STATIC_FILES.values():
             self.assertTrue((web.STATIC / name).is_file())
 
+    def test_browser_player_has_a_visible_transport_hud(self):
+        page = (web.STATIC / "index.html").read_text(encoding="utf-8")
+        script = (web.STATIC / "app.js").read_text(encoding="utf-8")
+        self.assertIn('id="hud"', page)
+        self.assertIn("updateHud()", script)
+        self.assertIn('event.key === "F8"', script)
+
     def test_diagnostic_session_keeps_lxc_credentials_server_side(self):
         calls = []
 

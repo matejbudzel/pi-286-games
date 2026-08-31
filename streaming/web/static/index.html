@@ -12,8 +12,11 @@
     <div id="games"></div>
   </section>
   <section id="player" hidden>
-    <canvas id="screen" width="640" height="480"></canvas>
-    <p><kbd>F1</kbd> späť do menu · šípky/klávesnica ovládajú hru</p>
+    <div id="screen-wrap">
+      <canvas id="screen" width="640" height="480"></canvas>
+      <output id="hud" aria-live="off">Čakám na prvý frame…</output>
+    </div>
+    <p><kbd>F1</kbd> späť do menu · <kbd>F8</kbd> HUD · šípky/klávesnica ovládajú hru</p>
   </section>
 </main>
 <script src="/app.js"></script>
