@@ -303,6 +303,12 @@ static int websocket_send_text(int fd, const char *body) {
     return write_all(fd, header, header_length) && write_all(fd, masked, length);
 }
 
+static void websocket_close(int fd) {
+    unsigned char frame[6] = {0x88, 0x80, 0, 0, 0, 0};
+    random_bytes(frame + 2, 4);
+    write_all(fd, frame, sizeof(frame));
+}
+
 /* Return payload length, zero for close, or -1 for malformed/failed frame. */
 /* Return a completed payload, 0 for close, -2 until more bytes arrive, or -1
  * for malformed data. Keeping incomplete frames buffered lets SDL process
@@ -552,7 +558,7 @@ int main(int argc, char **argv) {
                     if (poll_body(body, sizeof(body), &held, video_seq, audio_offset) < 0 || !websocket_send_text(fd, body)) { fprintf(stderr, "presenter: websocket acknowledgement failed (%d)\n", errno); metrics.input_fail++; stats.input_failures++; close(fd); fd = -1; }
                     else sent_revision = (int)held.revision;
                 } else if (n < 0) { fprintf(stderr, "presenter: invalid websocket frame\n"); metrics.video_fail++; stats.video_failures++; metrics.audio_fail++; stats.audio_failures++; stats.polls_failed++; close(fd); fd = -1; }
-                else { fprintf(stderr, "presenter: server sent websocket close frame\n"); close(fd); fd = -1; }
+                else { fprintf(stderr, "presenter: server sent websocket close frame\n"); close(fd); fd = -2; }
             }
             if (pump_events()) { /* Send latest held state below without waiting for media. */ }
             if (fd >= 0 && !quit && (int)held.revision != sent_revision) {
@@ -563,7 +569,27 @@ int main(int argc, char **argv) {
             range_add(metrics.audio_queued_ms, &stats.audio_queue_min, &stats.audio_queue_max, &stats.audio_queue_total);
             elapsed = now_ms() - network_window;
             if (elapsed >= 1000) { metrics.net_kbytes = (int)(network_bytes * 1000 / elapsed / 1024); network_bytes = 0; network_window = now_ms(); }
-            if (quit || fd < 0) { if (fd >= 0) close(fd); if (joystick) SDL_JoystickClose(joystick); write_session_stats(session, &stats, &metrics); SDL_CloseAudio(); SDL_FreeSurface(canvas); SDL_Quit(); return quit ? 0 : 1; }
+            if (quit || fd == -2) {
+                if (fd >= 0) { websocket_close(fd); close(fd); }
+                if (joystick) SDL_JoystickClose(joystick); write_session_stats(session, &stats, &metrics); SDL_CloseAudio(); SDL_FreeSurface(canvas); SDL_Quit(); return quit ? 0 : 1;
+            }
+            if (fd < 0) {
+                /* Brief Wi-Fi hiccups should not throw the player out of a
+                 * running DOSBox session. The backend holds it for its idle
+                 * grace period while this loop retries the same session. */
+                fprintf(stderr, "presenter: reconnecting websocket\n"); fflush(stderr);
+                SDL_Delay(500);
+                fd = websocket_open(host, port, token, session);
+                wire_used = 0;
+                if (fd >= 0 && poll_body(body, sizeof(body), &held, video_seq, audio_offset) >= 0 && websocket_send_text(fd, body) &&
+                    fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) | O_NONBLOCK) >= 0) {
+                    sent_revision = (int)held.revision;
+                    fprintf(stderr, "presenter: websocket reconnected\n"); fflush(stderr);
+                } else {
+                    if (fd >= 0) close(fd);
+                    fd = -1;
+                }
+            }
         }
     }
     for (;;) {

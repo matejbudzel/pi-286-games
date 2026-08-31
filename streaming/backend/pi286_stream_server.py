@@ -1021,6 +1021,7 @@ def make_handler(state: StreamState):
             state.touch_session(session_id)
             next_media = time.monotonic()
             media_requested = False
+            close_session = False
             try:
                 while True:
                     # A client asks for the next frame with its initial
@@ -1034,6 +1035,7 @@ def make_handler(state: StreamState):
                         opcode, payload = websocket_wire.read_frame(self.rfile, True)
                         if opcode == 8:
                             print("pi286 stream websocket session %s closed by client" % session_id, flush=True)
+                            close_session = True
                             self.connection.sendall(websocket_wire.pack_frame(b"", 8))
                             return
                         if opcode == 9:
@@ -1061,15 +1063,19 @@ def make_handler(state: StreamState):
                 print("pi286 stream websocket session %s disconnected: %s" % (session_id, type(error).__name__), flush=True)
                 return
             except (ValueError, json.JSONDecodeError, KeyError, RuntimeError) as error:
+                close_session = True
                 print("pi286 stream websocket session %s failed: %s" % (session_id, error), flush=True)
                 self.connection.sendall(websocket_wire.pack_frame(json.dumps({"error": str(error)}).encode(), 8))
             finally:
-                # A WebSocket owns its media session. Closing a tab normally
-                # closes TCP; do not leave headless DOSBox running forever.
-                try:
-                    state.stop_session(session_id)
-                except KeyError:
-                    pass
+                # Keep an unexpectedly interrupted stream available for the
+                # native Pi client to reconnect. The regular idle reaper
+                # bounds that grace period; an explicit WebSocket close ends
+                # the DOSBox session immediately.
+                if close_session:
+                    try:
+                        state.stop_session(session_id)
+                    except KeyError:
+                        pass
 
         def _request_json(self):
             try:
