@@ -6,7 +6,7 @@ const sourceCtx = source.getContext("2d"), image = sourceCtx.createImageData(wid
 const menu = document.querySelector("#menu"), player = document.querySelector("#player"), games = document.querySelector("#games"), status = document.querySelector("#status"), hud = document.querySelector("#hud");
 let session = null, videoSeq = 0, audioOffset = 0, revision = 0, polling = false, audioContext = null, audioNext = 0;
 const held = new Set();
-let hudVisible = true, hudWindow = performance.now(), hudPolls = 0, hudFrames = 0, hudPollHz = 0, hudFrameHz = 0, hudPollMs = 0, hudCaptureMs = 0, hudVideoBytes = 0, hudAudioBytes = 0;
+let hudVisible = true, hudWindow = performance.now(), hudPolls = 0, hudFrames = 0, hudPollHz = 0, hudFrameHz = 0, hudPollMs = 0, hudBackendMs = 0, hudServerMs = 0, hudDecodeMs = 0, hudCaptureMs = 0, hudVideoBytes = 0, hudAudioBytes = 0;
 
 function textStatus(value) { status.textContent = value; }
 function draw() {
@@ -30,7 +30,8 @@ function updateHud() {
   const buffered = audioContext ? Math.max(0, audioNext - audioContext.currentTime) * 1000 : 0;
   hud.hidden = !hudVisible;
   hud.textContent = `HUD  poll ${hudPollHz.toFixed(1)}/s  obraz ${hudFrameHz.toFixed(1)}/s\n` +
-    `sieť ${hudPollMs} ms  server obraz ${hudCaptureMs} ms\n` +
+    `browser RTT ${hudPollMs} ms  web→LXC ${hudBackendMs} ms  LXC ${hudServerMs} ms\n` +
+    `decode/kreslenie ${hudDecodeMs} ms  server obraz ${hudCaptureMs} ms\n` +
     `video ${(hudVideoBytes / 1024).toFixed(1)} KiB  audio ${(hudAudioBytes / 1024).toFixed(1)} KiB  buffer ${Math.round(buffered)} ms\n` +
     `frame ${videoSeq}  input rev. ${revision}`;
 }
@@ -62,11 +63,12 @@ async function poll() {
     const response = await fetch(`/api/sessions/${session}/poll`, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({input_revision: revision, video_seq: videoSeq, audio_offset: audioOffset, held_keys: [...held]})});
     if (response.status === 204) return;
     if (!response.ok) throw Error(await response.text());
-    const bytes = new Uint8Array(await response.arrayBuffer()), view = new DataView(bytes.buffer);
+    const backendMs = Number(response.headers.get("X-Pi286-Web-Backend-Ms")), serverMs = Number(response.headers.get("X-Pi286-Server-Poll-Ms"));
+    const bytes = new Uint8Array(await response.arrayBuffer()), view = new DataView(bytes.buffer), decodeStarted = performance.now();
     if (String.fromCharCode(...bytes.slice(0, 4)) !== "P2P1") throw Error("neplatný poll paket");
     const videoLength = view.getUint32(4), audioLength = view.getUint32(8); audioOffset = view.getUint32(12);
-    hudPollMs = Math.round(performance.now() - started); hudVideoBytes = videoLength; hudAudioBytes = audioLength; hudPolls++;
-    hudCaptureMs = applyVideo(bytes.slice(16, 16 + videoLength)); queueAudio(bytes.slice(16 + videoLength, 16 + videoLength + audioLength)); updateHud();
+    hudPollMs = Math.round(performance.now() - started); hudBackendMs = Number.isFinite(backendMs) && backendMs >= 0 ? backendMs : 0; hudServerMs = Number.isFinite(serverMs) && serverMs >= 0 ? serverMs : 0; hudVideoBytes = videoLength; hudAudioBytes = audioLength; hudPolls++;
+    hudCaptureMs = applyVideo(bytes.slice(16, 16 + videoLength)); queueAudio(bytes.slice(16 + videoLength, 16 + videoLength + audioLength)); hudDecodeMs = Math.round(performance.now() - decodeStarted); updateHud();
   } catch (error) { textStatus(`Chyba streamu: ${error.message}`); await stop(); }
   finally { polling = false; if (session) setTimeout(poll, 0); }
 }
@@ -75,7 +77,7 @@ async function start(gameId) {
   audioContext = new AudioContext(); await audioContext.resume(); audioNext = audioContext.currentTime;
   const response = await fetch("/api/sessions", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({game_id: gameId, video_scaling: document.querySelector("#scaling").value})});
   if (!response.ok) { textStatus(`Štart zlyhal: ${await response.text()}`); return; }
-  session = (await response.json()).id; videoSeq = 0; audioOffset = 0; hudWindow = performance.now(); hudPolls = hudFrames = hudPollHz = hudFrameHz = hudPollMs = hudCaptureMs = hudVideoBytes = hudAudioBytes = 0; frame.fill(0); draw(); updateHud(); menu.hidden = true; player.hidden = false; poll();
+  session = (await response.json()).id; videoSeq = 0; audioOffset = 0; hudWindow = performance.now(); hudPolls = hudFrames = hudPollHz = hudFrameHz = hudPollMs = hudBackendMs = hudServerMs = hudDecodeMs = hudCaptureMs = hudVideoBytes = hudAudioBytes = 0; frame.fill(0); draw(); updateHud(); menu.hidden = true; player.hidden = false; poll();
 }
 async function stop() {
   const closing = session; session = null; held.clear(); player.hidden = true; menu.hidden = false;

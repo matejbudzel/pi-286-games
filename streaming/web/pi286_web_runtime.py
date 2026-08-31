@@ -60,7 +60,7 @@ class WebRuntime:
         return {"id": local_id, "name": "Dúhová mačka" if game_id == "rainbow-cat" else self.games[game_id].name,
                 "video_scaling": scaling}
 
-    def poll(self, local_id: str, payload: dict) -> tuple[int, bytes]:
+    def poll(self, local_id: str, payload: dict) -> tuple[int, bytes, int, int]:
         remote_id = self.sessions.get(local_id)
         if not remote_id:
             raise KeyError(local_id)
@@ -69,11 +69,14 @@ class WebRuntime:
         req = request.Request(self.backend.base_url + f"/v2/sessions/{remote_id}/poll", data=body,
                               method="POST", headers=headers)
         try:
+            started = time.monotonic()
             with request.urlopen(req, timeout=3.0) as response:
-                return response.status, response.read()
+                elapsed_ms = int((time.monotonic() - started) * 1000)
+                server_ms = int(response.headers.get("X-Pi286-Server-Poll-Ms", "-1"))
+                return response.status, response.read(), elapsed_ms, server_ms
         except error.HTTPError as exc:
             if exc.code == HTTPStatus.NO_CONTENT:
-                return HTTPStatus.NO_CONTENT, b""
+                return HTTPStatus.NO_CONTENT, b"", 0, 0
             detail = exc.read().decode("utf-8", "replace")
             raise RemoteProtocolError("server rejected poll: " + detail) from exc
         except (error.URLError, TimeoutError) as exc:
@@ -151,9 +154,11 @@ def make_handler(runtime: WebRuntime):
                     return
                 prefix = "/api/sessions/"
                 if path.startswith(prefix) and path.endswith("/poll"):
-                    status, body = runtime.poll(path[len(prefix):-len("/poll")], payload)
+                    status, body, backend_ms, server_ms = runtime.poll(path[len(prefix):-len("/poll")], payload)
                     self.send_response(status)
                     self.send_header("Content-Length", str(len(body)))
+                    self.send_header("X-Pi286-Web-Backend-Ms", str(backend_ms))
+                    self.send_header("X-Pi286-Server-Poll-Ms", str(server_ms))
                     if body:
                         self.send_header("Content-Type", "application/x-pi286-poll-v1")
                     self.end_headers()

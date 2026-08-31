@@ -20,6 +20,7 @@ class WebRuntimeTests(unittest.TestCase):
         self.assertIn('id="hud"', page)
         self.assertIn("updateHud()", script)
         self.assertIn('event.key === "F8"', script)
+        self.assertIn("X-Pi286-Web-Backend-Ms", script)
 
     def test_diagnostic_session_keeps_lxc_credentials_server_side(self):
         calls = []

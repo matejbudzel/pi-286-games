@@ -924,15 +924,19 @@ def make_handler(state: StreamState):
 
         def _poll(self, session_id: str, request: dict):
             try:
+                started = time.monotonic()
                 body = state.poll(session_id, request)
+                elapsed_ms = int((time.monotonic() - started) * 1000)
                 if body is None:
                     self.send_response(HTTPStatus.NO_CONTENT)
                     self.send_header("Content-Length", "0")
+                    self.send_header("X-Pi286-Server-Poll-Ms", str(elapsed_ms))
                     self.end_headers()
                     return
                 self.send_response(HTTPStatus.OK)
                 self.send_header("Content-Type", "application/x-pi286-poll-v1")
                 self.send_header("Content-Length", str(len(body)))
+                self.send_header("X-Pi286-Server-Poll-Ms", str(elapsed_ms))
                 self.end_headers()
                 self.wfile.write(body)
             except (BrokenPipeError, ConnectionResetError):
