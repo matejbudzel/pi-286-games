@@ -4,7 +4,7 @@ const canvas = document.querySelector("#screen"), ctx = canvas.getContext("2d"),
 source.width = width; source.height = height;
 const sourceCtx = source.getContext("2d"), image = sourceCtx.createImageData(width, height);
 const menu = document.querySelector("#menu"), player = document.querySelector("#player"), games = document.querySelector("#games"), status = document.querySelector("#status"), hud = document.querySelector("#hud");
-let session = null, videoSeq = 0, audioOffset = 0, revision = 0, polling = false, audioContext = null, audioNext = 0;
+let session = null, videoSeq = 0, audioOffset = 0, revision = 0, polling = false, audioContext = null, audioNext = 0, ws = null;
 const held = new Set();
 let hudVisible = true, hudWindow = performance.now(), hudPolls = 0, hudFrames = 0, hudPollHz = 0, hudFrameHz = 0, hudPollMs = 0, hudBackendMs = 0, hudServerMs = 0, hudDecodeMs = 0, hudCaptureMs = 0, hudVideoBytes = 0, hudAudioBytes = 0;
 
@@ -72,15 +72,34 @@ async function poll() {
   } catch (error) { textStatus(`Chyba streamu: ${error.message}`); await stop(); }
   finally { polling = false; if (session) setTimeout(poll, 0); }
 }
+function websocketControl() {
+  if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({input_revision: revision, video_seq: videoSeq, audio_offset: audioOffset, held_keys: [...held]}));
+}
+function websocketStart() {
+  const scheme = location.protocol === "https:" ? "wss" : "ws";
+  ws = new WebSocket(`${scheme}://${location.host}/api/sessions/${session}/stream`); ws.binaryType = "arraybuffer";
+  ws.onopen = websocketControl;
+  ws.onmessage = event => {
+    if (!(event.data instanceof ArrayBuffer)) return;
+    try {
+      const bytes = new Uint8Array(event.data), view = new DataView(bytes.buffer), started = performance.now();
+      if (String.fromCharCode(...bytes.slice(0, 4)) !== "P2P1") throw Error("neplatný websocket paket");
+      const videoLength = view.getUint32(4), audioLength = view.getUint32(8); audioOffset = view.getUint32(12);
+      hudPollMs = hudBackendMs = hudServerMs = 0; hudVideoBytes = videoLength; hudAudioBytes = audioLength; hudPolls++;
+      hudCaptureMs = applyVideo(bytes.slice(16, 16 + videoLength)); queueAudio(bytes.slice(16 + videoLength, 16 + videoLength + audioLength)); hudDecodeMs = Math.round(performance.now() - started); updateHud(); websocketControl();
+    } catch (error) { textStatus(`Chyba websocketu: ${error.message}`); stop(); }
+  };
+  ws.onclose = () => { if (session) { textStatus("WebSocket skončil; skús HTTP polling."); stop(); } };
+}
 async function start(gameId) {
   textStatus("Pripravujem hru…");
   audioContext = new AudioContext(); await audioContext.resume(); audioNext = audioContext.currentTime;
   const response = await fetch("/api/sessions", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({game_id: gameId, video_scaling: document.querySelector("#scaling").value})});
   if (!response.ok) { textStatus(`Štart zlyhal: ${await response.text()}`); return; }
-  session = (await response.json()).id; videoSeq = 0; audioOffset = 0; hudWindow = performance.now(); hudPolls = hudFrames = hudPollHz = hudFrameHz = hudPollMs = hudBackendMs = hudServerMs = hudDecodeMs = hudCaptureMs = hudVideoBytes = hudAudioBytes = 0; frame.fill(0); draw(); updateHud(); menu.hidden = true; player.hidden = false; poll();
+  session = (await response.json()).id; videoSeq = 0; audioOffset = 0; hudWindow = performance.now(); hudPolls = hudFrames = hudPollHz = hudFrameHz = hudPollMs = hudBackendMs = hudServerMs = hudDecodeMs = hudCaptureMs = hudVideoBytes = hudAudioBytes = 0; frame.fill(0); draw(); updateHud(); menu.hidden = true; player.hidden = false; if (document.querySelector("#transport").value === "websocket") websocketStart(); else poll();
 }
 async function stop() {
-  const closing = session; session = null; held.clear(); player.hidden = true; menu.hidden = false;
+  const closing = session; session = null; if (ws) { ws.onclose = null; ws.close(); ws = null; } held.clear(); player.hidden = true; menu.hidden = false;
   if (audioContext) { await audioContext.close(); audioContext = null; }
   if (closing) await fetch(`/api/sessions/${closing}`, {method: "DELETE"});
 }
@@ -91,8 +110,8 @@ function keyName(event) {
   if (/^F(?:[2-9]|1[0-2])$/.test(event.key)) return event.key;
   return null;
 }
-addEventListener("keydown", event => { if (!session) return; if (event.key === "F1") { event.preventDefault(); stop(); return; } if (event.key === "F8") { event.preventDefault(); hudVisible = !hudVisible; updateHud(); return; } const key = keyName(event); if (key && !held.has(key)) { held.add(key); revision++; event.preventDefault(); } });
-addEventListener("keyup", event => { const key = keyName(event); if (key && held.delete(key)) { revision++; event.preventDefault(); } });
+addEventListener("keydown", event => { if (!session) return; if (event.key === "F1") { event.preventDefault(); stop(); return; } if (event.key === "F8") { event.preventDefault(); hudVisible = !hudVisible; updateHud(); return; } const key = keyName(event); if (key && !held.has(key)) { held.add(key); revision++; websocketControl(); event.preventDefault(); } });
+addEventListener("keyup", event => { const key = keyName(event); if (key && held.delete(key)) { revision++; websocketControl(); event.preventDefault(); } });
 async function initialise() {
   try {
     const response = await fetch("/api/games"), payload = await response.json();

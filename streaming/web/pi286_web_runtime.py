@@ -8,10 +8,13 @@ assets when needed, and forwards the existing binary poll protocol.
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import re
 import secrets
 import shlex
+import socket
+import select
 import sys
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -25,6 +28,7 @@ if str(ROOT) not in sys.path:
 
 from launcher.launcher import discover, values, video_scaling
 from streaming.client.remote_api import RemoteBackend, RemoteProtocolError, RemoteUnavailable
+from streaming import websocket_wire
 
 STATIC = Path(__file__).with_name("static")
 STATIC_FILES = {"/": ("index.html", "text/html; charset=utf-8"),
@@ -94,6 +98,29 @@ class WebRuntime:
             except (RemoteUnavailable, RemoteProtocolError):
                 pass
 
+    def websocket_backend(self, local_id: str):
+        remote_id = self.sessions.get(local_id)
+        if not remote_id:
+            raise KeyError(local_id)
+        parsed = urlsplit(self.backend.base_url)
+        port = parsed.port or 80
+        connection = socket.create_connection((parsed.hostname, port), timeout=3)
+        key = base64.b64encode(secrets.token_bytes(16)).decode("ascii")
+        request_bytes = ("GET /v3/sessions/%s/stream HTTP/1.1\r\nHost: %s\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
+                         "Sec-WebSocket-Version: 13\r\nSec-WebSocket-Key: %s\r\nAuthorization: Bearer %s\r\n\r\n" %
+                         (remote_id, parsed.hostname, key, self.backend.token)).encode("ascii")
+        connection.sendall(request_bytes)
+        reader = connection.makefile("rb")
+        status = reader.readline()
+        while True:
+            line = reader.readline()
+            if line in (b"\r\n", b""):
+                break
+        if b" 101 " not in status:
+            reader.close(); connection.close()
+            raise RemoteProtocolError("LXC websocket upgrade failed")
+        return connection, reader
+
 
 def make_handler(runtime: WebRuntime):
     class Handler(BaseHTTPRequestHandler):
@@ -119,7 +146,7 @@ def make_handler(runtime: WebRuntime):
                 raise ValueError("JSON object required")
             return value
 
-        def do_GET(self):
+        def _http_get(self):
             path = urlsplit(self.path).path
             if path == "/api/games":
                 self.send_json(HTTPStatus.OK, {"games": runtime.game_list(), "scaling": "nearest"})
@@ -171,6 +198,46 @@ def make_handler(runtime: WebRuntime):
                 self.send_json(HTTPStatus.BAD_REQUEST, {"error": str(exc)})
             except (RemoteUnavailable, RemoteProtocolError) as exc:
                 self.send_json(HTTPStatus.BAD_GATEWAY, {"error": str(exc)})
+
+        def do_GET(self):
+            path = urlsplit(self.path).path
+            prefix = "/api/sessions/"
+            if path.startswith(prefix) and path.endswith("/stream"):
+                local_id = path[len(prefix):-len("/stream")]
+                key = self.headers.get("Sec-WebSocket-Key", "")
+                if self.headers.get("Upgrade", "").lower() != "websocket" or not key:
+                    self.send_json(HTTPStatus.BAD_REQUEST, {"error": "websocket upgrade required"}); return
+                try:
+                    backend_socket, backend_reader = runtime.websocket_backend(local_id)
+                except (KeyError, RemoteProtocolError, OSError) as exc:
+                    self.send_json(HTTPStatus.BAD_GATEWAY, {"error": str(exc)}); return
+                self.send_response(HTTPStatus.SWITCHING_PROTOCOLS)
+                self.send_header("Upgrade", "websocket"); self.send_header("Connection", "Upgrade")
+                self.send_header("Sec-WebSocket-Accept", websocket_wire.accept_key(key)); self.end_headers()
+                self.connection.setblocking(False); backend_socket.setblocking(False)
+                try:
+                    while True:
+                        readable, _, _ = select.select([self.connection, backend_socket], [], [], 1)
+                        if self.connection in readable:
+                            self.connection.setblocking(True)
+                            opcode, payload = websocket_wire.read_frame(self.rfile, True)
+                            self.connection.setblocking(False)
+                            if opcode == 8:
+                                backend_socket.sendall(websocket_wire.pack_frame(b"", 8, True)); return
+                            backend_socket.sendall(websocket_wire.pack_frame(payload, opcode, True))
+                        if backend_socket in readable:
+                            backend_socket.setblocking(True)
+                            opcode, payload = websocket_wire.read_frame(backend_reader, False)
+                            backend_socket.setblocking(False)
+                            if opcode == 8:
+                                self.connection.sendall(websocket_wire.pack_frame(payload, 8)); return
+                            self.connection.sendall(websocket_wire.pack_frame(payload, opcode))
+                except (EOFError, BrokenPipeError, ConnectionResetError, ValueError):
+                    return
+                finally:
+                    backend_reader.close(); backend_socket.close()
+                return
+            return self._http_get()
 
         def do_DELETE(self):
             prefix = "/api/sessions/"
