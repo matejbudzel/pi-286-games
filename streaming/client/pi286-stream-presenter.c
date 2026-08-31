@@ -234,9 +234,10 @@ static int write_all(int fd, const void *data, size_t length) {
     const unsigned char *cursor = data; ssize_t written;
     while (length) {
         written = write(fd, cursor, length);
+        if (written < 0 && errno == EINTR) continue;
         if (written < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
             fd_set writable; struct timeval timeout;
-            FD_ZERO(&writable); FD_SET(fd, &writable); timeout.tv_sec = 0; timeout.tv_usec = 50000;
+            FD_ZERO(&writable); FD_SET(fd, &writable); timeout.tv_sec = 0; timeout.tv_usec = 500000;
             if (select(fd + 1, NULL, &writable, NULL, &timeout) > 0) continue;
             return 0;
         }
@@ -523,7 +524,7 @@ int main(int argc, char **argv) {
                     wire_used += (size_t)received;
                     if (wire_used == sizeof(wire)) break;
                 }
-                if (received == 0 || (received < 0 && errno != EAGAIN && errno != EWOULDBLOCK) || wire_used == sizeof(wire)) { close(fd); fd = -1; }
+                if (received == 0 || (received < 0 && errno != EAGAIN && errno != EWOULDBLOCK) || wire_used == sizeof(wire)) { fprintf(stderr, "presenter: websocket receive failed (%d)\n", received < 0 ? errno : 0); close(fd); fd = -1; }
             }
             while (fd >= 0 && (n = websocket_take_frame(wire, &wire_used, packet, sizeof(packet))) != -2) {
                 request_started = now_ms(); metrics.video_last_ms = (int)(now_ms() - request_started);
@@ -538,14 +539,14 @@ int main(int argc, char **argv) {
                     if ((unsigned int)sent_revision > input_acked) { metrics.input_last_ms = metrics.video_last_ms; input_acked = (unsigned int)sent_revision; stats.input_acks++; range_add(metrics.input_last_ms, &stats.input_rtt_min, &stats.input_rtt_max, &stats.input_rtt_total); }
                     /* Media acknowledgements carry the latest delta sequence
                      * and PCM offset, even while no key state has changed. */
-                    if (poll_body(body, sizeof(body), &held, video_seq, audio_offset) < 0 || !websocket_send_text(fd, body)) { metrics.input_fail++; stats.input_failures++; close(fd); fd = -1; }
+                    if (poll_body(body, sizeof(body), &held, video_seq, audio_offset) < 0 || !websocket_send_text(fd, body)) { fprintf(stderr, "presenter: websocket acknowledgement failed (%d)\n", errno); metrics.input_fail++; stats.input_failures++; close(fd); fd = -1; }
                     else sent_revision = (int)held.revision;
-                } else if (n < 0) { metrics.video_fail++; stats.video_failures++; metrics.audio_fail++; stats.audio_failures++; stats.polls_failed++; close(fd); fd = -1; }
+                } else if (n < 0) { fprintf(stderr, "presenter: invalid websocket frame\n"); metrics.video_fail++; stats.video_failures++; metrics.audio_fail++; stats.audio_failures++; stats.polls_failed++; close(fd); fd = -1; }
                 else { close(fd); fd = -1; }
             }
             if (pump_events()) { /* Send latest held state below without waiting for media. */ }
             if (fd >= 0 && !quit && (int)held.revision != sent_revision) {
-                if (poll_body(body, sizeof(body), &held, video_seq, audio_offset) < 0 || !websocket_send_text(fd, body)) { metrics.input_fail++; stats.input_failures++; close(fd); fd = -1; }
+                if (poll_body(body, sizeof(body), &held, video_seq, audio_offset) < 0 || !websocket_send_text(fd, body)) { fprintf(stderr, "presenter: websocket input update failed (%d)\n", errno); metrics.input_fail++; stats.input_failures++; close(fd); fd = -1; }
                 else sent_revision = (int)held.revision;
             }
             audio_metrics(&metrics); stats.audio_samples++;
