@@ -225,10 +225,10 @@ class Terminal:
         return {b"\x03":"CTRL_C", b"\x1b":"ESC", b"\x1b[A":"UP", b"\x1bOA":"UP", b"\x1b[B":"DOWN", b"\x1bOB":"DOWN", b"\x1b[C":"RIGHT", b"\x1bOC":"RIGHT", b"\x1b[D":"LEFT", b"\x1bOD":"LEFT", b" ":"SPACE", b"\r":"ENTER", b"\x1bOP":"F1"}.get(data, data.decode("utf-8", "ignore").upper())
     @staticmethod
     def line(text, current, columns):
-        prefix = ("> " if current else "  ") if columns >= 2 else ""
-        available = max(0, columns - len(prefix))
+        prefix, suffix = ("> ", " <") if current and columns >= 4 else ("", "")
+        available = max(0, columns - len(prefix) - len(suffix))
         text = text[:available]
-        return " " * max(0, (available - len(text)) // 2) + prefix + text
+        return " " * max(0, (columns - len(prefix) - len(text) - len(suffix)) // 2) + prefix + text + suffix
     @staticmethod
     def draw(lines, color="\x1b[96m", corner="", top_corner=""):
         try: size = os.get_terminal_size(sys.stdout.fileno())
@@ -291,6 +291,16 @@ def error(term, pad, game, detail, confirm):
         if key == "CTRL_C": return False
         if key in (confirm, "START"): return True
         if key in ("SELECT", "ESC"): return False
+
+def confirm_shutdown(term, pad, confirm):
+    """Require an explicit second action before powering off physical hardware."""
+    Terminal.draw([("Naozaj vypnúť Raspberry Pi?", True), ("", False),
+                   ("%s / START - vypnúť" % confirm, False),
+                   ("ESC / SELECT - späť do menu", False)], "\x1b[91m")
+    while True:
+        key = next_input(term, pad)
+        if key in (confirm, "START"): return True
+        if key in ("SELECT", "ESC", "CTRL_C"): return False
 
 def game_running_screen(game, panic):
     """Keep a meaningful console screen visible until DOSBox takes it over."""
@@ -645,6 +655,7 @@ def main():
     selected = 0; confirm = config.get("confirm_key", "SPACE").upper(); corner = ""; redraw = True
     diagnostic_index = len(games); bye_index = diagnostic_index + 1
     volume = volume_percent(config.get(AUDIO_VOLUME_KEY, "96")); set_audio_volume(volume)
+    restart_hint = False
     with Terminal() as term, DancePad() as pad:
         term.splash()
         while True:
@@ -667,7 +678,12 @@ def main():
                     volume = changed; config[AUDIO_VOLUME_KEY] = str(volume); save_value(args.host_conf, AUDIO_VOLUME_KEY, volume)
             elif key in (confirm, "START"):
                 if selected == bye_index:
-                    if not is_raspberry_pi(): return 0
+                    if not is_raspberry_pi():
+                        restart_hint = True
+                        break
+                    if not confirm_shutdown(term, pad, confirm):
+                        redraw = True
+                        continue
                     try: subprocess.run(["sudo", "-n", "/sbin/shutdown", "-h", "now"], check=True)
                     except (OSError, subprocess.CalledProcessError):
                         if not error(term, pad, Game("Systém", "", "", Path(), Path()), "Vypnutie systému zlyhalo.", confirm): return 0
@@ -693,4 +709,7 @@ def main():
                         if result == "failed" and not error(term, pad, games[selected], "DOSBox skončil s chybou.", confirm): return 0
                     except RuntimeError as exc:
                         if not error(term, pad, games[selected], str(exc), confirm): return 0
+    if restart_hint:
+        print("\nLauncher skončil. Znova ho spustíš príkazom:\n  pg-start\n")
+    return 0
 if __name__ == "__main__": raise SystemExit(main())

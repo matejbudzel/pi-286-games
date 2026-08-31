@@ -20,9 +20,20 @@ class DiscoveryTests(unittest.TestCase):
             self.assertFalse(launcher.is_raspberry_pi(model))
 
     def test_renderer_line_never_exceeds_terminal_width(self):
-        self.assertEqual(launcher.Terminal.line("A very long title", True, 5), "> A v")
+        self.assertEqual(launcher.Terminal.line("A very long title", True, 5), "> A <")
         self.assertLessEqual(len(launcher.Terminal.line("A very long title", True, 5)), 5)
         self.assertLessEqual(len(launcher.Terminal.line("A very long title", False, 1)), 1)
+
+    def test_shutdown_requires_a_second_explicit_confirmation(self):
+        original_draw, original_input = launcher.Terminal.draw, launcher.next_input
+        try:
+            launcher.Terminal.draw = lambda *args, **kwargs: None
+            launcher.next_input = lambda *args: "ESC"
+            self.assertFalse(launcher.confirm_shutdown(None, None, "SPACE"))
+            launcher.next_input = lambda *args: "SPACE"
+            self.assertTrue(launcher.confirm_shutdown(None, None, "SPACE"))
+        finally:
+            launcher.Terminal.draw, launcher.next_input = original_draw, original_input
 
     def test_splash_uses_block_logo_only_when_it_fits_and_keeps_diacritics(self):
         self.assertEqual(launcher.Terminal.splash_lines(200), launcher.SPLASH_ART)
