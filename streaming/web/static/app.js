@@ -6,7 +6,7 @@ const sourceCtx = source.getContext("2d"), image = sourceCtx.createImageData(wid
 const menu = document.querySelector("#menu"), player = document.querySelector("#player"), games = document.querySelector("#games"), status = document.querySelector("#status"), hud = document.querySelector("#hud");
 let session = null, videoSeq = 0, audioOffset = 0, revision = 0, polling = false, audioContext = null, audioNext = 0, ws = null;
 const held = new Set();
-let hudVisible = true, hudWindow = performance.now(), hudPolls = 0, hudFrames = 0, hudPollHz = 0, hudFrameHz = 0, hudPollMs = 0, hudBackendMs = 0, hudServerMs = 0, hudDecodeMs = 0, hudCaptureMs = 0, hudVideoBytes = 0, hudAudioBytes = 0;
+let hudVisible = true, hudWindow = performance.now(), hudPolls = 0, hudFrames = 0, hudPollHz = 0, hudFrameHz = 0, hudPollMs = 0, hudBackendMs = 0, hudServerMs = 0, hudDecodeMs = 0, hudCaptureMs = 0, hudVideoBytes = 0, hudAudioBytes = 0, hudAudioQueued = 0, hudAudioDuplicate = 0, hudAudioDeferred = 0;
 
 function textStatus(value) { status.textContent = value; }
 function draw() {
@@ -33,6 +33,7 @@ function updateHud() {
     `browser RTT ${hudPollMs} ms  web→LXC ${hudBackendMs} ms  LXC ${hudServerMs} ms\n` +
     `decode/kreslenie ${hudDecodeMs} ms  server obraz ${hudCaptureMs} ms\n` +
     `video ${(hudVideoBytes / 1024).toFixed(1)} KiB  audio ${(hudAudioBytes / 1024).toFixed(1)} KiB  buffer ${Math.round(buffered)} ms\n` +
+    `audio: zaradené ${hudAudioQueued}  duplicitné ${hudAudioDuplicate}  odložené ${hudAudioDeferred}\n` +
     `frame ${videoSeq}  input rev. ${revision}`;
 }
 function applyVideo(packet) {
@@ -48,16 +49,23 @@ function applyVideo(packet) {
   videoSeq = sequence; hudFrames++; draw(); return capture;
 }
 function queueAudio(packet) {
-  if (!packet.length || !audioContext) return true;
+  if (!packet.length || !audioContext) return "empty";
   const now = audioContext.currentTime;
   // Do not acknowledge data that did not enter Web Audio's queue. The server
   // will repeat it on the next packet instead of silently creating a PCM gap.
-  if (audioNext > now + .35) return false;
+  if (audioNext > now + .35) return "deferred";
   const samples = packet.length / 2, audio = audioContext.createBuffer(1, samples, 22050), out = audio.getChannelData(0), view = new DataView(packet.buffer, packet.byteOffset, packet.byteLength);
   for (let i = 0; i < samples; i++) out[i] = view.getInt16(i * 2, true) / 32768;
   const node = audioContext.createBufferSource(); node.buffer = audio; node.connect(audioContext.destination);
   audioNext = Math.max(audioNext, now + .05); node.start(audioNext); audioNext += audio.duration;
-  return true;
+  return "queued";
+}
+function acceptAudio(packet, nextAudioOffset) {
+  if (nextAudioOffset === audioOffset) { hudAudioDuplicate++; return; }
+  const result = queueAudio(packet);
+  if (result === "deferred") { hudAudioDeferred++; return; }
+  if (result === "queued") hudAudioQueued++;
+  audioOffset = nextAudioOffset;
 }
 async function poll() {
   if (!session || polling) return; polling = true;
@@ -71,7 +79,7 @@ async function poll() {
     if (String.fromCharCode(...bytes.slice(0, 4)) !== "P2P1") throw Error("neplatný poll paket");
     const videoLength = view.getUint32(4), audioLength = view.getUint32(8), nextAudioOffset = view.getUint32(12);
     hudPollMs = Math.round(performance.now() - started); hudBackendMs = Number.isFinite(backendMs) && backendMs >= 0 ? backendMs : 0; hudServerMs = Number.isFinite(serverMs) && serverMs >= 0 ? serverMs : 0; hudVideoBytes = videoLength; hudAudioBytes = audioLength; hudPolls++;
-    hudCaptureMs = applyVideo(bytes.slice(16, 16 + videoLength)); if (nextAudioOffset !== audioOffset && queueAudio(bytes.slice(16 + videoLength, 16 + videoLength + audioLength))) audioOffset = nextAudioOffset; hudDecodeMs = Math.round(performance.now() - decodeStarted); updateHud();
+    hudCaptureMs = applyVideo(bytes.slice(16, 16 + videoLength)); acceptAudio(bytes.slice(16 + videoLength, 16 + videoLength + audioLength), nextAudioOffset); hudDecodeMs = Math.round(performance.now() - decodeStarted); updateHud();
   } catch (error) { textStatus(`Chyba streamu: ${error.message}`); await stop(); }
   finally { polling = false; if (session) setTimeout(poll, 0); }
 }
@@ -92,7 +100,7 @@ function websocketStart() {
       // The LXC may send once more before it sees this browser's offset ACK.
       // TCP already guarantees the first copy arrived, so never queue that PCM
       // range twice; duplicated speaker samples sound like a false second voice.
-      hudCaptureMs = applyVideo(bytes.slice(16, 16 + videoLength)); if (nextAudioOffset !== audioOffset && queueAudio(bytes.slice(16 + videoLength, 16 + videoLength + audioLength))) audioOffset = nextAudioOffset; hudDecodeMs = Math.round(performance.now() - started); updateHud(); websocketControl();
+      hudCaptureMs = applyVideo(bytes.slice(16, 16 + videoLength)); acceptAudio(bytes.slice(16 + videoLength, 16 + videoLength + audioLength), nextAudioOffset); hudDecodeMs = Math.round(performance.now() - started); updateHud(); websocketControl();
     } catch (error) { textStatus(`Chyba websocketu: ${error.message}`); stop(); }
   };
   ws.onclose = () => { if (session) { textStatus("WebSocket skončil; skús HTTP polling."); stop(); } };
@@ -103,7 +111,7 @@ async function start(gameId) {
   const transport = document.querySelector("#transport").value;
   const response = await fetch("/api/sessions", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({game_id: gameId, video_scaling: document.querySelector("#scaling").value, transport})});
   if (!response.ok) { textStatus(`Štart zlyhal: ${await response.text()}`); return; }
-  session = (await response.json()).id; videoSeq = 0; audioOffset = 0; hudWindow = performance.now(); hudPolls = hudFrames = hudPollHz = hudFrameHz = hudPollMs = hudBackendMs = hudServerMs = hudDecodeMs = hudCaptureMs = hudVideoBytes = hudAudioBytes = 0; frame.fill(0); draw(); updateHud(); menu.hidden = true; player.hidden = false; if (transport === "websocket") websocketStart(); else poll();
+  session = (await response.json()).id; videoSeq = 0; audioOffset = 0; hudWindow = performance.now(); hudPolls = hudFrames = hudPollHz = hudFrameHz = hudPollMs = hudBackendMs = hudServerMs = hudDecodeMs = hudCaptureMs = hudVideoBytes = hudAudioBytes = hudAudioQueued = hudAudioDuplicate = hudAudioDeferred = 0; frame.fill(0); draw(); updateHud(); menu.hidden = true; player.hidden = false; if (transport === "websocket") websocketStart(); else poll();
 }
 async function stop() {
   const closing = session; session = null; if (ws) { ws.onclose = null; ws.close(); ws = null; } held.clear(); player.hidden = true; menu.hidden = false;

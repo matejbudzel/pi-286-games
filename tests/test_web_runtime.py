@@ -24,6 +24,7 @@ class WebRuntimeTests(unittest.TestCase):
         self.assertIn("Do not acknowledge data", script)
         self.assertIn("nextAudioOffset", script)
         self.assertIn("never queue that PCM", script)
+        self.assertIn("audio: zaradené", script)
 
     def test_diagnostic_session_keeps_lxc_credentials_server_side(self):
         calls = []
