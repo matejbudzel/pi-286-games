@@ -66,6 +66,12 @@ No game files are installed in the container. The backend is implemented in
 `scripts/install-stream-backend-lxc.sh`. It listens on TCP 28680 with a
 per-container bearer token stored only in `/etc/pi286-stream.token`.
 
+For the hot video conversion path the installer also builds the small native
+amd64 helper `pi286-xvfb-capture` from this repository. It is used only by
+server containers such as this LXC or the Zotac, never by the ARMv6 Pi. If it
+is missing or rejects an unstable Xvfb frame, the backend safely falls back to
+its Python/XGetImage path.
+
 The initial HTTP API is deliberately limited:
 
 - `POST /v1/manifest` reports which SHA-256 blobs are absent from the LXC cache;

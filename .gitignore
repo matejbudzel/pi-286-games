@@ -5,3 +5,4 @@ __pycache__/
 .venv/
 .cache/
 dist/
+streaming/backend/bin/

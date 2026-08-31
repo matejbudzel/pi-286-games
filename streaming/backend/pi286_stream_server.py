@@ -37,6 +37,7 @@ DEFAULTS = {
     "dosbox": "/usr/bin/dosbox",
     "xvfb": "/usr/bin/Xvfb",
     "xvfb_fbdir": "xvfb-fb",
+    "capture_helper": "/opt/pi286-stream/repo/streaming/backend/bin/pi286-xvfb-capture",
     "xwd": "/usr/bin/xwd",
     "xdotool": "/usr/bin/xdotool",
     "arecord": "/usr/bin/arecord",
@@ -633,8 +634,9 @@ class StreamState:
                 return packet, item["video_sequence"], 0
             temporary = self.runtime / f"{session_id}-video-{secrets.token_hex(4)}.xwd"
             try:
-                source = self._stable_xvfb_frame(item["framebuffer"])
-                if source is None:
+                frame = self._native_frame(item["framebuffer"], item.get("video_scaling", "nearest"))
+                source = None if frame is not None else self._stable_xvfb_frame(item["framebuffer"])
+                if source is None and frame is None:
                     # Direct Xvfb memory reads are much faster than running xwd
                     # per frame. The direct check is heuristic, not a locking
                     # protocol. If it observes a concurrent update, use a
@@ -642,7 +644,8 @@ class StreamState:
                     subprocess.run([self.config["xwd"], "-silent", "-root", "-display", item["display"], "-out", str(temporary)],
                                    stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=3, check=True)
                     source = temporary.read_bytes()
-                frame = self._xwd_to_rgb565(source, item.get("video_scaling", "nearest"))
+                if frame is None:
+                    frame = self._xwd_to_rgb565(source, item.get("video_scaling", "nearest"))
                 item["video_sequence"] = item.get("video_sequence", 0) + 1
                 capture_ms = int((time.monotonic() - started) * 1000)
                 keyframe = force_keyframe or not item.get("video_previous") or \
@@ -673,6 +676,20 @@ class StreamState:
                 return None
             if first == second:
                 return second
+        return None
+
+    def _native_frame(self, framebuffer: Path, scaling: str) -> bytes | None:
+        """Use the optional native server helper, preserving Python fallback."""
+        helper = Path(self.config.get("capture_helper", ""))
+        if not helper.is_file() or not os.access(helper, os.X_OK):
+            return None
+        try:
+            result = subprocess.run([str(helper), str(framebuffer), scaling], stdout=subprocess.PIPE,
+                                    stderr=subprocess.DEVNULL, timeout=2, check=False)
+        except OSError:
+            return None
+        if result.returncode == 0 and len(result.stdout) == VIDEO_BYTES:
+            return result.stdout
         return None
 
     @staticmethod

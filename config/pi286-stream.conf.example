@@ -8,6 +8,9 @@ xvfb=/usr/bin/Xvfb
 # Xvfb exposes Xvfb_screen0 here. The backend uses stable direct reads for
 # video capture and falls back to xwd if a frame changes while being read.
 xvfb_fbdir=xvfb-fb
+# Optional native x86_64 helper built by scripts/build-stream-capture-helper.sh.
+# If absent or unstable, the Python/XGetImage fallback remains available.
+capture_helper=/opt/pi286-stream/repo/streaming/backend/bin/pi286-xvfb-capture
 xwd=/usr/bin/xwd
 xdotool=/usr/bin/xdotool
 # Keep file for the portable prototype. On a host with snd-aloop, use

@@ -60,6 +60,12 @@ class StreamBackendTests(unittest.TestCase):
             frame.write_bytes(b"xwd-frame")
             self.assertEqual(backend.StreamState._stable_xvfb_frame(frame), b"xwd-frame")
 
+    def test_native_capture_helper_is_optional(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = backend.StreamState({**backend.DEFAULTS, "state_root": directory,
+                                         "capture_helper": str(Path(directory) / "missing")}, "x" * 32)
+            self.assertIsNone(state._native_frame(Path(directory) / "Xvfb_screen0", "nearest"))
+
     def test_frame_names_are_strict_and_do_not_escape_runtime(self):
         with tempfile.TemporaryDirectory() as directory:
             state = backend.StreamState(dict(backend.DEFAULTS, state_root=directory), "x" * 32)
