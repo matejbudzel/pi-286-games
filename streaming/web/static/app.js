@@ -71,7 +71,7 @@ async function poll() {
     if (String.fromCharCode(...bytes.slice(0, 4)) !== "P2P1") throw Error("neplatný poll paket");
     const videoLength = view.getUint32(4), audioLength = view.getUint32(8), nextAudioOffset = view.getUint32(12);
     hudPollMs = Math.round(performance.now() - started); hudBackendMs = Number.isFinite(backendMs) && backendMs >= 0 ? backendMs : 0; hudServerMs = Number.isFinite(serverMs) && serverMs >= 0 ? serverMs : 0; hudVideoBytes = videoLength; hudAudioBytes = audioLength; hudPolls++;
-    hudCaptureMs = applyVideo(bytes.slice(16, 16 + videoLength)); if (queueAudio(bytes.slice(16 + videoLength, 16 + videoLength + audioLength))) audioOffset = nextAudioOffset; hudDecodeMs = Math.round(performance.now() - decodeStarted); updateHud();
+    hudCaptureMs = applyVideo(bytes.slice(16, 16 + videoLength)); if (nextAudioOffset !== audioOffset && queueAudio(bytes.slice(16 + videoLength, 16 + videoLength + audioLength))) audioOffset = nextAudioOffset; hudDecodeMs = Math.round(performance.now() - decodeStarted); updateHud();
   } catch (error) { textStatus(`Chyba streamu: ${error.message}`); await stop(); }
   finally { polling = false; if (session) setTimeout(poll, 0); }
 }
@@ -89,7 +89,10 @@ function websocketStart() {
       if (String.fromCharCode(...bytes.slice(0, 4)) !== "P2P1") throw Error("neplatný websocket paket");
       const videoLength = view.getUint32(4), audioLength = view.getUint32(8), nextAudioOffset = view.getUint32(12);
       hudPollMs = hudBackendMs = hudServerMs = 0; hudVideoBytes = videoLength; hudAudioBytes = audioLength; hudPolls++;
-      hudCaptureMs = applyVideo(bytes.slice(16, 16 + videoLength)); if (queueAudio(bytes.slice(16 + videoLength, 16 + videoLength + audioLength))) audioOffset = nextAudioOffset; hudDecodeMs = Math.round(performance.now() - started); updateHud(); websocketControl();
+      // The LXC may send once more before it sees this browser's offset ACK.
+      // TCP already guarantees the first copy arrived, so never queue that PCM
+      // range twice; duplicated speaker samples sound like a false second voice.
+      hudCaptureMs = applyVideo(bytes.slice(16, 16 + videoLength)); if (nextAudioOffset !== audioOffset && queueAudio(bytes.slice(16 + videoLength, 16 + videoLength + audioLength))) audioOffset = nextAudioOffset; hudDecodeMs = Math.round(performance.now() - started); updateHud(); websocketControl();
     } catch (error) { textStatus(`Chyba websocketu: ${error.message}`); stop(); }
   };
   ws.onclose = () => { if (session) { textStatus("WebSocket skončil; skús HTTP polling."); stop(); } };
