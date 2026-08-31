@@ -1,6 +1,6 @@
 "use strict";
 const width = 320, height = 240, frame = new Uint8Array(width * height * 2);
-const audioBufferTarget = .50, audioStartLead = .10;
+const audioBufferTarget = .35, audioStartLead = .08;
 const canvas = document.querySelector("#screen"), ctx = canvas.getContext("2d"), source = document.createElement("canvas");
 source.width = width; source.height = height;
 const sourceCtx = source.getContext("2d"), image = sourceCtx.createImageData(width, height);

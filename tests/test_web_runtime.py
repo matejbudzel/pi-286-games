@@ -27,7 +27,7 @@ class WebRuntimeTests(unittest.TestCase):
         self.assertIn("never queue that PCM", script)
         self.assertIn("audio: zaradené", script)
         self.assertIn('querySelector("#panic")', script)
-        self.assertIn("audioBufferTarget = .50", script)
+        self.assertIn("audioBufferTarget = .35", script)
 
     def test_diagnostic_session_keeps_lxc_credentials_server_side(self):
         calls = []
