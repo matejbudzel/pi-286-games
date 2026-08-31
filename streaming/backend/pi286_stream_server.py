@@ -1085,10 +1085,11 @@ def make_handler(state: StreamState):
                     self._video(path.split("/")[3], force_keyframe)
                 elif re.fullmatch(r"/v3/sessions/[^/]+/stream", path):
                     session_id = path.split("/")[3]
-                    if state.session_status(session_id).get("transport") != "websocket":
-                        self._json(HTTPStatus.CONFLICT, {"error": "session was created for HTTP polling"})
-                    else:
-                        self._websocket(session_id)
+                    # Older web presenters predate the transport field. Keep
+                    # their WebSocket upgrade working while new clients still
+                    # declare their chosen transport at session creation.
+                    state.session_status(session_id)
+                    self._websocket(session_id)
                 elif path.startswith("/v1/sessions/") and path.endswith("/log"):
                     session_id = path.split("/")[3]
                     self._json(HTTPStatus.NOT_IMPLEMENTED, {"error": "log retrieval is not exposed yet", "id": session_id})

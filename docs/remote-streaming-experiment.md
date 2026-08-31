@@ -106,8 +106,9 @@ The initial HTTP API is deliberately limited:
   private game data.
 - `GET`/`DELETE /v1/sessions/<id>` inspect or terminate that instance.
 
-Each session declares either `poll` or `websocket` at creation, so experiments
-cannot accidentally mix the two media transports. WebSocket carries both media
+New sessions declare either `poll` or `websocket` at creation so experiments
+record their selected media transport. The backend also accepts a WebSocket
+upgrade from an older client which predates that field. WebSocket carries both media
 and complete held-key snapshots on one connection: input is consumed eagerly,
 while media generation is capped at 30 Hz. This avoids a second input protocol
 and keeps key ordering reliable. A WebSocket session is stopped as soon as its
