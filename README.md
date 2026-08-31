@@ -228,6 +228,23 @@ launcher falls back to stock local DOSBox when the presenter or LXC is absent.
 `linear-v` or `crt-lite`; the same host setting is reserved for a future local
 DOSBox renderer implementation.
 
+### Development web runtime
+
+For occasional tuning from a browser, `scripts/run-web-runtime.sh` serves a
+small alternative presenter on `0.0.0.0:28681`. It keeps the LXC token and
+private game files on the development host while the browser receives only the
+launcher data and the existing tile/PCM stream. Put the LXC token in
+`~/.config/pi286-stream.token` with mode `0600`, set `remote_dosbox_url` in the
+host configuration (or pass `--backend-url`), and run:
+
+```sh
+scripts/run-web-runtime.sh
+```
+
+Open `http://<devbox-lan-address>:28681/` from a trusted LAN device. This is a
+development convenience with no browser authentication; do not expose it to
+an untrusted network.
+
 ## Health check
 
 Run the read-only health check on the target to inspect DOSBox, framebuffer/DRM

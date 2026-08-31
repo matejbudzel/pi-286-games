@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="sk">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pi286 web runtime</title>
+<link rel="stylesheet" href="/style.css">
+<main>
+  <h1>PI286</h1>
+  <section id="menu">
+    <label>Obraz <select id="scaling"><option value="nearest">nearest</option><option value="linear-v">linear-v</option><option value="crt-lite">crt-lite</option></select></label>
+    <p id="status">Pripájam sa…</p>
+    <div id="games"></div>
+  </section>
+  <section id="player" hidden>
+    <canvas id="screen" width="640" height="480"></canvas>
+    <p><kbd>F1</kbd> späť do menu · šípky/klávesnica ovládajú hru</p>
+  </section>
+</main>
+<script src="/app.js"></script>

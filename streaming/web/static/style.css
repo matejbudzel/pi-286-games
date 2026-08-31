@@ -1,0 +1,9 @@
+:root { color-scheme: dark; font-family: monospace; background: #08080c; color: #ddd; }
+body { margin: 0; min-height: 100vh; display: grid; place-items: center; }
+main { width: min(854px, 100vw); text-align: center; }
+h1 { color: #62d9ff; letter-spacing: .25em; }
+#games { display: grid; gap: .5rem; margin: 1rem auto; max-width: 28rem; }
+button, select { background: #181827; color: #eee; border: 1px solid #5a5a7d; padding: .7rem; font: inherit; }
+button:hover, button:focus { border-color: #ff70d0; color: #ff70d0; }
+#screen { display: block; width: min(640px, 100vw); height: auto; margin: auto; background: #000; image-rendering: pixelated; }
+kbd { border: 1px solid #777; padding: .1rem .3rem; }
