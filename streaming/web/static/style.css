@@ -10,3 +10,6 @@ button:hover, button:focus { border-color: #ff70d0; color: #ff70d0; }
 #hud { position: absolute; top: .45rem; left: .45rem; max-width: calc(100% - .9rem); padding: .28rem .42rem; text-align: left; white-space: pre-wrap; color: #bffff4; background: rgb(0 0 0 / .74); border: 1px solid #3c8f89; font-size: .75rem; line-height: 1.25; pointer-events: none; }
 #hud[hidden] { display: none; }
 kbd { border: 1px solid #777; padding: .1rem .3rem; }
+.player-controls { display: flex; align-items: center; justify-content: center; gap: .75rem; margin: .8rem .4rem; }
+#panic { border-color: #db5e77; color: #ffd5dd; }
+@media (max-width: 520px) { .player-controls { align-items: stretch; flex-direction: column; } #panic { min-height: 3rem; font-weight: bold; } }

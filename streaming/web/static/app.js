@@ -127,6 +127,7 @@ function keyName(event) {
 }
 addEventListener("keydown", event => { if (!session) return; if (event.key === "F1") { event.preventDefault(); stop(); return; } if (event.key === "F8") { event.preventDefault(); hudVisible = !hudVisible; updateHud(); return; } const key = keyName(event); if (key && !held.has(key)) { held.add(key); revision++; websocketControl(); event.preventDefault(); } });
 addEventListener("keyup", event => { const key = keyName(event); if (key && held.delete(key)) { revision++; websocketControl(); event.preventDefault(); } });
+document.querySelector("#panic").addEventListener("click", () => stop());
 async function initialise() {
   try {
     const response = await fetch("/api/games"), payload = await response.json();

@@ -18,6 +18,7 @@ class WebRuntimeTests(unittest.TestCase):
         page = (web.STATIC / "index.html").read_text(encoding="utf-8")
         script = (web.STATIC / "app.js").read_text(encoding="utf-8")
         self.assertIn('id="hud"', page)
+        self.assertIn('id="panic"', page)
         self.assertIn("updateHud()", script)
         self.assertIn('event.key === "F8"', script)
         self.assertIn("X-Pi286-Web-Backend-Ms", script)
@@ -25,6 +26,7 @@ class WebRuntimeTests(unittest.TestCase):
         self.assertIn("nextAudioOffset", script)
         self.assertIn("never queue that PCM", script)
         self.assertIn("audio: zaradené", script)
+        self.assertIn('querySelector("#panic")', script)
 
     def test_diagnostic_session_keeps_lxc_credentials_server_side(self):
         calls = []
