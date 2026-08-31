@@ -14,6 +14,13 @@ dosbox_backend=local
 # remote_dosbox_token_file=~/.config/pi286-stream.token
 # remote_dosbox_presenter=/opt/pi286/stream/bin/pi286-stream-presenter
 
+# Shared display preference. The remote backend applies it before its tile
+# comparison; missing/unknown values safely use nearest. Local DOSBox will
+# gain the same setting in a later step.
+video_scaling=nearest
+# video_scaling=linear-v
+# video_scaling=crt-lite
+
 # Raspberry Pi 1 direct-console classic SDL 1.2 build. These are passed only
 # to DOSBox; the DietPi installer creates the required installation first.
 dosbox_ld_library_path=/opt/sdl12-fbcon/lib

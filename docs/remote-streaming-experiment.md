@@ -75,11 +75,16 @@ The initial HTTP API is deliberately limited:
 - `POST /v1/sessions/<id>/frames` saves an Xvfb root-window frame as XWD and
   `GET /v1/sessions/<id>/frames/<frame>.xwd` downloads it;
 - `GET /v1/sessions/<id>/video` returns an aspect-correct 320×240 RGB565
-  packet, generated from the 320×200 DOS image with vertical nearest-neighbour
-  expansion. It uses a complete keyframe on startup/recovery and roughly every
-  two seconds; intervening packets contain only changed 16×16 tiles. The Pi
-  performs only an exact 2× copy to its 640×480 SDL surface. If a packet fails,
-  the client asks for a fresh keyframe rather than applying uncertain deltas;
+  packet, generated from the 320×200 DOS image. The launcher passes its
+  `video_scaling` preference with every new session: `nearest` is the safe
+  default, `linear-v` interpolates only vertically, and `crt-lite` adds fixed
+  scanline darkening to that interpolation. The server applies this before
+  tile comparison; all modes are deterministic, so static content stays static
+  for delta encoding. It uses a complete keyframe on startup/recovery and
+  roughly every two seconds; intervening packets contain only changed 16×16
+  tiles. The Pi performs only an exact 2× copy to its 640×480 SDL surface. If
+  a packet fails, the client asks for a fresh keyframe rather than applying
+  uncertain deltas;
 - `GET /v1/sessions/<id>/audio?offset=<bytes>` returns the next bounded
   snapshot as signed 16-bit little-endian, 22050 Hz mono PCM. The caller polls
   using the response's `X-Pi286-Audio-Next-Offset` header. The LXC uses ALSA's

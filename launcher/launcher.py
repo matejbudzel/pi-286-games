@@ -24,6 +24,7 @@ PANIC_KEY = "F1"
 HDMI_PCM = "plughw:0,0"
 AUDIO_VOLUME_KEY = "audio_volume_percent"
 RAINBOW_CAT_LABEL = "Dúhová mačka"
+VIDEO_SCALING_MODES = ("nearest", "linear-v", "crt-lite")
 PAD_ACTIONS = {2: "UP", 1: "DOWN", 0: "LEFT", 3: "RIGHT", 8: "START", 9: "SELECT"}
 PAD_LAYOUT = ((6, "HORE-L"), (2, "HORE"), (7, "HORE-P"), (0, "VĽAVO"), (3, "VPRAVO"), (4, "DOLE-L"), (1, "DOLE"), (5, "DOLE-P"))
 DOSBOX_KEY_ACTIONS = {"UP": "key_up", "DOWN": "key_down", "LEFT": "key_left", "RIGHT": "key_right", "SPACE": "key_space", "ENTER": "key_enter", "ESC": "key_esc", "LSHIFT": "key_lshift", "LCTRL": "key_lctrl"}
@@ -63,6 +64,11 @@ def save_value(path, key, value):
 def volume_percent(value):
     try: return max(0, min(100, int(value)))
     except (TypeError, ValueError): return 96
+
+def video_scaling(config):
+    """Return the shared display-scaling preference, safely defaulting to nearest."""
+    value = config.get("video_scaling", "nearest").lower()
+    return value if value in VIDEO_SCALING_MODES else "nearest"
 
 def set_audio_volume(percent):
     """Set the one verified bcm2835 HDMI PCM mixer control."""
@@ -489,7 +495,8 @@ def run_remote_game(game, config, term, data, ddr_keys):
     install_screen(term, game, "Pripravujem vzdialenú hru", "Kontrolujem herné dáta...", 0)
     files, _ = backend.sync_directory(data, progress)
     executable = shlex.split(game.command)[0].replace("/", "\\")
-    session = backend.start_session(re.sub(r"[^a-z0-9_-]", "-", game.data_dir.lower()), executable, files)
+    session = backend.start_session(re.sub(r"[^a-z0-9_-]", "-", game.data_dir.lower()), executable, files,
+                                    video_scaling(config))
     try:
         return run_remote_presenter(game.name, config, backend, presenter, session["id"], ddr_keys)
     finally:
@@ -502,7 +509,7 @@ def run_rainbow_cat(config):
     if not selected:
         raise RuntimeError("Vzdialené spojenie nie je dostupné.")
     backend, presenter = selected
-    session = backend.start_rainbow_cat()
+    session = backend.start_rainbow_cat(video_scaling(config))
     try:
         return run_remote_presenter(RAINBOW_CAT_LABEL, config, backend, presenter, session["id"])
     finally:

@@ -72,6 +72,7 @@ VIDEO_TILE = 16
 VIDEO_PACKET_HEADER = 16
 VIDEO_KEYFRAME_INTERVAL = 2.0
 POLL_HEADER = 16
+VIDEO_SCALING_MODES = ("nearest", "linear-v", "crt-lite")
 
 
 def read_config(path: Path) -> dict[str, str]:
@@ -167,6 +168,9 @@ class StreamState:
         game_id = request.get("game_id")
         executable = request.get("executable")
         files = request.get("files")
+        video_scaling = request.get("video_scaling", "nearest")
+        if video_scaling not in VIDEO_SCALING_MODES:
+            video_scaling = "nearest"
         if not isinstance(game_id, str) or not SESSION_RE.fullmatch(game_id):
             raise ValueError("invalid game_id")
         if not isinstance(executable, str):
@@ -245,15 +249,16 @@ class StreamState:
             self.active[session_id].update({"audio": audio_path, "audio_stop": audio_stop,
                                             "audio_thread": audio_thread, "audio_process": audio_process,
                                             "window": None, "held_keys": set(),
-                                            "poll_stats": self._new_poll_stats()})
+                                            "poll_stats": self._new_poll_stats(),
+                                            "video_scaling": video_scaling})
             return self.session_status(session_id)
 
-    def start_rainbow_cat(self) -> dict:
+    def start_rainbow_cat(self, video_scaling: str = "nearest") -> dict:
         """Launch the built-in asset-free stream transport diagnostic."""
         digest = hashlib.sha256(RAINBOW_CAT_COM).hexdigest()
         self.store_blob(digest, io.BytesIO(RAINBOW_CAT_COM), len(RAINBOW_CAT_COM))
         status = self.start_session({"game_id": "rainbow-cat", "executable": "RAINBOW.COM",
-                                     "files": {"RAINBOW.COM": digest}})
+                                     "files": {"RAINBOW.COM": digest}, "video_scaling": video_scaling})
         with self.lock:
             self.active[status["id"]]["diagnostic"] = True
         return status
@@ -318,6 +323,7 @@ class StreamState:
                     "pid": item["dosbox"].pid, "frames": len(item["frames"]),
                     "audio_bytes": item["audio"].stat().st_size if item["audio"].exists() else 0,
                     "held_keys": sorted(item["held_keys"]),
+                    "video_scaling": item.get("video_scaling", "nearest"),
                     "audio": f"/v1/sessions/{session_id}/audio?offset=0",
                     "log": f"/v1/sessions/{session_id}/log",
                     "poll_stats": self._poll_stats_snapshot(item["poll_stats"])}
@@ -601,7 +607,8 @@ class StreamState:
                 if "DOWN" in item["held_keys"]:
                     cat_y += 3
                 item["diagnostic_cat_y"] = max(0, min(VIDEO_HEIGHT - 40, cat_y))
-                frame = self._diagnostic_frame(item["video_sequence"], item["diagnostic_cat_y"])
+                frame = self._diagnostic_frame(item["video_sequence"], item["diagnostic_cat_y"],
+                                               item.get("video_scaling", "nearest"))
                 keyframe = force_keyframe or not item.get("video_previous") or \
                     time.monotonic() - item.get("video_last_keyframe", 0.0) >= VIDEO_KEYFRAME_INTERVAL
                 packet, keyframe = self._video_packet(frame, item.get("video_previous"),
@@ -614,7 +621,7 @@ class StreamState:
             try:
                 subprocess.run([self.config["xwd"], "-silent", "-root", "-display", item["display"], "-out", str(temporary)],
                                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=3, check=True)
-                frame = self._xwd_to_rgb565(temporary.read_bytes())
+                frame = self._xwd_to_rgb565(temporary.read_bytes(), item.get("video_scaling", "nearest"))
                 item["video_sequence"] = item.get("video_sequence", 0) + 1
                 capture_ms = int((time.monotonic() - started) * 1000)
                 keyframe = force_keyframe or not item.get("video_previous") or \
@@ -629,7 +636,7 @@ class StreamState:
                 temporary.unlink(missing_ok=True)
 
     @staticmethod
-    def _diagnostic_frame(sequence: int, cat_y: int = 104) -> bytes:
+    def _diagnostic_frame(sequence: int, cat_y: int = 104, video_scaling: str = "nearest") -> bytes:
         """Return a deliberately vivid RGB565 transport reference frame."""
         colors = (0xf800, 0xfd20, 0xffe0, 0x07e0, 0x07ff, 0x001f, 0x781f)
         output = bytearray(VIDEO_BYTES)
@@ -644,7 +651,7 @@ class StreamState:
                 edge = x in (cat_x, cat_x + 63) or y in (cat_y, cat_y + 39)
                 color = 0x0000 if edge else 0xfdb7
                 struct.pack_into("<H", output, (y * VIDEO_WIDTH + x) * 2, color)
-        return bytes(output)
+        return StreamState._apply_crt_lite(bytes(output), video_scaling)
 
     @staticmethod
     def _video_packet(frame: bytes, previous: bytes | None, sequence: int, capture_ms: int,
@@ -680,7 +687,7 @@ class StreamState:
         return struct.pack(">4sBBHII", b"P2V1", 2, 0, count, sequence, capture_ms) + tiles, False
 
     @staticmethod
-    def _xwd_to_rgb565(source: bytes) -> bytes:
+    def _xwd_to_rgb565(source: bytes, video_scaling: str = "nearest") -> bytes:
         if len(source) < 100:
             raise ValueError("truncated XWD header")
         header = struct.unpack_from(">25I", source)
@@ -695,20 +702,43 @@ class StreamState:
         # 2560 bytes, but individual pixels still occupy three bytes (not four).
         # Crop the 640x400 DOS region centred in 640x480.  Horizontally sample
         # 2x, then expand the original 320x200's 6:5 pixels to square pixels
-        # using a 320x240 nearest-neighbour frame.  The Pi can therefore use a
-        # cheap exact 2x copy to its 640x480 SDL surface.
+        # using a 320x240 frame. The Pi can therefore use a cheap exact 2x
+        # copy to its 640x480 SDL surface.
         output = bytearray(VIDEO_BYTES)
         destination = 0
         for y in range(VIDEO_HEIGHT):
-            source_y = 40 + 2 * (y * 200 // VIDEO_HEIGHT)
-            row = pixels + source_y * bytes_per_line
+            source_row = y * 200 // VIDEO_HEIGHT
+            remainder = (y * 200) % VIDEO_HEIGHT
+            row = pixels + (40 + 2 * source_row) * bytes_per_line
+            next_row = pixels + (40 + 2 * min(199, source_row + 1)) * bytes_per_line
             for x in range(VIDEO_WIDTH):
                 offset = row + x * 6
                 blue, green, red = source[offset], source[offset + 1], source[offset + 2]
+                if video_scaling in ("linear-v", "crt-lite") and remainder:
+                    next_offset = next_row + x * 6
+                    next_blue, next_green, next_red = source[next_offset], source[next_offset + 1], source[next_offset + 2]
+                    blue = (blue * (VIDEO_HEIGHT - remainder) + next_blue * remainder) // VIDEO_HEIGHT
+                    green = (green * (VIDEO_HEIGHT - remainder) + next_green * remainder) // VIDEO_HEIGHT
+                    red = (red * (VIDEO_HEIGHT - remainder) + next_red * remainder) // VIDEO_HEIGHT
                 color = ((red & 0xf8) << 8) | ((green & 0xfc) << 3) | (blue >> 3)
+                if video_scaling == "crt-lite" and y % 2:
+                    color = ((color & 0xf800) * 7 // 8 & 0xf800) | ((color & 0x07e0) * 7 // 8 & 0x07e0) | ((color & 0x001f) * 7 // 8 & 0x001f)
                 output[destination] = color & 0xff
                 output[destination + 1] = color >> 8
                 destination += 2
+        return bytes(output)
+
+    @staticmethod
+    def _apply_crt_lite(frame: bytes, video_scaling: str) -> bytes:
+        if video_scaling != "crt-lite":
+            return frame
+        output = bytearray(frame)
+        for y in range(1, VIDEO_HEIGHT, 2):
+            for x in range(VIDEO_WIDTH):
+                offset = (y * VIDEO_WIDTH + x) * 2
+                color = output[offset] | output[offset + 1] << 8
+                color = ((color & 0xf800) * 7 // 8 & 0xf800) | ((color & 0x07e0) * 7 // 8 & 0x07e0) | ((color & 0x001f) * 7 // 8 & 0x001f)
+                output[offset], output[offset + 1] = color & 0xff, color >> 8
         return bytes(output)
 
     def frame_path(self, session_id: str, frame_id: str) -> Path:
@@ -889,7 +919,7 @@ def make_handler(state: StreamState):
                 elif self.path == "/v1/sessions":
                     self._json(HTTPStatus.CREATED, state.start_session(request))
                 elif self.path == "/v1/diagnostics/rainbow-cat":
-                    self._json(HTTPStatus.CREATED, state.start_rainbow_cat())
+                    self._json(HTTPStatus.CREATED, state.start_rainbow_cat(request.get("video_scaling", "nearest")))
                 elif re.fullmatch(r"/v1/sessions/[^/]+/frames", self.path):
                     self._json(HTTPStatus.CREATED, state.capture_frame(self.path.split("/")[3]))
                 elif re.fullmatch(r"/v1/sessions/[^/]+/input", self.path):

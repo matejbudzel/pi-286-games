@@ -90,14 +90,15 @@ class RemoteBackend:
             progress(total, total, "")
         return files, {"total": total, "transferred": transferred, "files": len(files)}
 
-    def start_session(self, game_id: str, executable: str, files: dict[str, str]):
-        return self.json("POST", "/v1/sessions", {"game_id": game_id, "executable": executable, "files": files})
+    def start_session(self, game_id: str, executable: str, files: dict[str, str], video_scaling: str = "nearest"):
+        return self.json("POST", "/v1/sessions", {"game_id": game_id, "executable": executable,
+                                                      "files": files, "video_scaling": video_scaling})
 
-    def start_rainbow_cat(self):
+    def start_rainbow_cat(self, video_scaling: str = "nearest"):
         """Start the server's asset-free video/audio/input transport check."""
         # The small server parses every POST body as JSON, including this
         # asset-free endpoint which otherwise needs no request fields.
-        return self.json("POST", "/v1/diagnostics/rainbow-cat", {})
+        return self.json("POST", "/v1/diagnostics/rainbow-cat", {"video_scaling": video_scaling})
 
     def stop_session(self, session_id: str):
         # Server-side process shutdown has a bounded three-second wait.

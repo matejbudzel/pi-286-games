@@ -76,6 +76,12 @@ class DiscoveryTests(unittest.TestCase):
             self.assertEqual(host.read_text().count("audio_volume_percent="), 1)
             self.assertIn("audio_volume_percent=50", host.read_text())
 
+    def test_video_scaling_defaults_safely_and_accepts_known_modes(self):
+        self.assertEqual(launcher.video_scaling({}), "nearest")
+        self.assertEqual(launcher.video_scaling({"video_scaling": "linear-v"}), "linear-v")
+        self.assertEqual(launcher.video_scaling({"video_scaling": "crt-lite"}), "crt-lite")
+        self.assertEqual(launcher.video_scaling({"video_scaling": "experimental"}), "nearest")
+
     def test_terminal_decodes_left_and_right_for_launcher_volume(self):
         self.assertEqual(launcher.Terminal.decode_key(b"\x1b[D"), "LEFT")
         self.assertEqual(launcher.Terminal.decode_key(b"\x1bOD"), "LEFT")

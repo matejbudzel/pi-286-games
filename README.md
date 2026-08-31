@@ -224,6 +224,9 @@ development host with `scripts/deploy-stream-presenter-to-pi.sh`. It copies the
 LXC's private API token to `~/.config/pi286-stream.token` without printing it.
 Set `dosbox_backend=auto` plus the LXC URL in ignored `config/host.conf`; the
 launcher falls back to stock local DOSBox when the presenter or LXC is absent.
+`video_scaling=nearest` is the conservative default. Remote sessions may use
+`linear-v` or `crt-lite`; the same host setting is reserved for a future local
+DOSBox renderer implementation.
 
 ## Health check
 

@@ -163,6 +163,20 @@ class StreamBackendTests(unittest.TestCase):
         self.assertEqual(converted[320 * 2:320 * 2 + 2], bytes((0x00, 0xf8)))
         self.assertEqual(converted[320 * 4:320 * 4 + 2], bytes((0xe0, 0x07)))
 
+    def test_video_scaling_is_deterministic_before_tile_encoding(self):
+        header = [100, 7, 2, 24, 640, 480, 0, 0, 32, 0, 8, 24, 640 * 4,
+                  4, 0x00ff0000, 0x0000ff00, 0x000000ff, 8, 256, 0, 0, 640, 480, 0, 0]
+        pixels = bytearray(640 * 480 * 4)
+        pixels[40 * 640 * 4:40 * 640 * 4 + 3] = bytes((0, 0, 255))
+        pixels[42 * 640 * 4:42 * 640 * 4 + 3] = bytes((0, 255, 0))
+        source = struct.pack(">25I", *header) + pixels
+        nearest = backend.StreamState._xwd_to_rgb565(source, "nearest")
+        linear = backend.StreamState._xwd_to_rgb565(source, "linear-v")
+        crt = backend.StreamState._xwd_to_rgb565(source, "crt-lite")
+        self.assertNotEqual(nearest[320 * 2:320 * 2 + 2], linear[320 * 2:320 * 2 + 2])
+        self.assertNotEqual(linear[320 * 2:320 * 2 + 2], crt[320 * 2:320 * 2 + 2])
+        self.assertEqual(crt, backend.StreamState._xwd_to_rgb565(source, "crt-lite"))
+
     def test_video_tiles_encode_only_changed_16x16_regions_and_recover_with_keyframe(self):
         previous = bytes(backend.VIDEO_BYTES)
         changed = bytearray(previous)
