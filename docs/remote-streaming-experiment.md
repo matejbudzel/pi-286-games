@@ -110,8 +110,8 @@ The initial HTTP API is deliberately limited:
   private game data.
 - `GET`/`DELETE /v1/sessions/<id>` inspect or terminate that instance.
 
-New sessions declare either `poll` or `websocket` at creation so experiments
-record their selected media transport. The backend also accepts a WebSocket
+New sessions declare either `poll` or `websocket` at creation and record their
+selected media transport. The backend also accepts a WebSocket
 upgrade from an older client which predates that field. WebSocket carries both media
 and complete held-key snapshots on one connection: input is consumed eagerly,
 while media generation is capped at 30 Hz. This avoids a second input protocol
@@ -123,7 +123,7 @@ session reconnection: reconnecting starts a fresh game session.
 
 The ARMv6 SDL presenter supports both transports. Set
 `remote_dosbox_transport=websocket` in the Pi's host-local configuration to
-test its native RFC 6455 client; omit it or set `poll` for the established HTTP
+use its native RFC 6455 client; omit it or set `poll` for the HTTP
 fallback. The presenter uses no WebSocket library: it emits masked text control
 frames and consumes binary `P2P1` media frames directly.
 
@@ -135,7 +135,7 @@ frames per second, end-to-end/latest server capture time and failures; local
 audio queue depth, underruns and failures; and input HTTP round-trip time,
 input failures and received payload throughput. These figures are development
 diagnostics rather than an input-to-game-response measurement.
-For **Dúhová mačka** the HUD is always enabled and starts with `TEST: A/V`, so
+For **Dúhová mačka** the HUD is enabled by default and starts with `TEST: A/V`, so
 the menu label can remain short while the screen itself explains the purpose.
 
 When the presenter returns through `F1` or the dance-pad SELECT button, it

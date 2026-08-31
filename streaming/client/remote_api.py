@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from urllib import error, request
 
+SYNC_TIMEOUT_SECONDS = 60.0
+
 
 class RemoteUnavailable(RuntimeError):
     """The configured server cannot be contacted or authenticated."""
@@ -73,7 +75,8 @@ class RemoteBackend:
 
     def sync_directory(self, directory: Path, progress=None):
         files, blobs = self.manifest(directory)
-        missing = set(self.json("POST", "/v1/manifest", {"blobs": [{"sha256": item["sha256"], "size": item["size"]} for item in blobs]}).get("missing", []))
+        missing = set(self.json("POST", "/v1/manifest", {"blobs": [{"sha256": item["sha256"], "size": item["size"]} for item in blobs]},
+                                timeout=SYNC_TIMEOUT_SECONDS).get("missing", []))
         total = sum(item["size"] for item in blobs if item["sha256"] in missing)
         transferred = 0
         for item in blobs:
@@ -81,7 +84,7 @@ class RemoteBackend:
                 continue
             with item["path"].open("rb") as source:
                 body = source.read()
-            with self._request("PUT", "/v1/blobs/" + item["sha256"], body, "application/octet-stream"):
+            with self._request("PUT", "/v1/blobs/" + item["sha256"], body, "application/octet-stream", SYNC_TIMEOUT_SECONDS):
                 pass
             transferred += item["size"]
             if progress:

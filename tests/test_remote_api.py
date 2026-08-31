@@ -32,6 +32,15 @@ class RemoteApiTests(unittest.TestCase):
         backend.json = lambda method, path, payload=None, timeout=None: calls.append((method, path, payload, timeout)) or {"stopped": True}
         self.assertEqual(backend.stop_session("demo"), {"stopped": True})
         self.assertEqual(calls, [("DELETE", "/v1/sessions/demo", None, 5.0)])
+
+    def test_sync_uses_a_long_timeout_without_slowing_health_checks(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); (root / "GAME.EXE").write_bytes(b"game")
+            backend = RemoteBackend("http://example.test", "token")
+            calls = []
+            backend.json = lambda method, path, payload=None, timeout=None: calls.append((method, path, timeout)) or {"missing": []}
+            backend.sync_directory(root)
+            self.assertEqual(calls, [("POST", "/v1/manifest", 60.0)])
     def test_manifest_hashes_regular_files_with_safe_posix_paths(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

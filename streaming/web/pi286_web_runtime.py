@@ -27,7 +27,7 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from launcher.launcher import discover, values, video_scaling
+from launcher.launcher import discover, load_ddr_mapping, values, video_scaling
 from streaming.client.remote_api import RemoteBackend, RemoteProtocolError, RemoteUnavailable
 from streaming import websocket_wire
 
@@ -64,8 +64,12 @@ class WebRuntime:
                                                 files, scaling, transport)
         local_id = secrets.token_urlsafe(12)
         self.sessions[local_id] = remote["id"]
+        pad_keys = {button: "" for button in range(9)} if game_id == "rainbow-cat" else load_ddr_mapping(self.games[game_id])[0]
+        if game_id == "rainbow-cat":
+            pad_keys.update({0: "LEFT", 1: "DOWN", 2: "UP", 3: "RIGHT", 8: "ENTER"})
+        start_key = pad_keys[8]
         return {"id": local_id, "name": "Dúhová mačka" if game_id == "rainbow-cat" else self.games[game_id].name,
-                "video_scaling": scaling}
+                "video_scaling": scaling, "start_key": start_key, "pad_keys": [pad_keys[button] for button in range(9)]}
 
     def poll(self, local_id: str, payload: dict) -> tuple[int, bytes, int, int]:
         remote_id = self.sessions.get(local_id)
@@ -231,7 +235,8 @@ def make_handler(runtime: WebRuntime):
                             if opcode == 8:
                                 self.connection.sendall(websocket_wire.pack_frame(payload, 8)); return
                             self.connection.sendall(websocket_wire.pack_frame(payload, opcode))
-                except (EOFError, BrokenPipeError, ConnectionResetError, ValueError):
+                except (EOFError, BrokenPipeError, ConnectionResetError, ValueError) as exc:
+                    print("web websocket relay ended: %s" % exc, flush=True)
                     return
                 finally:
                     backend_reader.close(); backend_socket.close()

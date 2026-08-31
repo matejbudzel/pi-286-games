@@ -1,11 +1,13 @@
 /* Minimal Pi 1 SDL 1.2 fbcon presenter for the experimental remote backend. */
 #include <SDL.h>
 #include <arpa/inet.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <netdb.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 #include <sys/socket.h>
 #include <sys/select.h>
 #include <sys/stat.h>
@@ -232,6 +234,12 @@ static int write_all(int fd, const void *data, size_t length) {
     const unsigned char *cursor = data; ssize_t written;
     while (length) {
         written = write(fd, cursor, length);
+        if (written < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+            fd_set writable; struct timeval timeout;
+            FD_ZERO(&writable); FD_SET(fd, &writable); timeout.tv_sec = 0; timeout.tv_usec = 50000;
+            if (select(fd + 1, NULL, &writable, NULL, &timeout) > 0) continue;
+            return 0;
+        }
         if (written <= 0) return 0;
         cursor += written; length -= (size_t)written;
     }
@@ -295,15 +303,21 @@ static int websocket_send_text(int fd, const char *body) {
 }
 
 /* Return payload length, zero for close, or -1 for malformed/failed frame. */
-static int websocket_read_frame(int fd, unsigned char *out, size_t capacity) {
-    unsigned char header[10]; unsigned long long length; int opcode;
-    if (!read_all(fd, header, 2) || (header[0] & 0x70) || (header[1] & 0x80)) return -1;
-    opcode = header[0] & 15; length = header[1] & 127;
-    if (!(header[0] & 0x80)) return -1;
-    if (length == 126) { if (!read_all(fd, header, 2)) return -1; length = ((unsigned long long)header[0] << 8) | header[1]; }
-    else if (length == 127) { if (!read_all(fd, header, 8)) return -1; length = 0; for (int index = 0; index < 8; index++) length = (length << 8) | header[index]; }
-    if (length > capacity || (opcode != 2 && opcode != 8)) return -1;
-    if (!read_all(fd, out, (size_t)length)) return -1;
+/* Return a completed payload, 0 for close, -2 until more bytes arrive, or -1
+ * for malformed data. Keeping incomplete frames buffered lets SDL process
+ * keyboard and dance-pad events even while a large media frame trickles in. */
+static int websocket_take_frame(unsigned char *wire, size_t *used, unsigned char *out, size_t capacity) {
+    size_t header_length = 2, total; unsigned long long length; int opcode, index;
+    if (*used < 2) return -2;
+    if ((wire[0] & 0x70) || (wire[1] & 0x80) || !(wire[0] & 0x80)) return -1;
+    opcode = wire[0] & 15; length = wire[1] & 127;
+    if (length == 126) { if (*used < 4) return -2; length = ((unsigned long long)wire[2] << 8) | wire[3]; header_length = 4; }
+    else if (length == 127) { if (*used < 10) return -2; length = 0; for (index = 0; index < 8; index++) length = (length << 8) | wire[2 + index]; header_length = 10; }
+    if (length > capacity || (opcode != 2 && opcode != 8) || length > (unsigned long long)SIZE_MAX - header_length) return -1;
+    total = header_length + (size_t)length;
+    if (*used < total) return -2;
+    if (opcode == 2) memcpy(out, wire + header_length, (size_t)length);
+    memmove(wire, wire + total, *used - total); *used -= total;
     return opcode == 8 ? 0 : (int)length;
 }
 
@@ -469,7 +483,7 @@ int main(int argc, char **argv) {
     if (!(file = fopen(token_path, "r")) || !fgets(token, sizeof(token), file)) { fprintf(stderr, "cannot read token file %s\n", token_path); return 2; }
     fclose(file); token[strcspn(token, "\r\n")] = 0;
     fprintf(stderr, "presenter: token read; initializing SDL\n"); fflush(stderr);
-    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_JOYSTICK) < 0) { fprintf(stderr, "SDL_Init failed: %s\n", SDL_GetError()); return 1; }
+    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_JOYSTICK | SDL_INIT_EVENTTHREAD) < 0) { fprintf(stderr, "SDL_Init failed: %s\n", SDL_GetError()); return 1; }
     fprintf(stderr, "presenter: SDL initialized; opening framebuffer\n"); fflush(stderr);
     if (!(screen = SDL_SetVideoMode(640, 480, 16, SDL_FULLSCREEN))) { fprintf(stderr, "SDL_SetVideoMode failed: %s\n", SDL_GetError()); SDL_Quit(); return 1; }
     if (!(canvas = create_canvas(screen))) { fprintf(stderr, "SDL_CreateRGBSurface failed: %s\n", SDL_GetError()); SDL_Quit(); return 1; }
@@ -491,11 +505,12 @@ int main(int argc, char **argv) {
     stats.started_ms = now_ms();
     stats.video_request_min = stats.server_capture_min = stats.audio_queue_min = stats.input_rtt_min = 1000000;
     if (!strcmp(transport, "websocket")) {
-        int fd, sent_revision;
+        int fd, sent_revision; unsigned char wire[POLL_PACKET_MAX + 14]; size_t wire_used = 0;
         fd = websocket_open(host, port, token, session);
         if (fd < 0 || poll_body(body, sizeof(body), &held, video_seq, audio_offset) < 0 || !websocket_send_text(fd, body)) {
             fprintf(stderr, "presenter: websocket connection failed\n"); if (fd >= 0) close(fd); SDL_CloseAudio(); SDL_FreeSurface(canvas); SDL_Quit(); return 1;
         }
+        if (fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) | O_NONBLOCK) < 0) { close(fd); SDL_CloseAudio(); SDL_FreeSurface(canvas); SDL_Quit(); return 1; }
         sent_revision = (int)held.revision;
         fprintf(stderr, "presenter: websocket connected\n"); fflush(stderr);
         for (;;) {
@@ -503,7 +518,15 @@ int main(int argc, char **argv) {
             FD_ZERO(&readable); FD_SET(fd, &readable); timeout.tv_sec = 0; timeout.tv_usec = 10000;
             selected = select(fd + 1, &readable, NULL, NULL, &timeout);
             if (selected > 0) {
-                request_started = now_ms(); n = websocket_read_frame(fd, packet, sizeof(packet)); metrics.video_last_ms = (int)(now_ms() - request_started);
+                ssize_t received;
+                while ((received = read(fd, wire + wire_used, sizeof(wire) - wire_used)) > 0) {
+                    wire_used += (size_t)received;
+                    if (wire_used == sizeof(wire)) break;
+                }
+                if (received == 0 || (received < 0 && errno != EAGAIN && errno != EWOULDBLOCK) || wire_used == sizeof(wire)) { close(fd); fd = -1; }
+            }
+            while (fd >= 0 && (n = websocket_take_frame(wire, &wire_used, packet, sizeof(packet))) != -2) {
+                request_started = now_ms(); metrics.video_last_ms = (int)(now_ms() - request_started);
                 if (n > 0 && apply_poll_packet(frame, packet, (size_t)n, &metrics.video_capture_ms, &video_seq, &audio_data, &audio_length, &next_offset)) {
                     stats.polls_completed++; network_bytes += (size_t)n; video_count++; stats.video_frames++; stats.payload_bytes += (unsigned long)n;
                     range_add(metrics.video_last_ms, &stats.video_request_min, &stats.video_request_max, &stats.video_request_total);
@@ -517,7 +540,7 @@ int main(int argc, char **argv) {
                      * and PCM offset, even while no key state has changed. */
                     if (poll_body(body, sizeof(body), &held, video_seq, audio_offset) < 0 || !websocket_send_text(fd, body)) { metrics.input_fail++; stats.input_failures++; close(fd); fd = -1; }
                     else sent_revision = (int)held.revision;
-                } else if (n < 0) { metrics.video_fail++; stats.video_failures++; metrics.audio_fail++; stats.audio_failures++; stats.polls_failed++; }
+                } else if (n < 0) { metrics.video_fail++; stats.video_failures++; metrics.audio_fail++; stats.audio_failures++; stats.polls_failed++; close(fd); fd = -1; }
                 else { close(fd); fd = -1; }
             }
             if (pump_events()) { /* Send latest held state below without waiting for media. */ }

@@ -47,8 +47,8 @@ SPLASH_ART = (
 SPLASH_COLORS = ("\x1b[91m", "\x1b[93m", "\x1b[92m", "\x1b[96m", "\x1b[94m", "\x1b[95m")
 PAD_ACTIONS = {2: "UP", 1: "DOWN", 0: "LEFT", 3: "RIGHT", 8: "START", 9: "SELECT"}
 PAD_LAYOUT = ((6, "HORE-L"), (2, "HORE"), (7, "HORE-P"), (0, "VĽAVO"), (3, "VPRAVO"), (4, "DOLE-L"), (1, "DOLE"), (5, "DOLE-P"))
-DOSBOX_KEY_ACTIONS = {"UP": "key_up", "DOWN": "key_down", "LEFT": "key_left", "RIGHT": "key_right", "SPACE": "key_space", "ENTER": "key_enter", "ESC": "key_esc", "LSHIFT": "key_lshift", "LCTRL": "key_lctrl"}
-KEY_NAMES = {"UP": "ŠÍPKA HORE", "DOWN": "ŠÍPKA DOLE", "LEFT": "ŠÍPKA VĽAVO", "RIGHT": "ŠÍPKA VPRAVO", "SPACE": "MEDZERNÍK", "ENTER": "ENTER", "ESC": "ESC", "LSHIFT": "ĽAVÝ SHIFT", "LCTRL": "ĽAVÝ CTRL"}
+DOSBOX_KEY_ACTIONS = {"UP": "key_up", "DOWN": "key_down", "LEFT": "key_left", "RIGHT": "key_right", "SPACE": "key_space", "ENTER": "key_enter", "ESC": "key_esc", "LSHIFT": "key_lshift", "LCTRL": "key_lctrl", "A": "key_a", "Z": "key_z"}
+KEY_NAMES = {"UP": "ŠÍPKA HORE", "DOWN": "ŠÍPKA DOLE", "LEFT": "ŠÍPKA VĽAVO", "RIGHT": "ŠÍPKA VPRAVO", "SPACE": "MEDZERNÍK", "ENTER": "ENTER", "ESC": "ESC", "LSHIFT": "ĽAVÝ SHIFT", "LCTRL": "ĽAVÝ CTRL", "A": "A", "Z": "Z"}
 
 class InstallationCancelled(Exception):
     pass

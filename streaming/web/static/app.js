@@ -4,10 +4,11 @@ const audioBufferTarget = .35, audioStartLead = .08;
 const canvas = document.querySelector("#screen"), ctx = canvas.getContext("2d"), source = document.createElement("canvas");
 source.width = width; source.height = height;
 const sourceCtx = source.getContext("2d"), image = sourceCtx.createImageData(width, height);
-const menu = document.querySelector("#menu"), player = document.querySelector("#player"), games = document.querySelector("#games"), status = document.querySelector("#status"), hud = document.querySelector("#hud");
+const menu = document.querySelector("#menu"), player = document.querySelector("#player"), games = document.querySelector("#games"), status = document.querySelector("#status"), hud = document.querySelector("#hud"), hudToggle = document.querySelector("#hud-toggle");
 let session = null, videoSeq = 0, audioOffset = 0, revision = 0, polling = false, audioContext = null, audioNext = 0, ws = null;
 const held = new Set();
-let hudVisible = true, hudWindow = performance.now(), hudPolls = 0, hudFrames = 0, hudPollHz = 0, hudFrameHz = 0, hudPollMs = 0, hudBackendMs = 0, hudServerMs = 0, hudDecodeMs = 0, hudCaptureMs = 0, hudVideoBytes = 0, hudAudioBytes = 0, hudAudioQueued = 0, hudAudioDuplicate = 0, hudAudioDeferred = 0;
+const heldSources = new Map();
+let hudVisible = false, hudWindow = performance.now(), hudPolls = 0, hudFrames = 0, hudPollHz = 0, hudFrameHz = 0, hudPollMs = 0, hudBackendMs = 0, hudServerMs = 0, hudDecodeMs = 0, hudCaptureMs = 0, hudVideoBytes = 0, hudAudioBytes = 0, hudAudioQueued = 0, hudAudioDuplicate = 0, hudAudioDeferred = 0;
 
 function textStatus(value) { status.textContent = value; }
 function draw() {
@@ -30,6 +31,7 @@ function updateHud() {
   }
   const buffered = audioContext ? Math.max(0, audioNext - audioContext.currentTime) * 1000 : 0;
   hud.hidden = !hudVisible;
+  hudToggle.setAttribute("aria-pressed", String(hudVisible));
   hud.textContent = `HUD  poll ${hudPollHz.toFixed(1)}/s  obraz ${hudFrameHz.toFixed(1)}/s\n` +
     `browser RTT ${hudPollMs} ms  web→LXC ${hudBackendMs} ms  LXC ${hudServerMs} ms\n` +
     `decode/kreslenie ${hudDecodeMs} ms  server obraz ${hudCaptureMs} ms\n` +
@@ -92,7 +94,7 @@ function websocketStart() {
   ws = new WebSocket(`${scheme}://${location.host}/api/sessions/${session}/stream`); ws.binaryType = "arraybuffer";
   ws.onopen = websocketControl;
   ws.onmessage = event => {
-    if (!(event.data instanceof ArrayBuffer)) return;
+    if (!(event.data instanceof ArrayBuffer)) { textStatus(`Chyba websocketu: ${event.data}`); return; }
     try {
       const bytes = new Uint8Array(event.data), view = new DataView(bytes.buffer), started = performance.now();
       if (String.fromCharCode(...bytes.slice(0, 4)) !== "P2P1") throw Error("neplatný websocket paket");
@@ -112,23 +114,42 @@ async function start(gameId) {
   const transport = document.querySelector("#transport").value;
   const response = await fetch("/api/sessions", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({game_id: gameId, video_scaling: document.querySelector("#scaling").value, transport})});
   if (!response.ok) { textStatus(`Štart zlyhal: ${await response.text()}`); return; }
-  session = (await response.json()).id; videoSeq = 0; audioOffset = 0; hudWindow = performance.now(); hudPolls = hudFrames = hudPollHz = hudFrameHz = hudPollMs = hudBackendMs = hudServerMs = hudDecodeMs = hudCaptureMs = hudVideoBytes = hudAudioBytes = hudAudioQueued = hudAudioDuplicate = hudAudioDeferred = 0; frame.fill(0); draw(); updateHud(); menu.hidden = true; player.hidden = false; if (transport === "websocket") websocketStart(); else poll();
+  const started = await response.json(); session = started.id; hudVisible = gameId === "rainbow-cat"; for (const button of document.querySelectorAll("[data-pad-button]")) { const key = started.pad_keys?.[Number(button.dataset.padButton)] || ""; button.dataset.padKeys = key; button.disabled = !key; } videoSeq = 0; audioOffset = 0; hudWindow = performance.now(); hudPolls = hudFrames = hudPollHz = hudFrameHz = hudPollMs = hudBackendMs = hudServerMs = hudDecodeMs = hudCaptureMs = hudVideoBytes = hudAudioBytes = hudAudioQueued = hudAudioDuplicate = hudAudioDeferred = 0; frame.fill(0); draw(); updateHud(); menu.hidden = true; player.hidden = false; if (transport === "websocket") websocketStart(); else poll();
 }
 async function stop() {
-  const closing = session; session = null; if (ws) { ws.onclose = null; ws.close(); ws = null; } held.clear(); player.hidden = true; menu.hidden = false;
+  const closing = session; session = null; if (ws) { ws.onclose = null; ws.close(); ws = null; } held.clear(); heldSources.clear(); player.hidden = true; menu.hidden = false;
   if (audioContext) { await audioContext.close(); audioContext = null; }
   if (closing) await fetch(`/api/sessions/${closing}`, {method: "DELETE"});
 }
 function keyName(event) {
-  const names = {ArrowUp: "UP", ArrowDown: "DOWN", ArrowLeft: "LEFT", ArrowRight: "RIGHT", Enter: "ENTER", Escape: "ESC", " ": "SPACE", Tab: "TAB", Backspace: "BACKSPACE"};
+  const names = {ArrowUp: "UP", ArrowDown: "DOWN", ArrowLeft: "LEFT", ArrowRight: "RIGHT", Enter: "ENTER", Escape: "ESC", " ": "SPACE", Tab: "TAB", Backspace: "BACKSPACE", Control: "CTRL", Alt: "ALT", Shift: "SHIFT", CapsLock: "CAPSLOCK", NumLock: "NUMLOCK", ScrollLock: "SCROLLLOCK", Pause: "PAUSE", PrintScreen: "PRINT", Insert: "INSERT", Delete: "DELETE", Home: "HOME", End: "END", PageUp: "PAGEUP", PageDown: "PAGEDOWN"};
   if (names[event.key]) return names[event.key];
+  const codes = {Minus: "MINUS", Equal: "EQUALS", BracketLeft: "LEFTBRACKET", BracketRight: "RIGHTBRACKET", Backslash: "BACKSLASH", Semicolon: "SEMICOLON", Quote: "QUOTE", Backquote: "BACKQUOTE", Comma: "COMMA", Period: "PERIOD", Slash: "SLASH", Numpad0: "KP0", Numpad1: "KP1", Numpad2: "KP2", Numpad3: "KP3", Numpad4: "KP4", Numpad5: "KP5", Numpad6: "KP6", Numpad7: "KP7", Numpad8: "KP8", Numpad9: "KP9", NumpadDecimal: "KP_PERIOD", NumpadDivide: "KP_DIVIDE", NumpadMultiply: "KP_MULTIPLY", NumpadSubtract: "KP_MINUS", NumpadAdd: "KP_PLUS", NumpadEnter: "KP_ENTER", NumpadEqual: "KP_EQUALS"};
+  if (codes[event.code]) return codes[event.code];
   if (/^[a-z0-9]$/i.test(event.key)) return event.key.toUpperCase();
   if (/^F(?:[2-9]|1[0-2])$/.test(event.key)) return event.key;
   return null;
 }
-addEventListener("keydown", event => { if (!session) return; if (event.key === "F1") { event.preventDefault(); stop(); return; } if (event.key === "F8") { event.preventDefault(); hudVisible = !hudVisible; updateHud(); return; } const key = keyName(event); if (key && !held.has(key)) { held.add(key); revision++; websocketControl(); event.preventDefault(); } });
-addEventListener("keyup", event => { const key = keyName(event); if (key && held.delete(key)) { revision++; websocketControl(); event.preventDefault(); } });
+function setHeldSource(source, keys) {
+  if (keys.length) heldSources.set(source, new Set(keys)); else heldSources.delete(source);
+  const next = new Set(); for (const sourceKeys of heldSources.values()) for (const key of sourceKeys) next.add(key);
+  if (next.size === held.size && [...next].every(key => held.has(key))) return;
+  held.clear(); for (const key of next) held.add(key); revision++; websocketControl();
+}
+function toggleHud() { hudVisible = !hudVisible; updateHud(); }
+addEventListener("keydown", event => { if (!session) return; if (event.key === "F1") { event.preventDefault(); stop(); return; } if (event.key === "F8") { event.preventDefault(); toggleHud(); return; } const key = keyName(event); if (key) { setHeldSource(`keyboard:${key}`, [key]); event.preventDefault(); } });
+addEventListener("keyup", event => { const key = keyName(event); if (key) { setHeldSource(`keyboard:${key}`, []); event.preventDefault(); } });
 document.querySelector("#panic").addEventListener("click", () => stop());
+hudToggle.addEventListener("click", toggleHud);
+document.querySelector("#pad-select").addEventListener("click", () => stop());
+for (const button of document.querySelectorAll("[data-pad-button]")) {
+  const source = event => `pad:${event.pointerId}`;
+  const release = event => { setHeldSource(source(event), []); button.classList.remove("active"); };
+  button.addEventListener("pointerdown", event => { if (!session) return; event.preventDefault(); button.setPointerCapture(event.pointerId); setHeldSource(source(event), button.dataset.padKeys.split(" ")); button.classList.add("active"); });
+  button.addEventListener("pointerup", release);
+  button.addEventListener("pointercancel", release);
+  button.addEventListener("lostpointercapture", release);
+}
 async function initialise() {
   try {
     const response = await fetch("/api/games"), payload = await response.json();

@@ -155,6 +155,14 @@ class StreamBackendTests(unittest.TestCase):
         state._find_dosbox_window = lambda _display: self.fail("empty input should not search for a window")
         state._sync_held_keys({"held_keys": set(), "window": None, "display": ":1"}, set())
 
+    def test_poll_retries_input_when_dosbox_window_is_not_ready(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = backend.StreamState(dict(backend.DEFAULTS, state_root=directory), "x" * 32)
+            state.active["one"] = {"dosbox": SimpleNamespace(poll=lambda: None), "held_keys": set(), "video_sequence": 0}
+            state._sync_held_keys = lambda _item, _keys: (_ for _ in ()).throw(RuntimeError("DOSBox input window is not ready"))
+            self.assertIsNone(state.poll("one", {"input_revision": 1, "video_seq": 0, "audio_offset": 0, "held_keys": ["UP"]}))
+            self.assertEqual(state.active["one"].get("poll_revision"), None)
+
     def test_audio_pump_rate_is_stereo_s16le(self):
         source = MODULE.read_text()
         self.assertIn("self.audio_rate * 2 * 2", source)

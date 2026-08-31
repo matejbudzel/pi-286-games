@@ -7,8 +7,8 @@
 <main>
   <h1>PI286</h1>
   <section id="menu">
-    <label>Obraz <select id="scaling"><option value="nearest">nearest</option><option value="linear-v">linear-v</option><option value="crt-lite">crt-lite</option></select></label>
-    <label>Transport <select id="transport"><option value="poll">HTTP polling</option><option value="websocket">WebSocket experiment</option></select></label>
+    <label>Obraz <select id="scaling"><option value="nearest">nearest</option><option value="linear-v">linear-v</option><option value="crt-lite" selected>crt-lite</option></select></label>
+    <label>Transport <select id="transport"><option value="poll">HTTP polling</option><option value="websocket" selected>WebSocket</option></select></label>
     <p id="status">Pripájam sa…</p>
     <div id="games"></div>
   </section>
@@ -19,8 +19,26 @@
     </div>
     <div class="player-controls">
       <button id="panic" type="button">F1 · ukončiť hru</button>
+      <button id="hud-toggle" type="button" aria-pressed="false">F8 · HUD</button>
       <span><kbd>F1</kbd> späť do menu · <kbd>F8</kbd> HUD · šípky/klávesnica ovládajú hru</span>
     </div>
+    <section id="virtual-pad" aria-label="Virtuálny tanečný pad">
+      <div class="pad-system-buttons">
+        <button id="pad-select" type="button">SELECT<br><small>F1 · späť</small></button>
+        <button id="pad-start" type="button" data-pad-button="8">START</button>
+      </div>
+      <div class="pad-directions" aria-label="Osem smerov">
+        <button type="button" data-pad-button="6" aria-label="Hore vľavo">↖</button>
+        <button type="button" data-pad-button="2" aria-label="Hore">↑</button>
+        <button type="button" data-pad-button="7" aria-label="Hore vpravo">↗</button>
+        <button type="button" data-pad-button="0" aria-label="Vľavo">←</button>
+        <span aria-hidden="true"></span>
+        <button type="button" data-pad-button="3" aria-label="Vpravo">→</button>
+        <button type="button" data-pad-button="4" aria-label="Dole vľavo">↙</button>
+        <button type="button" data-pad-button="1" aria-label="Dole">↓</button>
+        <button type="button" data-pad-button="5" aria-label="Dole vpravo">↘</button>
+      </div>
+    </section>
   </section>
 </main>
 <script src="/app.js"></script>

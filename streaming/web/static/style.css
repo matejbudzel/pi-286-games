@@ -12,4 +12,16 @@ button:hover, button:focus { border-color: #ff70d0; color: #ff70d0; }
 kbd { border: 1px solid #777; padding: .1rem .3rem; }
 .player-controls { display: flex; align-items: center; justify-content: center; gap: .75rem; margin: .8rem .4rem; }
 #panic { border-color: #db5e77; color: #ffd5dd; }
+#hud-toggle { border-color: #3c8f89; color: #bffff4; }
+#hud-toggle[aria-pressed="true"] { background: #214643; }
+#virtual-pad { width: min(25rem, calc(100vw - 1rem)); margin: 1rem auto; touch-action: none; user-select: none; }
+.pad-system-buttons { display: flex; justify-content: space-between; margin: 0 .2rem .55rem; }
+.pad-system-buttons button { min-width: 7.5rem; }
+#pad-select { border-color: #db5e77; color: #ffd5dd; }
+#pad-start { border-color: #62d9ff; color: #c9f2ff; }
+.pad-directions { display: grid; grid-template-columns: repeat(3, 1fr); gap: .35rem; }
+.pad-directions button { min-height: 4rem; padding: .25rem; font-size: 2rem; line-height: 1; touch-action: none; }
+.pad-directions button:disabled, #pad-start:disabled { color: #57576a; border-color: #34344e; }
+.pad-directions span { border: 1px dashed #34344e; }
+.pad-directions button:active, .pad-directions button.active, #pad-start:active, #pad-start.active { background: #3a3858; border-color: #ff70d0; color: #ff70d0; }
 @media (max-width: 520px) { .player-controls { align-items: stretch; flex-direction: column; } #panic { min-height: 3rem; font-weight: bold; } }

@@ -563,7 +563,17 @@ class StreamState:
                 del stats["arrival_gap_ms"][:-2048]
             input_updated = revision >= item.get("poll_revision", -1)
             if revision >= item.get("poll_revision", -1):
-                self._sync_held_keys(item, desired)
+                try:
+                    self._sync_held_keys(item, desired)
+                except RuntimeError as error:
+                    # A first pad/keyboard press can beat DOSBox publishing
+                    # its X window. Keep the session alive and retry its
+                    # complete held snapshot on the next client update.
+                    if str(error) != "DOSBox input window is not ready":
+                        raise
+                    now = time.monotonic()
+                    self._record_poll(item, revision, input_updated, started, now, now, "input-wait")
+                    return None
                 item["poll_revision"] = revision
                 stats["input_updates"] += 1
         with self.media_lock:
