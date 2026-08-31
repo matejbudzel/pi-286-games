@@ -5,6 +5,9 @@ state_root=/srv/pi286-stream
 token_file=/etc/pi286-stream.token
 dosbox=/usr/bin/dosbox
 xvfb=/usr/bin/Xvfb
+# Xvfb exposes Xvfb_screen0 here. The backend uses stable direct reads for
+# video capture and falls back to xwd if a frame changes while being read.
+xvfb_fbdir=xvfb-fb
 xwd=/usr/bin/xwd
 xdotool=/usr/bin/xdotool
 # Keep file for the portable prototype. On a host with snd-aloop, use

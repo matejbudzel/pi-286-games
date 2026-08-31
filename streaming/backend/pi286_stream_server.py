@@ -36,6 +36,7 @@ DEFAULTS = {
     "token_file": "/etc/pi286-stream.token",
     "dosbox": "/usr/bin/dosbox",
     "xvfb": "/usr/bin/Xvfb",
+    "xvfb_fbdir": "xvfb-fb",
     "xwd": "/usr/bin/xwd",
     "xdotool": "/usr/bin/xdotool",
     "arecord": "/usr/bin/arecord",
@@ -217,9 +218,12 @@ class StreamState:
                 (session_dir / ".asoundrc").write_text(self._alsa_capture_config(audio_fifo), encoding="utf-8")
             log = (self.runtime / f"{session_id}.log").open("ab", buffering=0)
             display = self._next_display()
+            framebuffer_directory = session_dir / self.config["xvfb_fbdir"]
+            framebuffer_directory.mkdir(mode=0o700)
             # Debian's SDL 1.2 DOSBox build does not accept Xvfb's 8-bit visual.
             # This is server-only capture; the future Pi protocol remains 8-bit.
-            xvfb = subprocess.Popen([self.config["xvfb"], display, "-screen", "0", "640x480x24", "-nolisten", "tcp"],
+            xvfb = subprocess.Popen([self.config["xvfb"], display, "-screen", "0", "640x480x24",
+                                     "-fbdir", str(framebuffer_directory), "-nolisten", "tcp"],
                                     stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
             time.sleep(0.15)
             if xvfb.poll() is not None:
@@ -250,7 +254,8 @@ class StreamState:
                                             "audio_thread": audio_thread, "audio_process": audio_process,
                                             "window": None, "held_keys": set(),
                                             "poll_stats": self._new_poll_stats(),
-                                            "video_scaling": video_scaling})
+                                            "video_scaling": video_scaling,
+                                            "framebuffer": framebuffer_directory / "Xvfb_screen0"})
             return self.session_status(session_id)
 
     def start_rainbow_cat(self, video_scaling: str = "nearest") -> dict:
@@ -628,9 +633,16 @@ class StreamState:
                 return packet, item["video_sequence"], 0
             temporary = self.runtime / f"{session_id}-video-{secrets.token_hex(4)}.xwd"
             try:
-                subprocess.run([self.config["xwd"], "-silent", "-root", "-display", item["display"], "-out", str(temporary)],
-                               stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=3, check=True)
-                frame = self._xwd_to_rgb565(temporary.read_bytes(), item.get("video_scaling", "nearest"))
+                source = self._stable_xvfb_frame(item["framebuffer"])
+                if source is None:
+                    # Direct Xvfb memory reads are much faster than running xwd
+                    # per frame. If it changes during our stability check, use a
+                    # server-serialized XGetImage snapshot rather than emit a
+                    # possibly torn frame.
+                    subprocess.run([self.config["xwd"], "-silent", "-root", "-display", item["display"], "-out", str(temporary)],
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=3, check=True)
+                    source = temporary.read_bytes()
+                frame = self._xwd_to_rgb565(source, item.get("video_scaling", "nearest"))
                 item["video_sequence"] = item.get("video_sequence", 0) + 1
                 capture_ms = int((time.monotonic() - started) * 1000)
                 keyframe = force_keyframe or not item.get("video_previous") or \
@@ -643,6 +655,25 @@ class StreamState:
                 return packet, item["video_sequence"], capture_ms
             finally:
                 temporary.unlink(missing_ok=True)
+
+    @staticmethod
+    def _stable_xvfb_frame(path: Path) -> bytes | None:
+        """Read an Xvfb `-fbdir` XWD image only when two copies agree.
+
+        The file is shared memory exposed as an XWD file and has no reader
+        lock. Consecutive identical complete copies provide a cheap guard
+        against an update in progress; callers fall back to XGetImage if it
+        stays unstable.
+        """
+        for _ in range(3):
+            try:
+                first = path.read_bytes()
+                second = path.read_bytes()
+            except FileNotFoundError:
+                return None
+            if first == second:
+                return second
+        return None
 
     @staticmethod
     def _diagnostic_frame(sequence: int, cat_y: int = 104, video_scaling: str = "nearest") -> bytes:

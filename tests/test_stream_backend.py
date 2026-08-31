@@ -52,6 +52,13 @@ class StreamBackendTests(unittest.TestCase):
     def test_xvfb_uses_a_visual_accepted_by_debian_dosbox(self):
         source = MODULE.read_text()
         self.assertIn('"640x480x24"', source)
+        self.assertIn('"-fbdir"', source)
+
+    def test_stable_xvfb_frame_requires_two_identical_copies(self):
+        with tempfile.TemporaryDirectory() as directory:
+            frame = Path(directory) / "Xvfb_screen0"
+            frame.write_bytes(b"xwd-frame")
+            self.assertEqual(backend.StreamState._stable_xvfb_frame(frame), b"xwd-frame")
 
     def test_frame_names_are_strict_and_do_not_escape_runtime(self):
         with tempfile.TemporaryDirectory() as directory:
