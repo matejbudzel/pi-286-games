@@ -21,12 +21,17 @@ import shutil
 import signal
 import subprocess
 import struct
+import sys
 import threading
 import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path, PurePosixPath
 from urllib.parse import parse_qs, urlsplit
+
+ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 from streaming import websocket_wire
 
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
