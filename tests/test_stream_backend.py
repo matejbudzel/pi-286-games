@@ -56,6 +56,7 @@ class StreamBackendTests(unittest.TestCase):
         source = MODULE.read_text()
         self.assertIn('"320x240x24"', source)
         self.assertIn('"-fbdir"', source)
+        self.assertIn('"windowmove", str(window), "0", "0"', source)
 
     def test_stable_xvfb_frame_requires_two_identical_copies(self):
         with tempfile.TemporaryDirectory() as directory:

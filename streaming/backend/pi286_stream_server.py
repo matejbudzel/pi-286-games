@@ -580,6 +580,25 @@ class StreamState:
         windows = result.stdout.split()
         return windows[-1] if windows else None
 
+    def _place_dosbox_window(self, item: dict) -> None:
+        """Keep SDL's 320x240 window inside the equally sized Xvfb root.
+
+        SDL 1.2 centres this window using stale 640x480 assumptions and can
+        place it at negative coordinates. The direct root capture would then
+        contain only its bottom-right quadrant.
+        """
+        if item.get("window_positioned"):
+            return
+        window = item.get("window") or self._find_dosbox_window(item["display"])
+        if not window:
+            return
+        result = subprocess.run([self.config["xdotool"], "windowmove", str(window), "0", "0"],
+                                env=dict(os.environ, DISPLAY=item["display"]), stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL, timeout=2)
+        if result.returncode == 0:
+            item["window"] = window
+            item["window_positioned"] = True
+
     def _release_all_keys(self, item: dict) -> None:
         window = item.get("window")
         if not window:
@@ -632,6 +651,7 @@ class StreamState:
                 if keyframe:
                     item["video_last_keyframe"] = time.monotonic()
                 return packet, item["video_sequence"], 0
+            self._place_dosbox_window(item)
             temporary = self.runtime / f"{session_id}-video-{secrets.token_hex(4)}.xwd"
             try:
                 source = self._stable_xvfb_frame(item["framebuffer"])
