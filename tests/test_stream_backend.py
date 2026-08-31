@@ -114,6 +114,11 @@ class StreamBackendTests(unittest.TestCase):
             self.assertEqual(stats["stale"], 0)
             self.assertEqual(stats["total_ms"]["count"], 1)
 
+    def test_empty_held_snapshot_does_not_require_dosbox_input_window(self):
+        state = backend.StreamState.__new__(backend.StreamState)
+        state._find_dosbox_window = lambda _display: self.fail("empty input should not search for a window")
+        state._sync_held_keys({"held_keys": set(), "window": None, "display": ":1"}, set())
+
     def test_audio_pump_rate_is_stereo_s16le(self):
         source = MODULE.read_text()
         self.assertIn("self.audio_rate * 2 * 2", source)

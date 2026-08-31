@@ -538,6 +538,10 @@ class StreamState:
             return struct.pack(">4sIII", b"P2P1", len(video), len(audio), next_audio) + video + audio
 
     def _sync_held_keys(self, item: dict, desired: set[str]) -> None:
+        # The first media poll normally has an empty snapshot. It must not wait
+        # for DOSBox's X window merely to confirm that no key needs changing.
+        if desired == item["held_keys"]:
+            return
         window = item["window"] or self._find_dosbox_window(item["display"])
         if not window:
             raise RuntimeError("DOSBox input window is not ready")
