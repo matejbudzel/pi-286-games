@@ -55,6 +55,7 @@ scripts/deploy-stream-presenter-to-pi.sh
 
 ## Web runtime
 
-`scripts/run-web-runtime.sh` provides a trusted-LAN browser presenter for
-tuning. It keeps the bearer token and game assets on the development host and
-uses the same server session and transport protocol as the Pi client.
+The LXC stream server serves its trusted-LAN browser presenter directly on its
+configured port. Open its root URL (for example `http://192.168.100.194:28680`)
+to use the same direct session and transport protocol as the Pi client. The
+browser never receives the bearer token or accesses private game data.

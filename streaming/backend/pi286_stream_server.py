@@ -34,6 +34,11 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 from streaming import websocket_wire
 
+WEB_STATIC = ROOT / "streaming" / "web" / "static"
+WEB_FILES = {"/": ("index.html", "text/html; charset=utf-8"),
+             "/app.js": ("app.js", "text/javascript; charset=utf-8"),
+             "/style.css": ("style.css", "text/css; charset=utf-8")}
+
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 SESSION_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 DEFAULTS = {
@@ -1019,6 +1024,19 @@ def make_handler(state: StreamState):
             with path.open("rb") as source:
                 shutil.copyfileobj(source, self.wfile)
 
+        def _web_file(self, path: str) -> bool:
+            item = WEB_FILES.get(path)
+            if not item:
+                return False
+            name, content_type = item
+            body = (WEB_STATIC / name).read_bytes()
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return True
+
         def _audio(self, session_id: str, offset: int):
             body, next_offset = state.audio_chunk(session_id, offset)
             self.send_response(HTTPStatus.OK)
@@ -1165,11 +1183,20 @@ def make_handler(state: StreamState):
             return True
 
         def do_GET(self):
-            if not self._check_auth(): return
             parsed = urlsplit(self.path)
             path = parsed.path
             try:
-                if path == "/v1/status":
+                if self._web_file(path):
+                    return
+                if path == "/web/api/games":
+                    self._json(HTTPStatus.OK, state.game_catalog({"keyboard": True, "dance_pad": True}))
+                elif re.fullmatch(r"/web/api/sessions/[^/]+/stream", path):
+                    session_id = path.split("/")[4]
+                    state.session_status(session_id)
+                    self._websocket(session_id)
+                elif not self._check_auth():
+                    return
+                elif path == "/v1/status":
                     self._json(HTTPStatus.OK, {"api": 1, "active_sessions": len(state.active),
                                                 "media_transport": "not implemented"})
                 elif path == "/v1/games":
@@ -1209,10 +1236,15 @@ def make_handler(state: StreamState):
             except ValueError as error: self._json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
 
         def do_POST(self):
-            if not self._check_auth(): return
             try:
                 request = self._request_json()
-                if self.path == "/v1/manifest":
+                if self.path == "/web/api/sessions":
+                    self._json(HTTPStatus.CREATED, state.start_session(request))
+                elif re.fullmatch(r"/web/api/sessions/[^/]+/poll", self.path):
+                    self._poll(self.path.split("/")[4], request)
+                elif not self._check_auth():
+                    return
+                elif self.path == "/v1/manifest":
                     if not isinstance(request, dict) or not isinstance(request.get("blobs"), list): raise ValueError("blobs array required")
                     self._json(HTTPStatus.OK, {"missing": state.missing(request["blobs"])})
                 elif self.path == "/v1/sessions":
@@ -1242,11 +1274,15 @@ def make_handler(state: StreamState):
             except (ValueError, OSError) as error: self._json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
 
         def do_DELETE(self):
-            if not self._check_auth(): return
-            if not self.path.startswith("/v1/sessions/") or "/" in self.path[len("/v1/sessions/"):]:
+            if self.path.startswith("/web/api/sessions/") and "/" not in self.path[len("/web/api/sessions/"):]:
+                session_id = self.path.rsplit("/", 1)[-1]
+            elif self.path.startswith("/v1/sessions/") and "/" not in self.path[len("/v1/sessions/"):]:
+                if not self._check_auth(): return
+                session_id = self.path.rsplit("/", 1)[-1]
+            else:
                 self._json(HTTPStatus.NOT_FOUND, {"error": "not found"}); return
             try:
-                state.stop_session(self.path.rsplit("/", 1)[-1])
+                state.stop_session(session_id)
                 self._json(HTTPStatus.OK, {"stopped": True})
             except KeyError: self._json(HTTPStatus.NOT_FOUND, {"error": "unknown session"})
     return Handler

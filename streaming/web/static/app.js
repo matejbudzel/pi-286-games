@@ -74,7 +74,7 @@ async function poll() {
   if (!session || polling) return; polling = true;
   try {
     const started = performance.now();
-    const response = await fetch(`/api/sessions/${session}/poll`, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({input_revision: revision, video_seq: videoSeq, audio_offset: audioOffset, keyboard_held: [...held], dance_pad_held: [...padHeld]})});
+    const response = await fetch(`/web/api/sessions/${session}/poll`, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({input_revision: revision, video_seq: videoSeq, audio_offset: audioOffset, keyboard_held: [...held], dance_pad_held: [...padHeld]})});
     if (response.status === 204) return;
     if (!response.ok) throw Error(await response.text());
     const backendMs = Number(response.headers.get("X-Pi286-Web-Backend-Ms")), serverMs = Number(response.headers.get("X-Pi286-Server-Poll-Ms"));
@@ -91,7 +91,7 @@ function websocketControl() {
 }
 function websocketStart() {
   const scheme = location.protocol === "https:" ? "wss" : "ws";
-  ws = new WebSocket(`${scheme}://${location.host}/api/sessions/${session}/stream`); ws.binaryType = "arraybuffer";
+  ws = new WebSocket(`${scheme}://${location.host}/web/api/sessions/${session}/stream`); ws.binaryType = "arraybuffer";
   ws.onopen = websocketControl;
   ws.onmessage = event => {
     if (!(event.data instanceof ArrayBuffer)) { textStatus(`Chyba websocketu: ${event.data}`); return; }
@@ -112,14 +112,14 @@ async function start(gameId) {
   textStatus("Pripravujem hru…");
   audioContext = new AudioContext(); await audioContext.resume(); audioNext = audioContext.currentTime;
   const transport = document.querySelector("#transport").value;
-  const response = await fetch("/api/sessions", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({game_id: gameId, video_scaling: document.querySelector("#scaling").value, transport})});
+  const response = await fetch("/web/api/sessions", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({game_id: gameId, video_scaling: document.querySelector("#scaling").value, transport})});
   if (!response.ok) { textStatus(`Štart zlyhal: ${await response.text()}`); return; }
   const started = await response.json(); session = started.id; videoSeq = 0; audioOffset = 0; hudWindow = performance.now(); hudPolls = hudFrames = hudPollHz = hudFrameHz = hudPollMs = hudBackendMs = hudServerMs = hudDecodeMs = hudCaptureMs = hudVideoBytes = hudAudioBytes = hudAudioQueued = hudAudioDuplicate = hudAudioDeferred = 0; frame.fill(0); draw(); updateHud(); menu.hidden = true; player.hidden = false; if (transport === "websocket") websocketStart(); else poll();
 }
 async function stop() {
   const closing = session; session = null; if (ws) { ws.onclose = null; ws.close(); ws = null; } held.clear(); padHeld.clear(); heldSources.clear(); player.hidden = true; menu.hidden = false;
   if (audioContext) { await audioContext.close(); audioContext = null; }
-  if (closing) await fetch(`/api/sessions/${closing}`, {method: "DELETE"});
+  if (closing) await fetch(`/web/api/sessions/${closing}`, {method: "DELETE"});
 }
 function keyName(event) {
   const names = {ArrowUp: "UP", ArrowDown: "DOWN", ArrowLeft: "LEFT", ArrowRight: "RIGHT", Enter: "ENTER", Escape: "ESC", " ": "SPACE", Tab: "TAB", Backspace: "BACKSPACE", Control: "CTRL", Alt: "ALT", Shift: "SHIFT", CapsLock: "CAPSLOCK", NumLock: "NUMLOCK", ScrollLock: "SCROLLLOCK", Pause: "PAUSE", PrintScreen: "PRINT", Insert: "INSERT", Delete: "DELETE", Home: "HOME", End: "END", PageUp: "PAGEUP", PageDown: "PAGEDOWN"};
@@ -161,7 +161,7 @@ for (const button of document.querySelectorAll("[data-pad-button]")) {
 }
 async function initialise() {
   try {
-    const response = await fetch("/api/games"), payload = await response.json();
+    const response = await fetch("/web/api/games"), payload = await response.json();
     for (const game of payload.games) { const button = document.createElement("button"); button.textContent = game.name; button.onclick = () => { selectedGame = game; document.querySelector("#pre-game-title").textContent = game.name; document.querySelector("#pre-game-hint").textContent = game.pre_game.launch_hint; showPadMap(game); document.querySelector("#pre-game").hidden = false; games.hidden = true; }; games.append(button); }
     textStatus("Vyber hru. Tento runtime je určený iba pre dôveryhodnú lokálnu sieť.");
   } catch (error) { textStatus(`Nedá sa načítať launcher: ${error.message}`); }

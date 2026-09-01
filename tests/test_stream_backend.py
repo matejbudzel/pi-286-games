@@ -150,6 +150,15 @@ class StreamBackendTests(unittest.TestCase):
         self.assertIn("next_media = time.monotonic() + 1 / 30", source)
         self.assertIn("state.touch_session(session_id)", source)
 
+    def test_server_hosts_the_small_same_origin_web_presenter(self):
+        self.assertEqual(set(backend.WEB_FILES), {"/", "/app.js", "/style.css"})
+        for name, _content_type in backend.WEB_FILES.values():
+            self.assertTrue((backend.WEB_STATIC / name).is_file())
+        source = MODULE.read_text()
+        self.assertIn('path == "/web/api/games"', source)
+        self.assertIn('"/web/api/sessions"', source)
+        self.assertIn('re.fullmatch(r"/web/api/sessions/[^/]+/stream", path)', source)
+
     def test_empty_held_snapshot_does_not_require_dosbox_input_window(self):
         state = backend.StreamState.__new__(backend.StreamState)
         state._find_dosbox_window = lambda _display: self.fail("empty input should not search for a window")
