@@ -1,6 +1,7 @@
 /* Minimal Pi 1 SDL 1.2 fbcon presenter for the remote DOS backend. */
 #include <SDL.h>
 #include <libwebsockets.h>
+#include "presenter.h"
 #include <arpa/inet.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -15,14 +16,6 @@
 #include <time.h>
 #include <unistd.h>
 
-#define W 320
-#define H 240
-#define FRAME (W * H * 2)
-#define TILE 16
-#define VIDEO_HEADER 16
-#define VIDEO_PACKET_MAX (VIDEO_HEADER + FRAME)
-#define POLL_HEADER 16
-#define POLL_PACKET_MAX (POLL_HEADER + VIDEO_PACKET_MAX + 65536)
 #define AUDIO_RING (22050 * 2 * 3)
 static unsigned char audio_ring[AUDIO_RING];
 static size_t audio_head, audio_count;
@@ -44,7 +37,6 @@ typedef struct {
     int audio_queue_min, audio_queue_max, input_rtt_min, input_rtt_max;
 } SessionStats;
 
-typedef struct { char keys[64][20]; int count; unsigned int revision; } HeldState;
 typedef struct { HeldState *held; int *overlay, *quit; const char **pad_keys; SessionStats *stats; } EventState;
 static EventState event_state;
 static const char *dos_key(SDLKey key);
@@ -110,6 +102,7 @@ static void audio_metrics(Metrics *metrics) {
     SDL_UnlockAudio();
 }
 
+#if 0 /* Moved to presenter_protocol.c; kept here only until the next source compaction. */
 static unsigned int read_be16(const unsigned char *value) {
     return ((unsigned int)value[0] << 8) | value[1];
 }
@@ -174,6 +167,7 @@ static int poll_body(char *body, size_t size, const HeldState *held, int video_s
     if ((size_t)used + 3 >= size) return -1;
     memcpy(body + used, "]}", 3); return used + 2;
 }
+#endif
 
 static void audio_put(const unsigned char *data, size_t length) {
     size_t index;

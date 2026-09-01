@@ -10,15 +10,19 @@ lws_stage=${LWS_STAGE_DIR:-$repo/.cache/libwebsockets-armv6-stage}
 test -f "$sysroot/usr/include/alsa/asoundlib.h" && test -f "$stage/opt/sdl12-fbcon/include/SDL/SDL.h" || { echo "missing Pi sysroot or staged SDL" >&2; exit 1; }
 mkdir -p "$(dirname "$out")"
 flags='-O2 -fomit-frame-pointer -marm -march=armv6zk -mtune=arm1176jzf-s -mfpu=vfp -mfloat-abi=hard'
-object=${out}.o
-"$cc" --sysroot="$sysroot" $flags -I"$stage/opt/sdl12-fbcon/include/SDL" -I"$lws_stage/opt/pi286/libwebsockets/include" -c "$repo/streaming/client/pi286-stream-presenter.c" -o "$object"
+objects=""
+for source in pi286-stream-presenter.c presenter_protocol.c; do
+  object=${out}.${source%.c}.o
+  "$cc" --sysroot="$sysroot" $flags -I"$repo/streaming/client" -I"$stage/opt/sdl12-fbcon/include/SDL" -I"$lws_stage/opt/pi286/libwebsockets/include" -c "$repo/streaming/client/$source" -o "$object"
+  objects="$objects $object"
+done
 # Debian's cross GCC supplies ARMv7 crt objects. Link explicitly with the
 # ARMv6 startup objects synced from pi286, just as the custom SDL build does.
 runtime="$sysroot/lib/arm-linux-gnueabihf"
 gcc_runtime="$sysroot/usr/lib/gcc/arm-linux-gnueabihf/14"
 "$cc" --sysroot="$sysroot" $flags -pie -nostartfiles -nodefaultlibs \
-  "$runtime/Scrt1.o" "$runtime/crti.o" "$gcc_runtime/crtbeginS.o" "$object" \
+  "$runtime/Scrt1.o" "$runtime/crti.o" "$gcc_runtime/crtbeginS.o" $objects \
   -L"$stage/opt/sdl12-fbcon/lib" -Wl,-rpath,/opt/sdl12-fbcon/lib -lSDL "$lws_stage/opt/pi286/libwebsockets/lib/libwebsockets.a" "$runtime/libpthread.so.0" \
   "$runtime/libc.so.6" "$runtime/libgcc_s.so.1" "$gcc_runtime/crtendS.o" "$runtime/crtn.o" -o "$out"
-rm -f "$object"
+rm -f $objects
 file "$out" | grep -q ARM && readelf -A "$out" | grep -Eq 'Tag_CPU_arch: v6|Tag_CPU_arch: v6KZ' && readelf -A "$out" | grep -q 'Tag_ABI_VFP_args: VFP registers'
