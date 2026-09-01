@@ -15,6 +15,14 @@ command -v git >/dev/null 2>&1 || { echo "Missing required tool: git" >&2; exit 
 command -v "$cc" >/dev/null 2>&1 || { echo "Missing required tool: $cc" >&2; exit 1; }
 [ -f "$sysroot/lib/arm-linux-gnueabihf/libc.so.6" ] || { echo "Missing Pi sysroot at $sysroot" >&2; exit 1; }
 
+library="$stage_dir/opt/pi286/libwebsockets/lib/libwebsockets.a"
+if [ "${LWS_FORCE_REBUILD:-0}" != 1 ] && [ -f "$library" ]; then
+    readelf -A "$library" | grep -Eq 'Tag_CPU_arch: v6|Tag_CPU_arch: v6KZ'
+    readelf -A "$library" | grep -q 'Tag_ABI_VFP_args: VFP registers'
+    echo "Reusing minimal ARMv6 libwebsockets at $stage_dir"
+    exit 0
+fi
+
 if [ ! -d "$source_dir/.git" ]; then
     git clone https://libwebsockets.org/repo/libwebsockets "$source_dir"
 fi
@@ -33,7 +41,6 @@ cmake -S "$source_dir" -B "$build_dir" \
 cmake --build "$build_dir" --target websockets -j"${LWS_CROSS_JOBS:-2}"
 cmake --install "$build_dir" --prefix "$stage_dir/opt/pi286/libwebsockets"
 
-library="$stage_dir/opt/pi286/libwebsockets/lib/libwebsockets.a"
 [ -f "$library" ] || { echo "libwebsockets static library was not produced" >&2; exit 1; }
 readelf -A "$library" | grep -Eq 'Tag_CPU_arch: v6|Tag_CPU_arch: v6KZ'
 readelf -A "$library" | grep -q 'Tag_ABI_VFP_args: VFP registers'

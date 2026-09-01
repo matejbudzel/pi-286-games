@@ -578,12 +578,16 @@ int main(int argc, char **argv) {
                     if (metrics.video_capture_ms >= 0) range_add(metrics.video_capture_ms, &stats.server_capture_min, &stats.server_capture_max, &stats.server_capture_total);
                     elapsed = now_ms() - video_window;
                     if (elapsed >= 1000) { metrics.video_fps_tenths = (int)(video_count * 10000 / elapsed); video_count = 0; video_window = now_ms(); }
-                    audio_metrics(&metrics); render(screen, canvas, frame, overlay, &metrics, diagnostic);
                     if (audio_length > 0 && next_offset > audio_offset) { audio_put(audio_data, (size_t)audio_length); audio_offset = next_offset; }
                     if ((unsigned int)sent_revision > input_acked) { metrics.input_last_ms = metrics.video_last_ms; input_acked = (unsigned int)sent_revision; stats.input_acks++; range_add(metrics.input_last_ms, &stats.input_rtt_min, &stats.input_rtt_max, &stats.input_rtt_total); }
                     /* Media acknowledgements carry the latest delta sequence
                      * and PCM offset, even while no key state has changed. */
                     if (poll_body(body, sizeof(body), &held, video_seq, audio_offset) < 0) { stream.failed = 1; } else { lws_stream_queue(&stream, body); sent_revision = (int)held.revision; }
+                    /* Keep the server and audio stream ahead of the expensive
+                     * software scale.  The browser likewise sends its control
+                     * update before its next paint gets a chance to run. */
+                    if (!stream.failed) lws_service(stream.context, 0);
+                    audio_metrics(&metrics); render(screen, canvas, frame, overlay, &metrics, diagnostic);
                 } else { fprintf(stderr, "presenter: invalid websocket packet\n"); stream.failed = 1; }
             }
             if (pump_events()) { /* Send latest held state below without waiting for media. */ }
