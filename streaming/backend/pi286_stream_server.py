@@ -126,6 +126,8 @@ def load_games(root: Path) -> dict[str, GameDefinition]:
         keys, labels = [], []
         for button in range(9):
             key = ddr.get(f"button{button}_key", "").upper()
+            key = {"LSHIFT": "SHIFT", "RSHIFT": "SHIFT", "LCTRL": "CTRL", "RCTRL": "CTRL",
+                   "LALT": "ALT", "RALT": "ALT"}.get(key, key)
             if key == "-": key = ""
             if key and key not in KEYS: raise ValueError(f"invalid DDR key in {directory.name}")
             keys.append(key); labels.append(ddr.get(f"button{button}_label", "nepoužité"))
