@@ -35,6 +35,7 @@ from streaming.backend import websocket_wire
 WEB_STATIC = ROOT / "streaming" / "web" / "static"
 WEB_FILES = {"/": ("index.html", "text/html; charset=utf-8"),
              "/app.js": ("app.js", "text/javascript; charset=utf-8"),
+             "/input.js": ("input.js", "text/javascript; charset=utf-8"),
              "/style.css": ("style.css", "text/css; charset=utf-8")}
 
 SESSION_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")

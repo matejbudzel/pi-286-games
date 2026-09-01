@@ -1,4 +1,4 @@
-"use strict";
+import {keyName} from "/input.js";
 const width = 320, height = 240, frame = new Uint8Array(width * height * 2);
 const audioBufferTarget = .35, audioStartLead = .08;
 const canvas = document.querySelector("#screen"), ctx = canvas.getContext("2d"), source = document.createElement("canvas");
@@ -120,15 +120,6 @@ async function stop() {
   const closing = session; session = null; if (ws) { ws.onclose = null; ws.close(); ws = null; } held.clear(); padHeld.clear(); heldSources.clear(); player.hidden = true; menu.hidden = false;
   if (audioContext) { await audioContext.close(); audioContext = null; }
   if (closing) await fetch(`/web/api/sessions/${closing}`, {method: "DELETE"});
-}
-function keyName(event) {
-  const names = {ArrowUp: "UP", ArrowDown: "DOWN", ArrowLeft: "LEFT", ArrowRight: "RIGHT", Enter: "ENTER", Escape: "ESC", " ": "SPACE", Tab: "TAB", Backspace: "BACKSPACE", Control: "CTRL", Alt: "ALT", Shift: "SHIFT", CapsLock: "CAPSLOCK", NumLock: "NUMLOCK", ScrollLock: "SCROLLLOCK", Pause: "PAUSE", PrintScreen: "PRINT", Insert: "INSERT", Delete: "DELETE", Home: "HOME", End: "END", PageUp: "PAGEUP", PageDown: "PAGEDOWN"};
-  if (names[event.key]) return names[event.key];
-  const codes = {Minus: "MINUS", Equal: "EQUALS", BracketLeft: "LEFTBRACKET", BracketRight: "RIGHTBRACKET", Backslash: "BACKSLASH", Semicolon: "SEMICOLON", Quote: "QUOTE", Backquote: "BACKQUOTE", Comma: "COMMA", Period: "PERIOD", Slash: "SLASH", Numpad0: "KP0", Numpad1: "KP1", Numpad2: "KP2", Numpad3: "KP3", Numpad4: "KP4", Numpad5: "KP5", Numpad6: "KP6", Numpad7: "KP7", Numpad8: "KP8", Numpad9: "KP9", NumpadDecimal: "KP_PERIOD", NumpadDivide: "KP_DIVIDE", NumpadMultiply: "KP_MULTIPLY", NumpadSubtract: "KP_MINUS", NumpadAdd: "KP_PLUS", NumpadEnter: "KP_ENTER", NumpadEqual: "KP_EQUALS"};
-  if (codes[event.code]) return codes[event.code];
-  if (/^[a-z0-9]$/i.test(event.key)) return event.key.toUpperCase();
-  if (/^F(?:[2-9]|1[0-2])$/.test(event.key)) return event.key;
-  return null;
 }
 function setHeldSource(source, keys) {
   if (keys.length) heldSources.set(source, new Set(keys)); else heldSources.delete(source);

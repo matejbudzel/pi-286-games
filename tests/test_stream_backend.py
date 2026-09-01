@@ -138,7 +138,7 @@ class StreamBackendTests(unittest.TestCase):
         self.assertIn("state.touch_session(session_id)", source)
 
     def test_server_hosts_the_small_same_origin_web_presenter(self):
-        self.assertEqual(set(backend.WEB_FILES), {"/", "/app.js", "/style.css"})
+        self.assertEqual(set(backend.WEB_FILES), {"/", "/app.js", "/input.js", "/style.css"})
         for name, _content_type in backend.WEB_FILES.values():
             self.assertTrue((backend.WEB_STATIC / name).is_file())
         source = MODULE.read_text()
