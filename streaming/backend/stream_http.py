@@ -270,6 +270,9 @@ def make_handler(state: StreamState):
                 elif re.fullmatch(r"/web/api/sessions/[^/]+/poll", self.path):
                     self._poll(self.path.split("/")[4], request)
                     return
+                elif re.fullmatch(r"/web/api/sessions/[^/]+/stats", self.path):
+                    self._json(HTTPStatus.OK, state.record_browser_stats(self.path.split("/")[4], request))
+                    return
                 if not self._check_auth():
                     return
                 if self.path == "/v1/sessions":
@@ -284,6 +287,7 @@ def make_handler(state: StreamState):
                     self._poll(self.path.split("/")[3], request)
                 else: self._json(HTTPStatus.NOT_FOUND, {"error": "not found"})
             except (ValueError, json.JSONDecodeError) as error: self._json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+            except KeyError: self._json(HTTPStatus.NOT_FOUND, {"error": "unknown session"})
             except RuntimeError as error: self._json(HTTPStatus.CONFLICT, {"error": str(error)})
             except (subprocess.SubprocessError, OSError) as error: self._json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(error)})
 
@@ -310,5 +314,3 @@ class StreamHTTPServer(ThreadingHTTPServer):
 
     def service_actions(self):
         self.state.reap_idle_sessions()
-
-

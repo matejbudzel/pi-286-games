@@ -5,7 +5,7 @@ const canvas = document.querySelector("#screen"), ctx = canvas.getContext("2d"),
 source.width = width; source.height = height;
 const sourceCtx = source.getContext("2d"), image = sourceCtx.createImageData(width, height);
 const menu = document.querySelector("#menu"), player = document.querySelector("#player"), games = document.querySelector("#games"), status = document.querySelector("#status"), hud = document.querySelector("#hud"), hudToggle = document.querySelector("#hud-toggle");
-let session = null, videoSeq = 0, audioOffset = 0, revision = 0, polling = false, audioContext = null, audioNext = 0, ws = null, selectedGame = null;
+let session = null, videoSeq = 0, audioOffset = 0, revision = 0, polling = false, audioContext = null, audioNext = 0, ws = null, selectedGame = null, clientStats = null, statsReported = false;
 const held = new Set(), padHeld = new Set();
 const heldSources = new Map();
 let hudVisible = false, hudWindow = performance.now(), hudPolls = 0, hudFrames = 0, hudPollHz = 0, hudFrameHz = 0, hudPollMs = 0, hudBackendMs = 0, hudServerMs = 0, hudDecodeMs = 0, hudCaptureMs = 0, hudVideoBytes = 0, hudAudioBytes = 0, hudAudioQueued = 0, hudAudioDuplicate = 0, hudAudioDeferred = 0;
@@ -39,6 +39,43 @@ function updateHud() {
     `audio: zaradené ${hudAudioQueued}  duplicitné ${hudAudioDuplicate}  odložené ${hudAudioDeferred}\n` +
     `frame ${videoSeq}  input rev. ${revision}`;
 }
+function newMetric() { return {count: 0, total: 0, min: 0, max: 0}; }
+function addMetric(metric, value) {
+  metric.count++; metric.total += value; metric.min = metric.count === 1 ? value : Math.min(metric.min, value); metric.max = Math.max(metric.max, value);
+}
+function metric(value) {
+  return {count: value.count, avg: value.count ? Math.round(value.total / value.count) : 0, min: value.min, max: value.max};
+}
+function recordClientFrame(capture, decode, videoBytes, audioBytes) {
+  if (!clientStats) return;
+  const now = performance.now();
+  if (clientStats.lastFrameAt) addMetric(clientStats.frameIntervals, Math.round(now - clientStats.lastFrameAt));
+  clientStats.lastFrameAt = now; clientStats.frames++;
+  addMetric(clientStats.captureMs, capture); addMetric(clientStats.decodeDrawMs, decode);
+  addMetric(clientStats.videoBytes, videoBytes); addMetric(clientStats.audioBytes, audioBytes);
+}
+function browserStats() {
+  if (!clientStats) return null;
+  return {version: 1, transport: clientStats.transport, started_at: clientStats.startedAt,
+    duration_ms: Math.round(performance.now() - clientStats.startedAtMs), frames: clientStats.frames,
+    last_video_sequence: videoSeq, frame_interval_ms: metric(clientStats.frameIntervals),
+    server_capture_ms: metric(clientStats.captureMs), decode_draw_ms: metric(clientStats.decodeDrawMs),
+    video_bytes: metric(clientStats.videoBytes), audio_bytes: metric(clientStats.audioBytes),
+    audio: {queued: hudAudioQueued, duplicate: hudAudioDuplicate, deferred: hudAudioDeferred}};
+}
+async function reportBrowserStats(sessionId) {
+  if (!clientStats || statsReported) return;
+  const response = await fetch(`/web/api/sessions/${sessionId}/stats`, {method: "POST", keepalive: true,
+    headers: {"Content-Type": "application/json"}, body: JSON.stringify(browserStats())});
+  if (!response.ok) throw Error(`nepodarilo sa uložiť štatistiky: ${response.status}`);
+  statsReported = true;
+}
+window.copyStats = async () => {
+  const stats = browserStats();
+  if (!stats) throw Error("nie je k dispozícii žiadna stream relácia");
+  await navigator.clipboard.writeText(JSON.stringify(stats, null, 2));
+  return stats;
+};
 function applyVideo(packet) {
   const view = new DataView(packet.buffer, packet.byteOffset, packet.byteLength);
   if (packet.length < 16 || String.fromCharCode(...packet.slice(0, 4)) !== "P2V1") throw Error("neplatný video paket");
@@ -82,7 +119,7 @@ async function poll() {
     if (String.fromCharCode(...bytes.slice(0, 4)) !== "P2P1") throw Error("neplatný poll paket");
     const videoLength = view.getUint32(4), audioLength = view.getUint32(8), nextAudioOffset = view.getUint32(12);
     hudPollMs = Math.round(performance.now() - started); hudBackendMs = Number.isFinite(backendMs) && backendMs >= 0 ? backendMs : 0; hudServerMs = Number.isFinite(serverMs) && serverMs >= 0 ? serverMs : 0; hudVideoBytes = videoLength; hudAudioBytes = audioLength; hudPolls++;
-    hudCaptureMs = applyVideo(bytes.slice(16, 16 + videoLength)); acceptAudio(bytes.slice(16 + videoLength, 16 + videoLength + audioLength), nextAudioOffset); hudDecodeMs = Math.round(performance.now() - decodeStarted); updateHud();
+    hudCaptureMs = applyVideo(bytes.slice(16, 16 + videoLength)); acceptAudio(bytes.slice(16 + videoLength, 16 + videoLength + audioLength), nextAudioOffset); hudDecodeMs = Math.round(performance.now() - decodeStarted); recordClientFrame(hudCaptureMs, hudDecodeMs, videoLength, audioLength); updateHud();
   } catch (error) { textStatus(`Chyba streamu: ${error.message}`); await stop(); }
   finally { polling = false; if (session) setTimeout(poll, 0); }
 }
@@ -103,7 +140,7 @@ function websocketStart() {
       // The LXC may send once more before it sees this browser's offset ACK.
       // TCP already guarantees the first copy arrived, so never queue that PCM
       // range twice; duplicated speaker samples sound like a false second voice.
-      hudCaptureMs = applyVideo(bytes.slice(16, 16 + videoLength)); acceptAudio(bytes.slice(16 + videoLength, 16 + videoLength + audioLength), nextAudioOffset); hudDecodeMs = Math.round(performance.now() - started); updateHud(); websocketControl();
+      hudCaptureMs = applyVideo(bytes.slice(16, 16 + videoLength)); acceptAudio(bytes.slice(16 + videoLength, 16 + videoLength + audioLength), nextAudioOffset); hudDecodeMs = Math.round(performance.now() - started); recordClientFrame(hudCaptureMs, hudDecodeMs, videoLength, audioLength); updateHud(); websocketControl();
     } catch (error) { textStatus(`Chyba websocketu: ${error.message}`); stop(); }
   };
   ws.onclose = () => { if (session) { textStatus("WebSocket skončil; skús HTTP polling."); stop(); } };
@@ -114,13 +151,19 @@ async function start(gameId) {
   const transport = document.querySelector("#transport").value;
   const response = await fetch("/web/api/sessions", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({game_id: gameId, video_scaling: document.querySelector("#scaling").value, transport})});
   if (!response.ok) { textStatus(`Štart zlyhal: ${await response.text()}`); return; }
-  const started = await response.json(); session = started.id; videoSeq = 0; audioOffset = 0; hudWindow = performance.now(); hudPolls = hudFrames = hudPollHz = hudFrameHz = hudPollMs = hudBackendMs = hudServerMs = hudDecodeMs = hudCaptureMs = hudVideoBytes = hudAudioBytes = hudAudioQueued = hudAudioDuplicate = hudAudioDeferred = 0; frame.fill(0); draw(); updateHud(); menu.hidden = true; player.hidden = false; if (transport === "websocket") websocketStart(); else poll();
+  const started = await response.json(); session = started.id; videoSeq = 0; audioOffset = 0; statsReported = false; clientStats = {transport, startedAt: new Date().toISOString(), startedAtMs: performance.now(), lastFrameAt: 0, frames: 0, frameIntervals: newMetric(), captureMs: newMetric(), decodeDrawMs: newMetric(), videoBytes: newMetric(), audioBytes: newMetric()}; hudWindow = performance.now(); hudPolls = hudFrames = hudPollHz = hudFrameHz = hudPollMs = hudBackendMs = hudServerMs = hudDecodeMs = hudCaptureMs = hudVideoBytes = hudAudioBytes = hudAudioQueued = hudAudioDuplicate = hudAudioDeferred = 0; frame.fill(0); draw(); updateHud(); menu.hidden = true; player.hidden = false; if (transport === "websocket") websocketStart(); else poll();
 }
 async function stop() {
-  const closing = session; session = null; if (ws) { ws.onclose = null; ws.close(); ws = null; } held.clear(); padHeld.clear(); heldSources.clear(); player.hidden = true; menu.hidden = false;
+  const closing = session;
+  if (closing) { try { await reportBrowserStats(closing); } catch (error) { console.warn(error); } }
+  session = null; if (ws) { ws.onclose = null; ws.close(); ws = null; } held.clear(); padHeld.clear(); heldSources.clear(); player.hidden = true; menu.hidden = false;
   if (audioContext) { await audioContext.close(); audioContext = null; }
   if (closing) await fetch(`/web/api/sessions/${closing}`, {method: "DELETE"});
 }
+addEventListener("pagehide", () => {
+  if (!session || !clientStats || statsReported) return;
+  navigator.sendBeacon(`/web/api/sessions/${session}/stats`, new Blob([JSON.stringify(browserStats())], {type: "application/json"}));
+});
 function setHeldSource(source, keys) {
   if (keys.length) heldSources.set(source, new Set(keys)); else heldSources.delete(source);
   const next = new Set(); for (const sourceKeys of heldSources.values()) for (const key of sourceKeys) next.add(key);

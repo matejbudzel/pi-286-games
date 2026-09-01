@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import struct
 import tempfile
 import time
@@ -83,6 +84,17 @@ class StreamBackendTests(unittest.TestCase):
         self.assertEqual(backend.PCM_CHUNK_BYTES % 2, 0)
         self.assertLessEqual(backend.PCM_CHUNK_BYTES, 4096)
 
+    def test_browser_statistics_are_persisted_for_an_active_session(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = backend.StreamState(dict(backend.DEFAULTS, state_root=directory), "x" * 32)
+            state.active["one"] = {}
+            self.assertEqual(state.record_browser_stats("one", {"frames": 42}), {"stored": True})
+            saved = json.loads((state.runtime / "one-browser-stats.json").read_text())
+            self.assertEqual(saved["session"], "one")
+            self.assertEqual(saved["browser_stats"], {"frames": 42})
+            with self.assertRaises(KeyError):
+                state.record_browser_stats("unknown", {})
+
     def test_raw_audio_diagnostic_preserves_stereo_frame_boundaries(self):
         with tempfile.TemporaryDirectory() as directory:
             state = backend.StreamState(dict(backend.DEFAULTS, state_root=directory), "x" * 32)
@@ -146,6 +158,7 @@ class StreamBackendTests(unittest.TestCase):
         source = HTTP_MODULE.read_text()
         self.assertIn('path == "/web/api/games"', source)
         self.assertIn('"/web/api/sessions"', source)
+        self.assertIn('"/web/api/sessions/[^/]+/stats"', source)
         self.assertIn('re.fullmatch(r"/web/api/sessions/[^/]+/stream", path)', source)
 
     def test_empty_held_snapshot_does_not_require_dosbox_input_window(self):

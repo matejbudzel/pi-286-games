@@ -310,6 +310,33 @@ class StreamState(VideoMixin):
                                     "poll_stats": self._poll_stats_snapshot(item["poll_stats"])},
                                    indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
+    def record_browser_stats(self, session_id: str, stats: dict) -> dict:
+        """Persist bounded client-side timing aggregates beside server metrics."""
+        if not isinstance(stats, dict):
+            raise ValueError("browser statistics must be an object")
+        try:
+            encoded = json.dumps(stats, sort_keys=True, separators=(",", ":"))
+        except (TypeError, ValueError) as error:
+            raise ValueError("browser statistics must be JSON values") from error
+        if len(encoded.encode("utf-8")) > 65536:
+            raise ValueError("browser statistics are too large")
+        with self.lock:
+            item = self.active.get(session_id)
+            # `pagehide` can race the WebSocket close. A session that has just
+            # stopped already has its server metrics persisted, so still pair
+            # this late browser report with that known session.
+            if item is None and not (self.runtime / f"{session_id}-poll-stats.json").is_file():
+                raise KeyError(session_id)
+            if item is not None:
+                item["last_client_activity"] = time.monotonic()
+        path = self.runtime / f"{session_id}-browser-stats.json"
+        temporary = path.with_suffix(".tmp")
+        temporary.write_text(json.dumps({"session": session_id, "received_at": time.time(),
+                                         "browser_stats": stats}, indent=2, sort_keys=True) + "\n",
+                             encoding="utf-8")
+        temporary.replace(path)
+        return {"stored": True}
+
     def audio_chunk(self, session_id: str, output_offset: int) -> tuple[bytes, int]:
         if output_offset < 0 or output_offset % 2:
             raise ValueError("audio offset must be a non-negative multiple of two")
@@ -574,4 +601,3 @@ class StreamState(VideoMixin):
         if item["audio_thread"]:
             item["audio_thread"].join(timeout=1)
         item["log"].close()
-
