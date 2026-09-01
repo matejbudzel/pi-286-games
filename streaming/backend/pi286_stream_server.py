@@ -30,7 +30,7 @@ from urllib.parse import parse_qs, urlsplit
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-from streaming import websocket_wire
+from streaming.backend import websocket_wire
 
 WEB_STATIC = ROOT / "streaming" / "web" / "static"
 WEB_FILES = {"/": ("index.html", "text/html; charset=utf-8"),

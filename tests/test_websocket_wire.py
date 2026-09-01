@@ -1,7 +1,7 @@
 import io
 import unittest
 
-from streaming import websocket_wire as wire
+from streaming.backend import websocket_wire as wire
 
 
 class WebSocketWireTests(unittest.TestCase):
