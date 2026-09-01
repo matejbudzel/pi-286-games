@@ -16,9 +16,9 @@ class CrossSdlWorkflowTests(unittest.TestCase):
             self.assertIn(flag, source)
         self.assertIn("sdl12-fbcon-rpi1-armv6-armhf.tar.gz", source)
 
-    def test_wrapper_has_nonvisual_all_and_explicit_visual_commands(self):
+    def test_wrapper_has_only_cross_build_and_deploy_commands(self):
         source = (ROOT / "scripts" / "dev-sdl.sh").read_text()
         self.assertIn("sync-pi-sysroot.sh", source)
         self.assertIn("cross-build-sdl12-fbcon.sh", source)
         self.assertIn("deploy-sdl12-to-pi.sh", source)
-        self.assertIn("visual-pillarbox", source)
+        self.assertNotIn("visual", source)

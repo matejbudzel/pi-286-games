@@ -76,20 +76,12 @@ For a standard 720p experiment, use `framebuffer_hdmi_group=1`,
 `x=320`, `y=120`. The 720p mode consumes about 1.8 MiB of RGB565 framebuffer
 memory and a full logical frame still copies only about 600 KiB.
 
-Run `sh scripts/run-sdl-fbcon-self-test.sh --pillarbox` after selecting and
-rebooting into the larger physical mode. It draws a blue 640×480 area with a
-white border and yellow center line; the rest of the framebuffer must be the
-configured canvas color. `sh scripts/health-check.sh` reports
-logical/physical geometry, stride, state, and calculated horizontal and
-vertical canvas borders.
-
-For the fixed magenta wire-path diagnostic without typing an environment
-variable, run `sh scripts/run-sdl-fbcon-self-test.sh --sdl-canvas-magenta`.
-
-The magenta canvas is a standalone visual-test diagnostic. It is deliberately
-removed from the environment for normal launcher/DOSBox launches, so creating
-the DOSBox SDL surface clears the physical framebuffer to its normal black
-canvas before game pixels are copied.
+Use `sh scripts/health-check.sh` after rebooting into a larger physical mode;
+it reports logical/physical geometry, stride, state, and calculated horizontal
+and vertical canvas borders. Native SDL visual self-tests were removed: the Pi
+never compiles diagnostics. The magenta canvas setting is retained only as a
+legacy framebuffer wire-path diagnostic and is removed from normal launcher
+and DOSBox launches.
 
 ## Selecting a physical profile
 
@@ -107,21 +99,11 @@ pg-resolution 720p --reboot     # standard widescreen compatibility profile
 Each profile removes the diagnostic canvas colour. `720p` is the known-safe
 recovery profile for a monitor that rejects the custom 854x480 timing.
 
-`scripts/build-sdl12-fbcon.sh` builds upstream `libsdl-org/SDL-1.2` commit
-`7bf353eca59cb503f43b86e3867dc4fc4e45f2e3` (SDL 1.2.16) with fbcon and audio,
-but without X11 or OpenGL. Its persistent source and build directory is
-`/home/dietpi/pi-286-games-sdl12-fbcon`, so later runs reuse the checkout and
-compiled objects. Local SDL changes in that directory are retained. Set
-`SDL12_FBCON_BUILD_DIR` to use another location. It installs only under
-`/opt/sdl12-fbcon`; it never replaces Debian's SDL. It defaults to `make -j1`
-for Pi 1 memory pressure. A future ARMv6 package or release artifact could
-avoid local compilation, but source builds remain authoritative.
-
 ## Fast x86_64 cross-build and Pi deployment
 
 Use the `pi286` SSH alias from the developer machine's SSH configuration; this
 repository intentionally contains no Pi IP, username, port, or key details.
-`scripts/dev-sdl.sh all` syncs the real Pi/Raspbian sysroot to ignored
+`scripts/dev-sdl.sh all` synchronizes the real Pi/Raspbian sysroot to ignored
 `.cache/pi286-sysroot`, cross-builds the same pinned source and patch set with
 `arm-linux-gnueabihf-gcc`, validates ARMv6 hard-float ELF attributes, writes
 ignored `dist/sdl12-fbcon-rpi1-armv6-armhf.tar.gz`, deploys only to
@@ -129,16 +111,35 @@ ignored `dist/sdl12-fbcon-rpi1-armv6-armhf.tar.gz`, deploys only to
 
 ```sh
 ssh -o BatchMode=yes pi286 true
+sudo apt install gcc-arm-linux-gnueabihf cmake git make rsync file binutils
 scripts/dev-sdl.sh all
 ```
 
-Install `gcc-arm-linux-gnueabihf` on the development machine first. The real
-target sysroot is preferred to generic Debian armhf files because Pi 1 needs
-ARMv6-compatible userspace. Normal deployment does not reboot, change boot
-configuration, rebuild DOSBox, or take over `/dev/fb0`. Use
-`scripts/dev-sdl.sh visual` or `scripts/dev-sdl.sh visual-pillarbox` only for
-an explicit manual display test. The native Pi fallback consumes the same
-shared pin, patch list, configure flags, and `/opt/sdl12-fbcon` prefix.
+Install `gcc-arm-linux-gnueabihf`, `cmake`, `git`, `make`, `rsync`, `file`,
+and `binutils` on the development machine first. Before any cross-build, run
+`scripts/sync-pi-sysroot.sh` against the real target: it copies the Pi's ARMv6
+dynamic loader and libraries plus its C, kernel, and ALSA headers into the
+ignored sysroot. If the target lacks `/usr/include/alsa/asoundlib.h`, install
+`libasound2-dev` there once and synchronize again. This is a source of target
+headers only; no compiler, CMake, make, or build script runs on the Pi.
+
+The real target sysroot is preferred to generic Debian armhf files because Pi
+1 needs ARMv6-compatible userspace. Normal deployment does not reboot, change
+boot configuration, rebuild DOSBox, or take over `/dev/fb0`. The same synced
+sysroot is required by `scripts/cross-build-stream-presenter.sh`; it also
+cross-builds the presenter's static libwebsockets dependency on the development
+machine.
+
+To refresh both Pi-side native artifacts after a source change, run from the
+development machine:
+
+```sh
+scripts/sync-pi-sysroot.sh
+scripts/cross-build-sdl12-fbcon.sh
+scripts/cross-build-stream-presenter.sh
+scripts/deploy-sdl12-to-pi.sh
+scripts/deploy-stream-presenter-to-pi.sh
+```
 
 The launcher reads the `dosbox_*` values in `config/host.conf` and passes
 them only to DOSBox: `LD_LIBRARY_PATH=/opt/sdl12-fbcon/lib`,
@@ -181,22 +182,11 @@ fbset -fb /dev/fb0 -i
 LD_LIBRARY_PATH=/opt/sdl12-fbcon/lib ldd "$(command -v dosbox)" | grep libSDL-1.2
 sh scripts/health-check.sh
 sh scripts/health-check.sh --smoke-dosbox
-sh scripts/run-sdl-fbcon-self-test.sh
-sh scripts/run-sdl-audio-self-test.sh
 ```
 
-The self-test compiles against `/opt/sdl12-fbcon`, fills the screen blue for
-three seconds, then exits. It is intentionally manual because it takes over
-the active tty. Expected framebuffer facts are `BCM2708 FB`, 640×480, 16 bpp,
-stride 1280, and a 614400-byte framebuffer. `/dev/fb0` should normally be
-readable and writable by the `video` group. No `/dev/dri` is expected here.
-
-The audio self-test uses the same `/opt/sdl12-fbcon` library and explicit
-`plughw:0,0` ALSA variables as DOSBox, but does not initialise video. This is
-the verified HDMI hardware PCM with ALSA format/rate conversion, which legacy
-SDL needs instead of the strict raw `hw:0,0` interface. It emits a two-second
-tone and prints the selected SDL audio driver. This separates a working ALSA
-device from a working classic-SDL audio backend.
+Expected framebuffer facts are `BCM2708 FB`, 640×480, 16 bpp, stride 1280,
+and a 614400-byte framebuffer. `/dev/fb0` should normally be readable and
+writable by the `video` group. No `/dev/dri` is expected here.
 
 | Symptom | Diagnosis / action |
 | --- | --- |

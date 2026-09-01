@@ -133,9 +133,10 @@ The installer adds the user to the usual `input` group so it can read the DDR
 pad and use F1 as the keyboard panic fallback. Log out and back in once for
 that new group membership to take effect.
 
-On the ARMv6 256 MB Pi target, the installer uses the pinned cross-built
-classic SDL 1.2.16 artifact under `/opt/sdl12-fbcon` and configures DOSBox
-alone to use its fbcon backend. It never compiles SDL natively on the Pi.
+On the ARMv6 256 MB Pi target, deploy the pinned cross-built classic SDL
+1.2.16 artifact under `/opt/sdl12-fbcon` before running the installer. The Pi
+never compiles SDL, the presenter, or diagnostic helpers; the installer only
+installs runtime packages and configuration.
 It also manages the real 640×480 HDMI/framebuffer boot mode; reboot after
 installation. This avoids Debian's SDL 1.2 compatibility layer and does not
 install X11 or enable KMS/FKMS. The corresponding `dosbox_*` settings in
@@ -258,13 +259,9 @@ sh scripts/health-check.sh
 Add `--smoke-dosbox` for a short custom-classic-SDL fbcon DOSBox test. It uses
 the same custom SDL and framebuffer environment as the appliance and retains
 its output in `/tmp/pi-286-games-dosbox-smoke.log`; it may briefly take over
-tty1. For an SDL-only rendering check, run
-`sh scripts/run-sdl-fbcon-self-test.sh`. Neither command installs X11 nor
-configures KMS/FKMS.
-
-To isolate the custom SDL audio backend from DOSBox, run
-`sh scripts/run-sdl-audio-self-test.sh`. It plays a two-second tone through the
-same verified HDMI PCM (`plughw:0,0`) and does not take over tty1.
+tty1. Neither command installs X11 nor configures KMS/FKMS. Native SDL
+self-tests were intentionally removed: compiling diagnostic programs on the
+Pi violates the appliance deployment model.
 
 ### Launcher volume
 

@@ -124,8 +124,10 @@ session reconnection: reconnecting starts a fresh game session.
 The ARMv6 SDL presenter supports both transports. Set
 `remote_dosbox_transport=websocket` in the Pi's host-local configuration to
 use its native RFC 6455 client; omit it or set `poll` for the HTTP
-fallback. The presenter uses no WebSocket library: it emits masked text control
-frames and consumes binary `P2P1` media frames directly.
+fallback. The presenter uses a small statically linked libwebsockets build for
+the HTTP upgrade, RFC 6455 framing, masking, and fragmented receives; its
+application protocol remains JSON control messages and binary `P2P1` media
+frames.
 
 ## Pi development overlay
 

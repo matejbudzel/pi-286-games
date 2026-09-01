@@ -92,7 +92,7 @@ if [ -x "$custom_prefix/bin/sdl-config" ] && [ -e "$custom_prefix/lib/libSDL-1.2
     custom_version=$("$custom_prefix/bin/sdl-config" --version 2>/dev/null || true)
     [ "$custom_version" = 1.2.16 ] && pass "custom classic SDL $custom_version: $custom_prefix" || warn "custom SDL version is '$custom_version' (expected 1.2.16)"
     pass "custom SDL library: $custom_prefix/lib/libSDL-1.2.so.0"; custom_sdl=true
-    if command -v ldd >/dev/null 2>&1 && ldd "$custom_prefix/lib/libSDL-1.2.so.0" 2>/dev/null | grep -q 'libasound\.so'; then pass "custom SDL links libasound for ALSA audio"; else fail "custom SDL does not link libasound; rerun scripts/build-sdl12-fbcon.sh"; fi
+    if command -v ldd >/dev/null 2>&1 && ldd "$custom_prefix/lib/libSDL-1.2.so.0" 2>/dev/null | grep -q 'libasound\.so'; then pass "custom SDL links libasound for ALSA audio"; else fail "custom SDL does not link libasound; rebuild and deploy its artifact from the development machine"; fi
 else warn "custom classic SDL is missing from $custom_prefix"; fi
 if [ -n "$dosbox_path" ] && command -v ldd >/dev/null 2>&1; then
     ldd_output=$(ldd "$dosbox_path" 2>&1 || true)

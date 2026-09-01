@@ -7,7 +7,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).parents[1]
 HELPER = ROOT / "scripts" / "configure-legacy-framebuffer.sh"
-BUILD = ROOT / "scripts" / "build-sdl12-fbcon.sh"
 AUDIO = ROOT / "scripts" / "configure-appliance-audio.sh"
 PROFILE = ROOT / "scripts" / "set-framebuffer-profile.sh"
 
@@ -113,8 +112,8 @@ class LegacyFramebufferTests(unittest.TestCase):
             for line in ("framebuffer_hdmi_group=2", "framebuffer_hdmi_mode=87", "framebuffer_hdmi_cvt=854 480 60 3 0 0 0", "framebuffer_width=854", "framebuffer_height=480", "dosbox_sdl_fb_pillarbox=1"):
                 self.assertIn(line, result)
 
-    def test_build_script_pins_classic_sdl_116_and_uses_one_job(self):
-        source = BUILD.read_text()
+    def test_cross_build_pins_classic_sdl_116_for_armv6(self):
+        source = (ROOT / "scripts" / "cross-build-sdl12-fbcon.sh").read_text()
         shared = (ROOT / "scripts" / "sdl12-fbcon-common.sh").read_text()
         self.assertIn("sdl12-fbcon-common.sh", source)
         self.assertIn("--enable-video-fbcon", shared)
@@ -128,19 +127,11 @@ class LegacyFramebufferTests(unittest.TestCase):
         self.assertIn("--disable-alsa-shared", shared)
         self.assertIn("libasound", source)
         self.assertNotIn("--enable-audio-alsa", shared)
-        self.assertIn("make -j\"$jobs\"", source)
+        self.assertIn("make -j\"${SDL12_FBCON_CROSS_JOBS", source)
         self.assertNotIn("--disable-audio", source)
 
-    def test_sdl_audio_self_test_uses_the_custom_library_and_verified_pcm(self):
-        source = (ROOT / "scripts" / "sdl-audio-self-test.c").read_text()
-        runner = (ROOT / "scripts" / "run-sdl-audio-self-test.sh").read_text()
-        self.assertIn("SDL_INIT_AUDIO", source)
-        self.assertIn("SDL_OpenAudio", source)
-        self.assertIn("SDL_AUDIODRIVER=alsa", runner)
-        self.assertIn("AUDIODEV=plughw:0,0", runner)
-
-    def test_sdl_framebuffer_self_test_has_a_magenta_canvas_shortcut(self):
-        runner = (ROOT / "scripts" / "run-sdl-fbcon-self-test.sh").read_text()
-        self.assertIn("--sdl-canvas-magenta", runner)
-        self.assertIn("PI286_SDL_FB_CANVAS_COLOR=\"$canvas_color\"", runner)
-        self.assertIn("canvas_color=ff00ff", runner)
+    def test_pi_has_no_native_build_or_self_test_sources(self):
+        for name in ("build-sdl12-fbcon.sh", "run-sdl-audio-self-test.sh",
+                     "run-sdl-fbcon-self-test.sh", "sdl-audio-self-test.c",
+                     "sdl-fbcon-self-test.c"):
+            self.assertFalse((ROOT / "scripts" / name).exists(), name)
