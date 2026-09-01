@@ -332,7 +332,7 @@ static int websocket_take_frame(unsigned char *wire, size_t *used, unsigned char
 /* libwebsockets owns the HTTP upgrade, WebSocket framing, masking and partial
  * receives. The presenter only exchanges our already-defined JSON / P2P1
  * payloads with this small adapter. */
-typedef struct { struct lws_context *context; struct lws *wsi; const char *token, *host, *path; unsigned char packet[POLL_PACKET_MAX]; size_t used, length; char outgoing[2048]; int pending, ready, failed, closing; } LwsStream;
+typedef struct { struct lws_context *context; struct lws *wsi; const char *host, *path; unsigned char packet[POLL_PACKET_MAX]; size_t used, length; char authorization[300], outgoing[2048]; int pending, ready, failed, closing; } LwsStream;
 
 static int lws_presenter_callback(struct lws *wsi, enum lws_callback_reasons reason, void *user, void *in, size_t len) {
     LwsStream *stream = lws_context_user(lws_get_context(wsi)); unsigned char *cursor, *end; (void)user;
@@ -340,7 +340,7 @@ static int lws_presenter_callback(struct lws *wsi, enum lws_callback_reasons rea
     switch (reason) {
     case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER:
         cursor = *(unsigned char **)in; end = cursor + len;
-        if (lws_add_http_header_by_name(wsi, (unsigned char *)"authorization:", (unsigned char *)stream->token, (int)strlen(stream->token), &cursor, end)) return -1;
+        if (lws_add_http_header_by_name(wsi, (unsigned char *)"authorization:", (unsigned char *)stream->authorization, (int)strlen(stream->authorization), &cursor, end)) return -1;
         *(unsigned char **)in = cursor; break;
     case LWS_CALLBACK_CLIENT_ESTABLISHED: stream->wsi = wsi; if (stream->pending) lws_callback_on_writable(wsi); break;
     case LWS_CALLBACK_CLIENT_WRITEABLE:
@@ -358,7 +358,7 @@ static int lws_presenter_callback(struct lws *wsi, enum lws_callback_reasons rea
 static const struct lws_protocols lws_presenter_protocols[] = { { "pi286", lws_presenter_callback, 0, POLL_PACKET_MAX }, LWS_PROTOCOL_LIST_TERM };
 static int lws_stream_open(LwsStream *stream, const char *host, const char *port, const char *token, const char *session, const char *body) {
     struct lws_context_creation_info context = {0}; struct lws_client_connect_info connect = {0}; static char path[128];
-    memset(stream, 0, sizeof(*stream)); stream->host = host; stream->token = token; snprintf(path, sizeof(path), "/v3/sessions/%s/stream", session); stream->path = path; snprintf(stream->outgoing, sizeof(stream->outgoing), "%s", body); stream->pending = 1;
+    memset(stream, 0, sizeof(*stream)); stream->host = host; snprintf(stream->authorization, sizeof(stream->authorization), "Bearer %s", token); snprintf(path, sizeof(path), "/v3/sessions/%s/stream", session); stream->path = path; snprintf(stream->outgoing, sizeof(stream->outgoing), "%s", body); stream->pending = 1;
     context.port = CONTEXT_PORT_NO_LISTEN; context.protocols = lws_presenter_protocols; context.user = stream;
     if (!(stream->context = lws_create_context(&context))) return 0;
     connect.context = stream->context; connect.address = host; connect.port = atoi(port); connect.path = stream->path; connect.host = host; connect.origin = host; connect.protocol = "pi286";
