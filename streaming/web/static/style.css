@@ -17,6 +17,14 @@ kbd { border: 1px solid #777; padding: .1rem .3rem; }
 #panic { border-color: #db5e77; color: #ffd5dd; }
 #hud-toggle { border-color: #3c8f89; color: #bffff4; }
 #hud-toggle[aria-pressed="true"] { background: #214643; }
+#virtual-keys { width: min(34rem, calc(100vw - 1rem)); margin: .8rem auto; touch-action: manipulation; user-select: none; }
+.virtual-key-row, .virtual-text-entry { display: flex; justify-content: center; gap: .35rem; flex-wrap: wrap; }
+.virtual-key-row button { min-width: 4.4rem; }
+.virtual-key-row small { color: #9e9eb8; }
+.virtual-key-row button[aria-pressed="true"] { background: #3a3858; border-color: #ff70d0; color: #ff70d0; }
+.virtual-text-entry { margin-top: .35rem; }
+#text-entry { min-width: 12rem; flex: 1 1 12rem; padding: .7rem; font: inherit; color: #eee; background: #11111c; border: 1px solid #5a5a7d; }
+#text-entry:focus { outline: 1px solid #ff70d0; border-color: #ff70d0; }
 #virtual-pad { width: min(25rem, calc(100vw - 1rem)); margin: 1rem auto; touch-action: none; user-select: none; }
 .pad-system-buttons { display: flex; justify-content: space-between; margin: 0 .2rem .55rem; }
 .pad-system-buttons button { min-width: 7.5rem; }

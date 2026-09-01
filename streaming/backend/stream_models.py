@@ -44,7 +44,7 @@ KEYS = {
     "CAPSLOCK": "Caps_Lock", "NUMLOCK": "Num_Lock", "SCROLLLOCK": "Scroll_Lock", "PAUSE": "Pause",
     "PRINT": "Print", "INSERT": "Insert", "DELETE": "Delete", "HOME": "Home", "END": "End",
     "PAGEUP": "Prior", "PAGEDOWN": "Next",
-    "CTRL": "Control_L", "ALT": "Alt_L", "SHIFT": "Shift_L",
+    "CTRL": "Control_L", "ALT": "Alt_L", "SHIFT": "Shift_L", "META": "Super_L",
     "F1": "F1", "F2": "F2", "F3": "F3", "F4": "F4", "F5": "F5",
     "F6": "F6", "F7": "F7", "F8": "F8", "F9": "F9", "F10": "F10", "F11": "F11", "F12": "F12",
     "MINUS": "minus", "EQUALS": "equal", "LEFTBRACKET": "bracketleft", "RIGHTBRACKET": "bracketright",
@@ -134,4 +134,3 @@ def safe_relative_path(value: str) -> PurePosixPath:
     if not value or path.is_absolute() or ".." in path.parts or str(path) == ".":
         raise ValueError("file paths must be non-empty, relative POSIX paths")
     return path
-

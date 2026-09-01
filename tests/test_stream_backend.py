@@ -163,6 +163,16 @@ class StreamBackendTests(unittest.TestCase):
         self.assertIn('"/web/api/sessions/[^/]+/stats"', source)
         self.assertIn('re.fullmatch(r"/web/api/sessions/[^/]+/stream", path)', source)
 
+    def test_web_presenter_offers_modifier_toggles_and_mobile_text_entry(self):
+        index = (backend.WEB_STATIC / "index.html").read_text()
+        source = (backend.WEB_STATIC / "app.js").read_text()
+        for key in ("ESC", "CTRL", "SHIFT", "ALT", "META", "DELETE"):
+            self.assertIn(f'data-virtual-key="{key}"', index)
+        self.assertIn('id="text-entry"', index)
+        self.assertIn('inputmode="text"', index)
+        self.assertIn('textEntry.addEventListener("beforeinput"', source)
+        self.assertIn('button.dataset.modifier === "true"', source)
+
     def test_empty_held_snapshot_does_not_require_dosbox_input_window(self):
         state = backend.StreamState.__new__(backend.StreamState)
         state._find_dosbox_window = lambda _display: self.fail("empty input should not search for a window")
@@ -187,6 +197,7 @@ class StreamBackendTests(unittest.TestCase):
         self.assertEqual(backend.KEYS["BACKSPACE"], "BackSpace")
         self.assertEqual(backend.KEYS["F12"], "F12")
         self.assertEqual(backend.KEYS["KP_ENTER"], "KP_Enter")
+        self.assertEqual(backend.KEYS["META"], "Super_L")
         self.assertNotIn("rm -rf /", backend.KEYS)
 
     def test_server_resolves_one_archive_wrapper_directory(self):

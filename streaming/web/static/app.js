@@ -5,9 +5,12 @@ const canvas = document.querySelector("#screen"), ctx = canvas.getContext("2d"),
 source.width = width; source.height = height;
 const sourceCtx = source.getContext("2d"), image = sourceCtx.createImageData(width, height);
 const menu = document.querySelector("#menu"), player = document.querySelector("#player"), games = document.querySelector("#games"), status = document.querySelector("#status"), hud = document.querySelector("#hud"), hudToggle = document.querySelector("#hud-toggle");
+const textEntry = document.querySelector("#text-entry"), virtualKeyboard = document.querySelector("#virtual-keyboard");
 let session = null, videoSeq = 0, audioOffset = 0, revision = 0, polling = false, audioContext = null, audioNext = 0, ws = null, selectedGame = null, clientStats = null, statsReported = false;
 const held = new Set(), padHeld = new Set();
 const heldSources = new Map();
+const textTapQueue = [];
+let textTapRunning = false;
 let hudVisible = false, hudWindow = performance.now(), hudPolls = 0, hudFrames = 0, hudPollHz = 0, hudFrameHz = 0, hudPollMs = 0, hudBackendMs = 0, hudServerMs = 0, hudDecodeMs = 0, hudCaptureMs = 0, hudVideoBytes = 0, hudAudioBytes = 0, hudAudioQueued = 0, hudAudioDuplicate = 0, hudAudioDeferred = 0;
 
 function textStatus(value) { status.textContent = value; }
@@ -156,7 +159,9 @@ async function start(gameId) {
 async function stop() {
   const closing = session;
   if (closing) { try { await reportBrowserStats(closing); } catch (error) { console.warn(error); } }
-  session = null; if (ws) { ws.onclose = null; ws.close(); ws = null; } held.clear(); padHeld.clear(); heldSources.clear(); player.hidden = true; menu.hidden = false;
+  session = null; if (ws) { ws.onclose = null; ws.close(); ws = null; } held.clear(); padHeld.clear(); heldSources.clear(); textTapQueue.length = 0;
+  for (const button of document.querySelectorAll("[data-modifier]")) button.setAttribute("aria-pressed", "false");
+  player.hidden = true; menu.hidden = false;
   if (audioContext) { await audioContext.close(); audioContext = null; }
   if (closing) await fetch(`/web/api/sessions/${closing}`, {method: "DELETE"});
 }
@@ -170,6 +175,32 @@ function setHeldSource(source, keys) {
   if (next.size === held.size && [...next].every(key => held.has(key))) return;
   held.clear(); for (const key of next) held.add(key); revision++; websocketControl();
 }
+function tapTextKey(key) {
+  textTapQueue.push(key);
+  if (textTapRunning) return;
+  textTapRunning = true;
+  const next = () => {
+    const value = textTapQueue.shift();
+    if (!value || !session) { textTapRunning = false; return; }
+    const source = `text:${value}`;
+    setHeldSource(source, [value]);
+    setTimeout(() => { setHeldSource(source, []); setTimeout(next, 35); }, 80);
+  };
+  next();
+}
+function textKey(character) {
+  const punctuation = {" ": "SPACE", "-": "MINUS", "=": "EQUALS", "[": "LEFTBRACKET", "]": "RIGHTBRACKET", "\\": "BACKSLASH", ";": "SEMICOLON", "'": "QUOTE", "`": "BACKQUOTE", ",": "COMMA", ".": "PERIOD", "/": "SLASH"};
+  return punctuation[character] || (/^[a-z0-9]$/i.test(character) ? character.toUpperCase() : null);
+}
+function virtualKey(button) {
+  const key = button.dataset.virtualKey;
+  if (!session || !key) return;
+  if (button.dataset.modifier === "true") {
+    const active = button.getAttribute("aria-pressed") !== "true";
+    button.setAttribute("aria-pressed", String(active));
+    setHeldSource(`virtual:${key}`, active ? [key] : []);
+  } else tapTextKey(key);
+}
 function toggleHud() { hudVisible = !hudVisible; updateHud(); }
 function showPadMap(game) {
   const labels = game.pre_game.pad_labels, keys = game.pre_game.pad_keys;
@@ -181,11 +212,24 @@ function showPadMap(game) {
     entry.append(detail); legend.append(entry);
   }
 }
-addEventListener("keydown", event => { if (!session) return; if (event.key === "F1") { event.preventDefault(); stop(); return; } if (event.key === "F8") { event.preventDefault(); toggleHud(); return; } const key = keyName(event); if (key) { setHeldSource(`keyboard:${key}`, [key]); event.preventDefault(); } });
-addEventListener("keyup", event => { const key = keyName(event); if (key) { setHeldSource(`keyboard:${key}`, []); event.preventDefault(); } });
+addEventListener("keydown", event => { if (!session || event.target === textEntry) return; if (event.key === "F1") { event.preventDefault(); stop(); return; } if (event.key === "F8") { event.preventDefault(); toggleHud(); return; } const key = keyName(event); if (key) { setHeldSource(`keyboard:${key}`, [key]); event.preventDefault(); } });
+addEventListener("keyup", event => { if (event.target === textEntry) return; const key = keyName(event); if (key) { setHeldSource(`keyboard:${key}`, []); event.preventDefault(); } });
 document.querySelector("#panic").addEventListener("click", () => stop());
 hudToggle.addEventListener("click", toggleHud);
 document.querySelector("#pad-select").addEventListener("click", () => stop());
+for (const button of document.querySelectorAll("[data-virtual-key]")) button.addEventListener("click", () => virtualKey(button));
+virtualKeyboard.addEventListener("click", () => textEntry.focus({preventScroll: true}));
+textEntry.addEventListener("beforeinput", event => {
+  if (!session) return;
+  let keys = [];
+  if (event.inputType === "deleteContentBackward") keys = ["BACKSPACE"];
+  else if (event.inputType === "deleteContentForward") keys = ["DELETE"];
+  else if (event.inputType === "insertLineBreak") keys = ["ENTER"];
+  else if (event.inputType === "insertText" && event.data) keys = [...event.data].map(textKey).filter(Boolean);
+  if (!keys.length) return;
+  event.preventDefault(); textEntry.value = "";
+  for (const key of keys) tapTextKey(key);
+});
 for (const button of document.querySelectorAll("[data-pad-button]")) {
   const release = event => { padHeld.delete(Number(button.dataset.padButton)); revision++; websocketControl(); button.classList.remove("active"); };
   button.addEventListener("pointerdown", event => { if (!session) return; event.preventDefault(); button.setPointerCapture(event.pointerId); padHeld.add(Number(button.dataset.padButton)); revision++; websocketControl(); button.classList.add("active"); });

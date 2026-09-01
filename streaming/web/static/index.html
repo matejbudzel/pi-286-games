@@ -23,6 +23,20 @@
       <button id="hud-toggle" type="button" aria-pressed="false">F8 · HUD</button>
       <span><kbd>F1</kbd> späť do menu · <kbd>F8</kbd> HUD · šípky/klávesnica ovládajú hru</span>
     </div>
+    <section id="virtual-keys" aria-label="Virtuálne klávesy">
+      <div class="virtual-key-row">
+        <button type="button" data-virtual-key="ESC">Esc</button>
+        <button type="button" data-virtual-key="CTRL" data-modifier="true" aria-pressed="false">Ctrl</button>
+        <button type="button" data-virtual-key="SHIFT" data-modifier="true" aria-pressed="false">Shift</button>
+        <button type="button" data-virtual-key="ALT" data-modifier="true" aria-pressed="false">Alt</button>
+        <button type="button" data-virtual-key="META" data-modifier="true" aria-pressed="false">Meta<br><small>Win/Cmd</small></button>
+        <button type="button" data-virtual-key="DELETE">Del</button>
+      </div>
+      <div class="virtual-text-entry">
+        <button id="virtual-keyboard" type="button">⌨ Písať</button>
+        <input id="text-entry" type="text" inputmode="text" enterkeyhint="enter" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false" placeholder="Písať do hry" aria-label="Písať do hry">
+      </div>
+    </section>
     <section id="virtual-pad" aria-label="Virtuálny tanečný pad">
       <div class="pad-system-buttons">
         <button id="pad-select" type="button">SELECT<br><small>F1 · späť</small></button>
