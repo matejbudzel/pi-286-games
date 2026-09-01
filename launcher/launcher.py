@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
-"""Minimal terminal UI and DOSBox supervisor for pi-286-games."""
-import argparse, fcntl, glob, os, re, select, shlex, shutil, signal, socket, struct, subprocess, sys, tempfile, termios, time, traceback, tty, urllib.error, urllib.parse, urllib.request, zipfile
+"""Minimal terminal UI and remote DOS game stream supervisor for pi-286-games."""
+import argparse, fcntl, glob, os, re, select, shlex, shutil, socket, struct, subprocess, sys, tempfile, termios, time, traceback, tty, urllib.error, urllib.parse, urllib.request, zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path: sys.path.insert(0, str(ROOT))
 from streaming.client.remote_api import RemoteBackend, RemoteProtocolError, RemoteUnavailable
-EVENT = struct.Struct("llHHI")
 JS_EVENT = struct.Struct("IhBB")
 PAD_DEVICE_NAME = "WiseGroup.,Ltd X-PAD, Extreme Dance Pad"
 JSIOCGNAME = 0x80806A13  # _IOR('j', 0x13, 128), Linux joystick device name
@@ -15,9 +14,6 @@ JSIOCGAXES = 0x80016A11
 JSIOCGBUTTONS = 0x80016A12
 KDSETMODE = 0x4B3A
 KD_TEXT = 0x00
-# Linux input-event key codes for controls useful on a keyboard or dance mat.
-KEY_CODES = {"F1": 59, "UP": 103, "DOWN": 108, "LEFT": 105, "RIGHT": 106,
-             "SPACE": 57, "ENTER": 28}
 PANIC_KEY = "F1"
 # Keep the verified HDMI hardware target, but let ALSA adapt legacy SDL's
 # requested sample format/rate instead of requiring an exact hardware match.
@@ -47,7 +43,7 @@ SPLASH_ART = (
 SPLASH_COLORS = ("\x1b[91m", "\x1b[93m", "\x1b[92m", "\x1b[96m", "\x1b[94m", "\x1b[95m")
 PAD_ACTIONS = {2: "UP", 1: "DOWN", 0: "LEFT", 3: "RIGHT", 8: "START", 9: "SELECT"}
 PAD_LAYOUT = ((6, "HORE-L"), (2, "HORE"), (7, "HORE-P"), (0, "VĽAVO"), (3, "VPRAVO"), (4, "DOLE-L"), (1, "DOLE"), (5, "DOLE-P"))
-DOSBOX_KEY_ACTIONS = {"UP": "key_up", "DOWN": "key_down", "LEFT": "key_left", "RIGHT": "key_right", "SPACE": "key_space", "ENTER": "key_enter", "ESC": "key_esc", "LSHIFT": "key_lshift", "LCTRL": "key_lctrl", "A": "key_a", "Z": "key_z"}
+STREAM_KEYS = {"UP", "DOWN", "LEFT", "RIGHT", "SPACE", "ENTER", "ESC", "LSHIFT", "LCTRL", "A", "Z"}
 KEY_NAMES = {"UP": "ŠÍPKA HORE", "DOWN": "ŠÍPKA DOLE", "LEFT": "ŠÍPKA VĽAVO", "RIGHT": "ŠÍPKA VPRAVO", "SPACE": "MEDZERNÍK", "ENTER": "ENTER", "ESC": "ESC", "LSHIFT": "ĽAVÝ SHIFT", "LCTRL": "ĽAVÝ CTRL", "A": "A", "Z": "Z"}
 
 class InstallationCancelled(Exception):
@@ -58,7 +54,7 @@ class LauncherExit(Exception):
 
 @dataclass(frozen=True)
 class Game:
-    name: str; data_dir: str; command: str; dosbox_conf: Path; mapper_file: Path; asset_archive: str = ""; ddr_conf: Path = Path()
+    name: str; data_dir: str; command: str; asset_archive: str = ""; ddr_conf: Path = Path()
 
 def values(path):
     result = {}
@@ -127,9 +123,9 @@ def discover(directory=ROOT / "games"):
     for item in directory.iterdir():
         if not item.is_dir() or item.name.startswith("_"): continue
         conf = values(item / "game.conf")
-        if all(conf.get(k) for k in ("name", "data_dir", "exe", "dosbox_conf", "mapper_file")):
+        if all(conf.get(k) for k in ("name", "data_dir", "exe")):
             archive = conf.get("asset_archive", conf.get("asset_zip", ""))
-            games.append(Game(conf["name"], conf["data_dir"], conf["exe"], item / conf["dosbox_conf"], item / conf["mapper_file"], archive, item / conf.get("ddr_file", "ddr.conf")))
+            games.append(Game(conf["name"], conf["data_dir"], conf["exe"], archive, item / conf.get("ddr_file", "ddr.conf")))
     return sorted(games, key=lambda g: g.name.casefold())
 
 def known_dance_pad(name, axes, buttons):
@@ -176,28 +172,14 @@ def load_ddr_mapping(game):
         key = raw.get("button%d_key" % button, "").upper()
         label = raw.get("button%d_label" % button, "nepoužité")
         if key in ("", "-"): key = ""
-        elif key not in DOSBOX_KEY_ACTIONS: raise RuntimeError("Neplatné DDR tlačidlo %d." % button)
+        elif key not in STREAM_KEYS: raise RuntimeError("Neplatné DDR tlačidlo %d." % button)
         if key and not label: raise RuntimeError("Chýba popis DDR tlačidla %d." % button)
         keys[button], labels[button] = key, label or "nepoužité"
     if "button9_key" in raw: raise RuntimeError("SELECT sa nesmie mapovať do hry.")
     return keys, labels
 
-def ddr_mapper_content(mapper_file, keys):
-    content = mapper_file.read_text(encoding="utf-8")
-    for button, key in keys.items():
-        if not key: continue
-        action = DOSBOX_KEY_ACTIONS[key]
-        lines = content.splitlines()
-        for index, line in enumerate(lines):
-            if line.startswith(action + " "):
-                lines[index] = line + ' "stick_0 button %d"' % button
-                break
-        else: raise RuntimeError("DDR kláves %s nie je v DOSBox mapovaní." % key)
-        content = "\n".join(lines) + "\n"
-    return content
-
 def pad_panic(buttons):
-    """SELECT is never handed to DOSBox: it always returns to the launcher."""
+    """SELECT is never handed to a game: it always returns to the launcher."""
     return 9 in buttons
 
 def keyboard_available(devices_path=Path("/proc/bus/input/devices")):
@@ -433,27 +415,22 @@ def validate(game, root, term=None, confirm="SPACE", pad=None):
     if not parts or Path(parts[0]).is_absolute() or ".." in Path(parts[0]).parts: raise RuntimeError("Neplatný príkaz hry.")
     return data, " ".join([parts[0].replace("/", "\\\\")] + parts[1:])
 
-def dosbox_environment(config, no_sound=False):
-    """Build DOSBox's environment from optional host-specific SDL settings."""
+def presenter_environment(config):
+    """Build the Pi SDL presenter's environment from host-specific settings."""
     environment = os.environ.copy()
     variables = {
-        "dosbox_ld_library_path": "LD_LIBRARY_PATH",
-        "dosbox_sdl_videodriver": "SDL_VIDEODRIVER",
-        "dosbox_sdl_fbdev": "SDL_FBDEV",
-        "dosbox_sdl_fb_broken_modes": "SDL_FB_BROKEN_MODES",
-        "dosbox_sdl_fb_pillarbox": "PI286_SDL_FB_PILLARBOX",
-        "dosbox_sdl_fb_canvas_color": "PI286_SDL_FB_CANVAS_COLOR",
+        "presenter_ld_library_path": "LD_LIBRARY_PATH",
+        "presenter_sdl_videodriver": "SDL_VIDEODRIVER",
+        "presenter_sdl_fbdev": "SDL_FBDEV",
+        "presenter_sdl_fb_broken_modes": "SDL_FB_BROKEN_MODES",
+        "presenter_sdl_fb_pillarbox": "PI286_SDL_FB_PILLARBOX",
     }
     for setting, variable in variables.items():
         value = config.get(setting, "")
         if value: environment[variable] = value
-    # Canvas colour is an SDL framebuffer self-test diagnostic.  A normal
-    # DOSBox launch must create a black physical canvas, which also clears any
-    # test pattern left behind by a preceding standalone SDL test.
-    environment.pop("PI286_SDL_FB_CANVAS_COLOR", None)
     # This appliance has one physically verified HDMI PCM. SDL 1.2 checks
     # SDL_PATH_DSP before AUDIODEV in some audio paths, so pin both explicitly.
-    environment["SDL_AUDIODRIVER"] = "dummy" if no_sound else "alsa"
+    environment["SDL_AUDIODRIVER"] = "alsa"
     environment["AUDIODEV"] = HDMI_PCM
     environment["SDL_PATH_DSP"] = HDMI_PCM
     # On the Pi 1, SDL's timed ALSA wait is less prone to mixer underruns than
@@ -461,51 +438,7 @@ def dosbox_environment(config, no_sound=False):
     environment["SDL_DSP_NOSELECT"] = "1"
     return environment
 
-# This is the appliance base config. It is loaded first, so a deliberate
-# value in a game's dosbox.conf may override it.
-APPLIANCE_DOSBOX_BASE_CONFIG = """[sdl]
-fullscreen=true
-fulldouble=false
-fullfixed=true
-fullresolution=640x480
-output=surface
-usescancodes=false
-
-[render]
-frameskip=0
-aspect=true
-scaler=normal2x
-
-[mixer]
-# The Pi 1 is a PC-speaker appliance. Keeping only this low-rate mixer path
-# avoids the emulation cost of FM, Sound Blaster, MIDI, and other sound cards.
-rate=22050
-blocksize=2048
-prebuffer=100
-
-[sblaster]
-sbtype=none
-
-[speaker]
-pcspeaker=true
-pcrate=22050
-tandy=off
-disney=false
-
-[midi]
-mpu401=none
-mididevice=none
-"""
-
-def generated_dosbox_config(mapper_file, data, command, no_sound=False):
-    """Compose the final launch config; the appliance base is a separate -conf."""
-    sound_config = "\n[mixer]\nnosound=true\n\n[midi]\nmpu401=none\nmididevice=none\n" if no_sound else ""
-    return "[sdl]\nmapperfile=%s\n%s\n[autoexec]\nmount c \"%s\"\nc:\n%s\nexit\n" % (mapper_file, sound_config, data, command)
-
 def remote_choice(config):
-    mode = config.get("dosbox_backend", "local").lower()
-    if mode not in ("local", "auto", "remote"): raise RuntimeError("Neplatné nastavenie DOSBox backendu.")
-    if mode == "local": return None
     try:
         presenter = Path(config.get("remote_dosbox_presenter", "/opt/pi286/stream/bin/pi286-stream-presenter"))
         backend = RemoteBackend.from_token_file(config["remote_dosbox_url"], Path(config["remote_dosbox_token_file"]).expanduser())
@@ -513,7 +446,6 @@ def remote_choice(config):
         if not presenter.is_file() or not os.access(presenter, os.X_OK): raise RemoteUnavailable("Pi stream klient nie je nainštalovaný")
         return backend, presenter
     except (KeyError, OSError, ValueError, RemoteUnavailable, RemoteProtocolError) as exc:
-        if mode == "auto": return None
         raise RuntimeError("Vzdialený DOSBox nie je dostupný: %s" % exc) from exc
 
 def remote_pad_map(keys):
@@ -531,9 +463,8 @@ def run_remote_presenter(title, config, backend, presenter, session_id, ddr_keys
     parsed = urllib.parse.urlparse(config["remote_dosbox_url"])
     if not parsed.hostname or parsed.scheme != "http":
         raise RuntimeError("Neplatná adresa vzdialeného DOSBoxu.")
-    game_running_screen(Game(title, "", "", Path(), Path()), PANIC_KEY)
-    environment = os.environ.copy()
-    environment.update(dosbox_environment(config))
+    game_running_screen(Game(title, "", ""), PANIC_KEY)
+    environment = presenter_environment(config)
     log_path = Path("/tmp/pi286-stream-presenter.log")
     with log_path.open("wb") as log:
         token_file = str(Path(config["remote_dosbox_token_file"]).expanduser())
@@ -544,9 +475,7 @@ def run_remote_presenter(title, config, backend, presenter, session_id, ddr_keys
     return "panic" if result.returncode == 0 else "failed"
 
 def run_remote_game(game, config, term, data, ddr_keys):
-    selected = remote_choice(config)
-    if not selected: return None
-    backend, presenter = selected
+    backend, presenter = remote_choice(config)
     transport = remote_transport(config)
     def progress(done, total, name):
         percent = 100 if not total else done * 100 // total
@@ -564,10 +493,7 @@ def run_remote_game(game, config, term, data, ddr_keys):
 
 def run_rainbow_cat(config):
     """Run the remote-only asset-free transport diagnostic from the menu."""
-    selected = remote_choice(config)
-    if not selected:
-        raise RuntimeError("Vzdialené spojenie nie je dostupné.")
-    backend, presenter = selected
+    backend, presenter = remote_choice(config)
     transport = remote_transport(config)
     session = backend.start_rainbow_cat(video_scaling(config), transport)
     try:
@@ -576,89 +502,14 @@ def run_rainbow_cat(config):
         try: backend.stop_session(session["id"])
         except (RemoteUnavailable, RemoteProtocolError): pass
 
-def effective_dosbox_config(game_config, mapper_file, data, command, no_sound=False):
-    """Return the ordered config text DOSBox receives for diagnostics/tests."""
-    return "%s\n%s\n%s" % (APPLIANCE_DOSBOX_BASE_CONFIG, game_config.read_text(encoding="utf-8"), generated_dosbox_config(mapper_file, data, command, no_sound))
-
-def write_dosbox_replay(dosbox, base_conf, game_conf, generated_conf, environment):
-    """Keep a runnable copy of the precise appliance launch beside the log."""
-    replay = Path("/tmp/pi-286-games-dosbox-command.sh")
-    variables = ("LD_LIBRARY_PATH", "SDL_VIDEODRIVER", "SDL_FBDEV", "SDL_FB_BROKEN_MODES", "PI286_SDL_FB_PILLARBOX", "PI286_SDL_FB_CANVAS_COLOR", "SDL_AUDIODRIVER", "AUDIODEV", "SDL_PATH_DSP", "SDL_DSP_NOSELECT")
-    command = ["env"] + ["%s=%s" % (name, environment[name]) for name in variables if name in environment]
-    command += [dosbox, "-conf", str(base_conf), "-conf", str(game_conf), "-conf", str(generated_conf)]
-    replay.write_text("#!/bin/sh\n# Generated by pi-286-games; replays the last DOSBox launch.\nexec %s > /tmp/pi-286-games-dosbox.log 2>&1\n" % shlex.join(command), encoding="utf-8")
-    replay.chmod(0o700)
-    return replay
-
-def run_game(game, config, term, pad, ddr_keys, no_sound=False):
-    try: data, command = validate(game, Path(config["game_data_root"]).expanduser(), term, config.get("confirm_key", "SPACE").upper(), pad)
+def run_game(game, config, term, pad, ddr_keys):
+    try: data, _command = validate(game, Path(config["game_data_root"]).expanduser(), term, config.get("confirm_key", "SPACE").upper(), pad)
     except InstallationCancelled: return "cancelled"
     except LauncherExit: return "exit"
-    remote = run_remote_game(game, config, term, data, ddr_keys)
-    if remote is not None: return remote
-    if not game.dosbox_conf.is_file() or not game.mapper_file.is_file(): raise RuntimeError("Chýba nastavenie DOSBoxu.")
-    dosbox = shutil.which(config.get("dosbox_command", "dosbox"))
-    if not dosbox: raise RuntimeError("DOSBox nie je nainštalovaný.")
-    generated = game.dosbox_conf.parent / ".launcher-autoexec.conf"
-    base_copy = Path("/tmp/pi-286-games-dosbox-base.conf")
-    generated_mapper = Path("/tmp/pi-286-games-dosbox-mapper.txt")
-    generated_mapper.write_text(ddr_mapper_content(game.mapper_file, ddr_keys), encoding="utf-8")
-    generated_content = generated_dosbox_config(generated_mapper, data, command, no_sound)
-    base_copy.write_text(APPLIANCE_DOSBOX_BASE_CONFIG, encoding="utf-8")
-    generated.write_text(generated_content, encoding="utf-8")
-    generated_copy = Path("/tmp/pi-286-games-dosbox.conf")
-    generated_copy.write_text(generated_content, encoding="utf-8")
-    fds = []
-    log = None
-    log_path = Path("/tmp/pi-286-games-dosbox.log")
-    try:
-        # F1 is always available alongside dance-pad SELECT while DOSBox owns
-        # the display. Watch readable keyboard event devices without host setup.
-        for device in glob.glob("/dev/input/event*"):
-            try: fds.append(os.open(device, os.O_RDONLY | os.O_NONBLOCK))
-            except OSError: pass
-        try:
-            log = log_path.open("wb")
-            environment = dosbox_environment(config, no_sound)
-            write_dosbox_replay(dosbox, base_copy, game.dosbox_conf, generated_copy, environment)
-            game_running_screen(game, PANIC_KEY)
-            # Classic SDL fbcon requires DOSBox to remain in tty1's foreground
-            # process group. DOSBox does not need a separate session/group.
-            proc = subprocess.Popen([dosbox, "-conf", str(base_copy), "-conf", str(game.dosbox_conf), "-conf", str(generated)], stdout=log, stderr=subprocess.STDOUT, env=environment)
-        except OSError as exc:
-            raise RuntimeError("DOSBox sa nedá spustiť: %s" % exc.strerror) from exc
-        wanted = KEY_CODES[PANIC_KEY]
-        panicked = False
-        while proc.poll() is None:
-            if pad_panic(pad.buttons()):
-                proc.terminate()
-                try: proc.wait(timeout=3)
-                except subprocess.TimeoutExpired: proc.kill(); proc.wait()
-                panicked = True
-                break
-            for fd in fds:
-                try: raw = os.read(fd, EVENT.size * 8)
-                except BlockingIOError: continue
-                for pos in range(0, len(raw) - EVENT.size + 1, EVENT.size):
-                    _, _, typ, code, value = EVENT.unpack_from(raw, pos)
-                    if typ == 1 and code == wanted and value == 1:
-                        proc.terminate()
-                        try: proc.wait(timeout=3)
-                        except subprocess.TimeoutExpired: proc.kill(); proc.wait()
-                        panicked = True
-                        break
-            if panicked: break
-            time.sleep(.05)
-        restore_console_display()
-        if panicked: return "panic"
-        return "ok" if proc.returncode == 0 else "failed"
-    finally:
-        for fd in fds: os.close(fd)
-        if log: log.close()
-        generated.unlink(missing_ok=True)
+    return run_remote_game(game, config, term, data, ddr_keys)
 
 def main():
-    parser = argparse.ArgumentParser(); parser.add_argument("--host-conf", type=Path, default=ROOT / "config" / "host.conf"); parser.add_argument("--no-sound", action="store_true", help="disable DOSBox and SDL audio")
+    parser = argparse.ArgumentParser(); parser.add_argument("--host-conf", type=Path, default=ROOT / "config" / "host.conf")
     args = parser.parse_args(); config = values(ROOT / "config" / "host.conf.example"); config.update(values(args.host_conf))
     games = discover()
     if not games: print("No valid game definitions found.", file=sys.stderr); return 1
@@ -696,27 +547,27 @@ def main():
                         continue
                     try: subprocess.run(["sudo", "-n", "/sbin/shutdown", "-h", "now"], check=True)
                     except (OSError, subprocess.CalledProcessError):
-                        if not error(term, pad, Game("Systém", "", "", Path(), Path()), "Vypnutie systému zlyhalo.", confirm): return 0
+                        if not error(term, pad, Game("Systém", "", ""), "Vypnutie systému zlyhalo.", confirm): return 0
                 elif selected == diagnostic_index:
                     try:
                         result = run_rainbow_cat(config)
                         if result == "panic": corner = network_address()
-                        if result == "failed" and not error(term, pad, Game(RAINBOW_CAT_LABEL, "", "", Path(), Path()), "Vzdialený prehrávač skončil s chybou.", confirm): return 0
+                        if result == "failed" and not error(term, pad, Game(RAINBOW_CAT_LABEL, "", ""), "Vzdialený prehrávač skončil s chybou.", confirm): return 0
                     except RuntimeError as exc:
-                        if not error(term, pad, Game(RAINBOW_CAT_LABEL, "", "", Path(), Path()), str(exc), confirm): return 0
+                        if not error(term, pad, Game(RAINBOW_CAT_LABEL, "", ""), str(exc), confirm): return 0
                     except Exception:
                         Path("/tmp/pi286-stream-launcher-error.log").write_text(traceback.format_exc(), encoding="utf-8")
-                        if not error(term, pad, Game(RAINBOW_CAT_LABEL, "", "", Path(), Path()), "Vzdialený test zlyhal. Detaily sú v /tmp/pi286-stream-launcher-error.log.", confirm): return 0
+                        if not error(term, pad, Game(RAINBOW_CAT_LABEL, "", ""), "Vzdialený test zlyhal. Detaily sú v /tmp/pi286-stream-launcher-error.log.", confirm): return 0
                 else:
                     try:
                         ddr_keys, ddr_labels = load_ddr_mapping(games[selected])
                         ready = wait_for_game_start(term, pad, games[selected], ddr_labels, ddr_keys, volume)
                         if ready == "exit": return 0
                         if not ready: continue
-                        result = run_game(games[selected], config, term, pad, ddr_keys, args.no_sound)
+                        result = run_game(games[selected], config, term, pad, ddr_keys)
                         if result == "exit": return 0
                         if result == "panic": corner = network_address()
-                        if result == "failed" and not error(term, pad, games[selected], "DOSBox skončil s chybou.", confirm): return 0
+                        if result == "failed" and not error(term, pad, games[selected], "Vzdialený prehrávač skončil s chybou.", confirm): return 0
                     except RuntimeError as exc:
                         if not error(term, pad, games[selected], str(exc), confirm): return 0
     if restart_hint:

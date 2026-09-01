@@ -4,30 +4,22 @@
 # Root directory containing the actual game binaries and assets.
 game_data_root=~/pi-286-game-files
 
-# Debian's package installs this command.
-dosbox_command=dosbox
-
-# local keeps the proven on-device DOSBox path. auto uses the remote LXC only
-# when its authenticated health check and the Pi presenter both succeed.
-dosbox_backend=local
+# The launcher always starts its DOSBox session on this authenticated server.
 # remote_dosbox_url=http://192.168.100.194:28680
 # remote_dosbox_token_file=~/.config/pi286-stream.token
 # remote_dosbox_presenter=/opt/pi286/stream/bin/pi286-stream-presenter
-# remote_dosbox_transport=websocket
+remote_dosbox_transport=websocket
 
-# Shared display preference. The remote backend applies it before its tile
-# comparison; missing/unknown values safely use nearest. Local DOSBox will
-# gain the same setting in a later step.
-video_scaling=nearest
+# The remote backend applies this before its tile comparison.
+video_scaling=crt-lite
 # video_scaling=linear-v
 # video_scaling=crt-lite
 
-# Raspberry Pi 1 direct-console classic SDL 1.2 build. These are passed only
-# to DOSBox; the DietPi installer creates the required installation first.
-dosbox_ld_library_path=/opt/sdl12-fbcon/lib
-dosbox_sdl_videodriver=fbcon
-dosbox_sdl_fbdev=/dev/fb0
-dosbox_sdl_fb_broken_modes=1
+# Raspberry Pi 1 direct-console classic SDL 1.2 build for the presenter.
+presenter_ld_library_path=/opt/sdl12-fbcon/lib
+presenter_sdl_videodriver=fbcon
+presenter_sdl_fbdev=/dev/fb0
+presenter_sdl_fb_broken_modes=1
 
 # Persisted HDMI PCM level. The launcher applies it at startup; Left/Right in
 # the launcher menu adjust it in 10% steps.
@@ -35,13 +27,11 @@ audio_volume_percent=96
 # Optional compatibility mode for monitors that stretch a 4:3 HDMI signal.
 # Keep 0 for the normal 640x480 path. With 1, SDL centers its unscaled
 # 640x480 logical surface in any larger compatible RGB565 framebuffer.
-dosbox_sdl_fb_pillarbox=0
+presenter_sdl_fb_pillarbox=0
 # Optional diagnostic canvas color for unused physical pixels, six RGB hex
 # digits. Leave commented for the normal black bars.
-# dosbox_sdl_fb_canvas_color=ff00ff
 
-# Raspberry Pi legacy physical framebuffer/HDMI mode.  The launcher still
-# always gives stock DOSBox a logical 640x480 SDL surface.
+# Raspberry Pi legacy physical framebuffer/HDMI mode for the presenter.
 framebuffer_hdmi_group=2
 framebuffer_hdmi_mode=4
 # For a custom legacy HDMI mode (normally mode 87), uncomment and provide the

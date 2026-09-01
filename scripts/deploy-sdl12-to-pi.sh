@@ -7,7 +7,7 @@ artifact=${SDL12_FBCON_ARTIFACT:-$repo/dist/sdl12-fbcon-rpi1-armv6-armhf.tar.gz}
 verify_only=false; [ "${1:-}" != --verify-only ] || verify_only=true
 [ "$#" -le 1 ] || { echo "Usage: $0 [--verify-only]" >&2; exit 2; }
 verify_remote() {
-    ssh pi286 'set -eu; [ "$(uname -m)" = armv6l ]; [ "$(dpkg --print-architecture)" = armhf ]; /opt/sdl12-fbcon/bin/sdl-config --version | grep -qx 1.2.16; file -L /opt/sdl12-fbcon/lib/libSDL-1.2.so.0 | grep -q ARM; readelf -A /opt/sdl12-fbcon/lib/libSDL-1.2.so.0 | grep -Eq "Tag_CPU_arch: v6|Tag_CPU_arch: v6KZ"; readelf -A /opt/sdl12-fbcon/lib/libSDL-1.2.so.0 | grep -q "Tag_ABI_VFP_args: VFP registers"; LD_LIBRARY_PATH=/opt/sdl12-fbcon/lib ldd "$(command -v dosbox)" | grep -Fq /opt/sdl12-fbcon/lib/libSDL-1.2.so.0; health=$(find "$HOME" -maxdepth 4 -type f -path "*/scripts/health-check.sh" -print -quit); [ -z "$health" ] || sh "${health%/scripts/health-check.sh}/scripts/health-check.sh"'
+    ssh pi286 'set -eu; [ "$(uname -m)" = armv6l ]; [ "$(dpkg --print-architecture)" = armhf ]; /opt/sdl12-fbcon/bin/sdl-config --version | grep -qx 1.2.16; file -L /opt/sdl12-fbcon/lib/libSDL-1.2.so.0 | grep -q ARM; readelf -A /opt/sdl12-fbcon/lib/libSDL-1.2.so.0 | grep -Eq "Tag_CPU_arch: v6|Tag_CPU_arch: v6KZ"; readelf -A /opt/sdl12-fbcon/lib/libSDL-1.2.so.0 | grep -q "Tag_ABI_VFP_args: VFP registers"; health=$(find "$HOME" -maxdepth 4 -type f -path "*/scripts/health-check.sh" -print -quit); [ -z "$health" ] || sh "${health%/scripts/health-check.sh}/scripts/health-check.sh"'
 }
 ssh -o BatchMode=yes pi286 true || { echo "Cannot connect to SSH alias pi286 with BatchMode enabled." >&2; exit 1; }
 if [ "$verify_only" = true ]; then verify_remote; exit 0; fi

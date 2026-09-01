@@ -39,7 +39,7 @@ case $profile in
         set_value framebuffer_width 640
         set_value framebuffer_height 480
         set_value framebuffer_depth 16
-        set_value dosbox_sdl_fb_pillarbox 0
+        set_value presenter_sdl_fb_pillarbox 0
         remove_value framebuffer_hdmi_cvt
         ;;
     854x480)
@@ -49,7 +49,7 @@ case $profile in
         set_value framebuffer_width 854
         set_value framebuffer_height 480
         set_value framebuffer_depth 16
-        set_value dosbox_sdl_fb_pillarbox 1
+        set_value presenter_sdl_fb_pillarbox 1
         ;;
     720p)
         set_value framebuffer_hdmi_group 1
@@ -57,7 +57,7 @@ case $profile in
         set_value framebuffer_width 1280
         set_value framebuffer_height 720
         set_value framebuffer_depth 16
-        set_value dosbox_sdl_fb_pillarbox 1
+        set_value presenter_sdl_fb_pillarbox 1
         remove_value framebuffer_hdmi_cvt
         ;;
     *) usage ;;
@@ -65,7 +65,6 @@ esac
 
 # Canvas colour is solely a visual-test diagnostic.  Never leave it enabled
 # for a normal DOSBox launch after changing display profiles.
-remove_value dosbox_sdl_fb_canvas_color
 if [ "${PI286_NO_SUDO:-0}" = 1 ]; then
     HOST_CONF="$host_conf" "$repo/scripts/configure-legacy-framebuffer.sh"
 else

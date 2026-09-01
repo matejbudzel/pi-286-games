@@ -1,288 +1,60 @@
 # pi-286-games
 
-Minimal Raspberry Pi DOS gaming appliance for a small curated set of games.
+Minimal Raspberry Pi 1 DOS gaming thin client. The Pi runs a text launcher,
+SDL fbcon presenter, HDMI audio and input handling. The stream server owns
+DOSBox and runs every game session.
 
-The visual and performance target is a late 286/EGA DOS PC. See
-[the target-platform notes](docs/target-platform.md).
+## Runtime flow
 
-The repository contains the launcher, host configuration, DOSBox configuration, input mappings, and deployment helpers. Game binaries and assets are intentionally kept outside Git.
+1. The launcher lists the local game definitions in `games/`.
+2. Selecting a game checks its local asset directory and, when necessary,
+   installs the configured archive.
+3. It builds a manifest, uploads missing blobs to the authenticated server,
+   and asks the server to start a DOSBox session.
+4. The native presenter shows the video/audio stream and forwards keyboard and
+   dance-pad input using WebSocket by default (or explicit HTTP polling).
 
-## Runtime model
+There is no local DOSBox fallback and no native compilation on the Pi.
 
-- DietPi or another minimal Linux installation boots directly into the launcher.
-- The launcher discovers game definitions from `games/` and sorts them alphabetically by display name.
-- A game definition points to game data stored outside this repository.
-- Each game provides its own DOSBox config, keyboard mapper and DDR-pad map.
-- The launcher starts DOSBox, waits for it to exit, and then returns to the menu.
-- DDR SELECT is a host-level panic control that terminates DOSBox independently
-  of the game's mapper.
-- If a game cannot be started or DOSBox exits abnormally, the launcher shows a fullscreen Slovak error screen and waits for the normal confirm input before returning to the menu.
-- `Bye bye!` powers off a Raspberry Pi and exits to the console elsewhere.
+Game assets remain outside Git in `game_data_root`; the current upload flow is
+deliberately retained. Per-game metadata contains the display name, local data
+directory, executable, optional archive and DDR map. The remote backend applies
+the shared 286/EGA DOSBox profile documented in [target-platform notes](docs/target-platform.md).
 
-## Repository layout
+## Pi setup
 
-```text
-launcher/              Launcher implementation
-config/                Host-specific launcher configuration examples
-games/                 Per-game metadata, DOSBox configs and mapper files
-systemd/               Boot-time service definition
-scripts/               Installation, diagnostics, and appliance helpers
-```
-
-## Game data
-
-Game binaries are not stored in this repository. The launcher uses a configurable game-data root, for example:
-
-```text
-~/pi-286-game-files/
-  dizzy/
-  grand-prix/
-  prehistorik/
-  prince-of-persia/
-```
-
-
-### Optional first-run asset installation
-
-A game's `game.conf` can set `asset_archive` to either an HTTPS URL or a local
-ZIP or RAR path. If its configured `data_dir` is absent, the launcher downloads
-or copies that archive and extracts it into the data directory. If the directory
-already exists, it is always used as-is: the archive is not fetched, extracted,
-or used to validate its contents.
-
-When the launcher needs to install an archive, it first asks for Confirm on a
-fullscreen Slovak screen. It then displays transfer and extraction progress,
-and waits for Confirm once more before starting the game. Press Esc to cancel
-before installation starts.
-
-```ini
-asset_archive=https://example.org/my-lawful-game-copy.zip
-```
-
-The archive must contain the game's files at its top level. Only configure a
-source you are authorised to download and use; game data is still host-local
-and must not be committed to this repository.
-
-The launcher treats an existing or newly extracted data directory as ready to
-use and does not inspect it for the configured executable before starting
-DOSBox. This deliberately avoids overwriting or second-guessing a local copy.
-
-DOSBox output is kept out of the launcher console. The latest DOSBox diagnostic
-output is retained at `/tmp/pi-286-games-dosbox.log`, including after a normal
-DOSBox exit, because DOS-side startup failures can still result in a zero host
-exit status. The shared appliance base config and generated per-launch override
-are retained alongside it at `/tmp/pi-286-games-dosbox-base.conf` and
-`/tmp/pi-286-games-dosbox.conf` for troubleshooting. The executable
-`/tmp/pi-286-games-dosbox-command.sh` is retained too; it replays the exact
-last launcher DOSBox command and its relevant appliance environment.
-
-ZIP support uses Python's standard library. RAR support requires Debian's
-`unrar` package, which is in the `non-free` repository component:
-
-```sh
-sudo apt update
-sudo apt install unrar
-```
-
-If `apt` cannot find the package, enable `non-free` in the Debian/DietPi APT
-sources, run `sudo apt update`, and install it again. The launcher shows a
-clear error instead of attempting a RAR extraction when `unrar` is absent.
-
-## Input model
-
-The keyboard remains fully usable. The exact WiseGroup X-PAD DDR dance pad is
-also supported directly through Linux's joystick interface, with no pygame or
-background input daemon. Its button 2 is menu up, button 1 menu down, button 8
-is START/confirm, and button 9 is SELECT/back. Choosing a game opens a
-full-screen physical pad layout first; press Space or START to launch, or Esc
-or SELECT to return.
-
-While DOSBox runs, SELECT (button 9) is permanently monitored by the launcher
-and returns to the menu immediately. It is never exposed to DOSBox. Every game
-has a small `ddr.conf` which maps buttons 0–8 to the same DOSBox keyboard keys
-and Slovak labels shown on that screen. The normal keyboard bindings remain in
-parallel. See [DDR dance pad setup and mappings](docs/ddr-dance-pad.md).
-
-F1 always displays the first detected Ethernet or Wi-Fi IPv4 address in the
-bottom-right corner when pressed in the menu. It
-shows `offline` when neither interface has an address, and also appears after a
-panic return from DOSBox.
-
-## Game definitions
-
-Each subdirectory in `games/` represents one game and contains metadata plus optional DOSBox-specific files. The launcher does not require the referenced executable to exist while discovering the menu. Missing game data is handled only when the user launches that title.
-
-## DietPi / Debian setup
-
-Run this as the autologin user after cloning the repository:
+Deploy cross-built SDL and presenter artifacts first, then run as the DietPi
+autologin user:
 
 ```sh
 ./scripts/install-dietpi.sh
 ```
 
-The default installed `game_data_root` is `~/pi-286-game-files`, which is
-writable by the autologin user. If an older `config/host.conf` still points to
-`/opt/pi-286-games-data`, either change it to that user-owned path or create
-and grant ownership of the `/opt` directory before using archive installation.
+The installer configures framebuffer, HDMI PCM audio, launcher service and
+input permissions. It installs no DOSBox and builds nothing. Copy
+`config/host.conf.example` to ignored `config/host.conf`, then set
+`remote_dosbox_url` and `remote_dosbox_token_file`.
 
-The script installs DOSBox when needed, copies the host configuration, grants
-only the shutdown command through sudo, and installs a dedicated systemd
-service which owns local tty1 after DietPi boots. Normal DietPi boot messages
-remain visible; this is intentionally a text-only appliance.
-The installer adds the user to the usual `input` group so it can read the DDR
-pad and use F1 as the keyboard panic fallback. Log out and back in once for
-that new group membership to take effect.
+The launcher uses F1 or dance-pad SELECT as its return control. Each game's
+`ddr.conf` contains its pad-to-stream-key bindings and Slovak labels; SELECT
+(button 9) is never sent to a game.
 
-On the ARMv6 256 MB Pi target, deploy the pinned cross-built classic SDL
-1.2.16 artifact under `/opt/sdl12-fbcon` before running the installer. The Pi
-never compiles SDL, the presenter, or diagnostic helpers; the installer only
-installs runtime packages and configuration.
-It also manages the real 640×480 HDMI/framebuffer boot mode; reboot after
-installation. This avoids Debian's SDL 1.2 compatibility layer and does not
-install X11 or enable KMS/FKMS. The corresponding `dosbox_*` settings in
-`config/host.conf` are fixed for this appliance. See
-[the legacy framebuffer display guide](docs/legacy-fbcon-display.md).
+## Build and deploy
 
-For a monitor that forcibly stretches 4:3 HDMI to 16:9, an optional custom-SDL
-pillarbox mode can send a wider physical 480-high framebuffer with a centered,
-unscaled 640×480 DOS image. It is disabled by default; see the
-[legacy framebuffer display guide](docs/legacy-fbcon-display.md).
-
-The installer also enables the verified BCM2835 HDMI audio path, persists the
-`snd_bcm2835` module, adds the appliance user to `audio`, and writes an ALSA
-default for the detected bcm2835 HDMI card name. DOSBox is explicitly run with
-SDL's ALSA backend and `AUDIODEV=plughw:0,0`, targeting the physically verified
-HDMI device while allowing legacy SDL audio conversion. Log out and back in
-after the new group membership, or reboot after installation.
-
-At boot, a root-owned `pi-286-games-audio.service` explicitly loads
-`snd_bcm2835` before the launcher. The launcher displays gray `Zvuk: ide` or
-`Zvuk: nejde` in its top-right corner based on the live module and `/dev/snd`
-access state.
-
-The launcher service temporarily conflicts with `getty@tty1.service`. When the
-launcher exits through Ctrl-C or `Bye bye!`, it starts the existing tty1 getty
-again, returning to the usual autologin maintenance shell instead of launching
-the application again. On physical Raspberry Pi hardware, `Bye bye!` instead
-requests a shutdown; on any other machine it simply exits to the console.
-
-### Direct console boot
-
-Plymouth is deliberately not used. It starts too late on this Pi 1 and adds a
-graphical element to an otherwise text-only appliance. DietPi boot text remains
-visible until the launcher takes ownership of tty1.
-
-The launcher service deliberately does not mask `getty@tty1.service`; it
-temporarily stops it while active and restores it when the launcher exits.
-
-### Larger console font
-
-The launcher is a Linux-console TUI, so its text size comes from the system
-console font. On the local DietPi console, configure a larger persistent font:
+Use the real Pi as the source of ARMv6 headers and runtime libraries, then
+cross-build on the development machine. Full instructions are in
+[Pi thin-client presenter](docs/pi-presenter.md).
 
 ```sh
-sudo dpkg-reconfigure console-setup
-sudo setupcon
+scripts/sync-pi-sysroot.sh
+scripts/cross-build-sdl12-fbcon.sh
+scripts/cross-build-stream-presenter.sh
+scripts/deploy-sdl12-to-pi.sh
+scripts/deploy-stream-presenter-to-pi.sh
 ```
 
-Choose UTF-8, the `Lat2` codeset (for Slovak characters), and `TerminusBold`.
-`14x28` is a good starting size; use `16x32` for a more prominent appliance
-menu if the display resolution leaves enough room. This affects virtual
-consoles such as tty1, not SSH terminals.
+## Web runtime
 
-The included definitions expect `GPEGA.EXE`, `PREHISTO.COM`, and `PRINCE.EXE`.
-Change `exe` in the relevant `game.conf` if your lawful copy uses another name.
-
-### Console commands
-
-The installer maintains these aliases in the appliance user's `.bashrc`:
-
-```sh
-pg-install             # Run the DietPi appliance installer.
-pg-start --no-sound    # Start the launcher; any launcher option may follow.
-pg-update              # Fast-forward the repository, then reinstall it.
-pg-check --smoke-dosbox # Run health checks; optional smoke test.
-pg-restart             # Hand tty1 back from getty to the launcher, including over SSH.
-pg-resolution 720p --reboot    # Select standard 720p pillarbox mode and reboot.
-pg-resolution 854x480 --reboot # Select the optional custom 854x480 test mode and reboot.
-pg-resolution 640x480 --reboot # Restore the normal 4:3 framebuffer profile and reboot.
-```
-
-Open a new Bash shell after installation, or run `source ~/.bashrc` once, for
-the aliases to become available.
-
-## Future remote-streaming experiment
-
-The native Pi launcher and stock DOSBox path remain supported. A separate
-thin-client experiment may run one DOSBox session in a nearby Proxmox LXC and
-stream its low-resolution video, PC Speaker audio, and controls to the Pi.
-The ARMv6 DOSBox-X cross-build experiment was retired because it was slower in
-practice, used more memory, and was unreliable with classic SDL fbcon. See
-[the experiment note](docs/remote-streaming-experiment.md).
-
-For the remote prototype, build and deploy its Pi SDL presenter from the
-development host with `scripts/deploy-stream-presenter-to-pi.sh`. It copies the
-LXC's private API token to `~/.config/pi286-stream.token` without printing it.
-Set `dosbox_backend=auto` plus the LXC URL in ignored `config/host.conf`; the
-launcher falls back to stock local DOSBox when the presenter or LXC is absent.
-`video_scaling=nearest` is the conservative default. Remote sessions may use
-`linear-v` or `crt-lite`; the same host setting is reserved for a future local
-DOSBox renderer implementation.
-
-### Development web runtime
-
-For occasional tuning from a browser, `scripts/run-web-runtime.sh` serves a
-small alternative presenter on `0.0.0.0:28681`. It keeps the LXC token and
-private game files on the development host while the browser receives only the
-launcher data and the existing tile/PCM stream. Put the LXC token in
-`~/.config/pi286-stream.token` with mode `0600`, set `remote_dosbox_url` in the
-host configuration (or pass `--backend-url`), and run:
-
-```sh
-scripts/run-web-runtime.sh
-```
-
-Open `http://<devbox-lan-address>:28681/` from a trusted LAN device. This is a
-development convenience with no browser authentication; do not expose it to
-an untrusted network.
-
-## Health check
-
-Run the read-only health check on the target to inspect DOSBox, framebuffer/DRM
-permissions, console display environment, SDL linkage, boot configuration, and
-latest launcher log:
-
-```sh
-sh scripts/health-check.sh
-```
-
-Add `--smoke-dosbox` for a short custom-classic-SDL fbcon DOSBox test. It uses
-the same custom SDL and framebuffer environment as the appliance and retains
-its output in `/tmp/pi-286-games-dosbox-smoke.log`; it may briefly take over
-tty1. Neither command installs X11 nor configures KMS/FKMS. Native SDL
-self-tests were intentionally removed: compiling diagnostic programs on the
-Pi violates the appliance deployment model.
-
-### Launcher volume
-
-In the launcher menu, Left and Right set the verified HDMI `PCM` mixer level
-in 10% steps. The top-right `Zvuk: [#####.....]` bar has ten segments, and the
-chosen percentage is stored in the ignored `config/host.conf` as
-`audio_volume_percent`, then applied on the next launcher start. This does not
-adjust audio while a game is running.
-
-## No-sound launch mode
-
-By default the appliance emulates a modest PC-speaker-only DOS machine. The
-speaker tone is routed through the verified HDMI audio output, while Sound
-Blaster, AdLib/FM music, MIDI, Tandy, and Disney Sound Source are disabled to
-keep the Raspberry Pi 1 responsive. A per-game `dosbox.conf` can explicitly
-override that profile if a game needs richer audio and has been physically
-tested.
-
-Run the launcher with `--no-sound` to disable DOSBox's mixer and MIDI output
-device and force SDL's dummy audio backend for audio troubleshooting:
-
-```sh
-python3 launcher/launcher.py --no-sound
-```
+`scripts/run-web-runtime.sh` provides a trusted-LAN browser presenter for
+tuning. It keeps the bearer token and game assets on the development host and
+uses the same server session and transport protocol as the Pi client.

@@ -8,11 +8,9 @@ active DOS game to the Pi over the local network.
 ## Why this experiment exists
 
 The ARMv6 DOSBox-X experiment was retired. Its ARM dynamic recompiler built
-and started, but Grand Prix was subjectively slower than the stock Debian
-DOSBox build, required substantially more resident memory, and did not behave
-reliably with the appliance's classic SDL 1.2 fbcon path. Maintaining a
-cross-compiled alternative DOSBox is therefore not a productive route for
-this appliance. Stock `/usr/bin/dosbox` remains the local fallback.
+and started, but Grand Prix was subjectively slower, used substantially more
+resident memory, and did not behave reliably with the classic SDL 1.2 fbcon
+path. The Pi no longer has a local DOSBox fallback.
 
 ## Intended design
 

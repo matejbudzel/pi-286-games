@@ -9,8 +9,8 @@ modest cycle count instead of SVGA and unconstrained automatic cycles. This
 keeps the emulation workload predictable and is appropriate for this curated
 set of early DOS games.
 
-Use a game's `dosbox.conf` to make a title-specific adjustment only when its
-original release genuinely requires a different graphics adapter or CPU speed.
+The remote backend owns the common DOSBox profile; change it only when a title
+demonstrably requires a different graphics adapter or CPU speed.
 The appliance defaults to low-rate PC-speaker audio: Sound Blaster, AdLib/FM,
 MIDI, Tandy, and Disney Sound Source are disabled. DOSBox mixes the PC speaker
 at 22050 Hz with a 2048-sample block and 100 ms prebuffer, reducing audio load

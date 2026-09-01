@@ -41,17 +41,15 @@ only one it shows only that device's instructions. If input discovery is
 unavailable or sees neither device, it safely falls back to keyboard-only
 instructions. The pad diagram is not drawn unless the X-PAD is connected.
 
-Button 9 is permanently reserved as SELECT. While DOSBox is running the
-launcher monitors it and terminates that DOSBox child, returning to the menu.
-It is never written into a DOSBox mapper file, so no game action can consume
-it. F1 is always available as the keyboard panic control too; it needs no host
+Button 9 is permanently reserved as SELECT. While a streamed game is running,
+the presenter returns to the launcher. It is never sent to the remote game. F1
+is always available as the keyboard panic control too; it needs no host
 configuration.
 
 ## Per-game configuration
 
-Each game has `ddr.conf` beside `game.conf` and `mapper.txt`. It maps the fixed
-physical button to one of the keyboard entries already present in that game's
-DOSBox mapper, and gives its Slovak on-pad description:
+Each game has `ddr.conf` beside `game.conf`. It maps the fixed physical button
+to a remote keyboard key and gives its Slovak on-pad description:
 
 ```ini
 button0_key=LEFT
@@ -67,11 +65,9 @@ screen faithfully shows the physical 3×3 layout. Valid key values are `UP`,
 `DOWN`, `LEFT`, `RIGHT`, `SPACE`, `ENTER`, `ESC`, `LSHIFT`, and `LCTRL`.
 Button 9 must not appear in this file.
 
-For each launch the launcher copies the game's normal `mapper.txt` to a fresh
-temporary `/tmp/pi-286-games-dosbox-mapper.txt`, appends the configured
-`stick_0 button N` bindings, and points the generated DOSBox configuration at
-that copy. This preserves normal keyboard bindings and prevents mappings from
-one game leaking to another.
+For each launch the presenter receives this fixed button-to-key map together
+with the remote session. Keyboard input remains available in parallel and maps
+cannot leak between games.
 
 ## Testing the pad on DietPi
 

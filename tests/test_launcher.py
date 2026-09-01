@@ -46,7 +46,7 @@ class DiscoveryTests(unittest.TestCase):
         original = launcher.Terminal.draw
         launcher.Terminal.draw = lambda lines, color="\x1b[96m", corner="": captured.extend(lines)
         try:
-            launcher.game_running_screen(launcher.Game("Prince of Persia", "", "", Path(), Path()), "F1")
+            launcher.game_running_screen(launcher.Game("Prince of Persia", "", ""), "F1")
         finally:
             launcher.Terminal.draw = original
         self.assertIn(("Je spustená hra", False), captured)
@@ -105,82 +105,29 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(launcher.Terminal.decode_key(b"\x1b[C"), "RIGHT")
         self.assertEqual(launcher.Terminal.decode_key(b"\x1bOC"), "RIGHT")
 
-    def test_replay_script_uses_the_same_fbcon_environment_and_configs(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            replay = Path("/tmp/pi-286-games-dosbox-command.sh")
-            original = launcher.Path
-            try:
-                launcher.Path = lambda value: Path(temporary) / Path(value).name if value == "/tmp/pi-286-games-dosbox-command.sh" else original(value)
-                written = launcher.write_dosbox_replay("/usr/bin/dosbox", Path("base.conf"), Path("game.conf"), Path("/tmp/pi-286-games-dosbox.conf"), {"LD_LIBRARY_PATH": "/opt/sdl12-fbcon/lib", "SDL_VIDEODRIVER": "fbcon", "SDL_FBDEV": "/dev/fb0", "SDL_FB_BROKEN_MODES": "1", "AUDIODEV": "plughw:0,0", "SDL_PATH_DSP": "plughw:0,0", "SDL_DSP_NOSELECT": "1"})
-            finally:
-                launcher.Path = original
-            content = written.read_text()
-            self.assertIn("SDL_VIDEODRIVER=fbcon", content)
-            self.assertIn("AUDIODEV=plughw:0,0", content)
-            self.assertIn("SDL_PATH_DSP=plughw:0,0", content)
-            self.assertIn("SDL_DSP_NOSELECT=1", content)
-            self.assertIn("-conf base.conf", content)
-            self.assertIn("-conf game.conf", content)
-            self.assertIn("-conf /tmp/pi-286-games-dosbox.conf", content)
-            self.assertIn("> /tmp/pi-286-games-dosbox.log 2>&1", content)
-
-    def test_dosbox_environment_can_select_the_rpi_fbcon_sdl_build(self):
-        environment = launcher.dosbox_environment({
-            "dosbox_ld_library_path": "/opt/sdl12-fbcon/lib",
-            "dosbox_sdl_videodriver": "fbcon",
-            "dosbox_sdl_fbdev": "/dev/fb0",
-            "dosbox_sdl_fb_broken_modes": "1",
-            "dosbox_sdl_fb_pillarbox": "1",
-            "dosbox_sdl_fb_canvas_color": "ff00ff",
-            "dosbox_sdl_audiodev": "hw:HDMI,0",
+    def test_presenter_environment_can_select_the_rpi_fbcon_sdl_build(self):
+        environment = launcher.presenter_environment({
+            "presenter_ld_library_path": "/opt/sdl12-fbcon/lib",
+            "presenter_sdl_videodriver": "fbcon",
+            "presenter_sdl_fbdev": "/dev/fb0",
+            "presenter_sdl_fb_broken_modes": "1",
+            "presenter_sdl_fb_pillarbox": "1",
         })
         self.assertEqual(environment["LD_LIBRARY_PATH"], "/opt/sdl12-fbcon/lib")
         self.assertEqual(environment["SDL_VIDEODRIVER"], "fbcon")
         self.assertEqual(environment["SDL_FBDEV"], "/dev/fb0")
         self.assertEqual(environment["SDL_FB_BROKEN_MODES"], "1")
         self.assertEqual(environment["PI286_SDL_FB_PILLARBOX"], "1")
-        self.assertNotIn("PI286_SDL_FB_CANVAS_COLOR", environment)
         self.assertEqual(environment["SDL_AUDIODRIVER"], "alsa")
         self.assertEqual(environment["AUDIODEV"], "plughw:0,0")
         self.assertEqual(environment["SDL_PATH_DSP"], launcher.HDMI_PCM)
         self.assertEqual(environment["SDL_DSP_NOSELECT"], "1")
 
-    def test_effective_dosbox_config_has_the_appliance_safe_video_values(self):
-        for game_dir in ("blockout", "grand-prix", "prince-of-persia"):
-            game_config = Path(__file__).parents[1] / "games" / game_dir / "dosbox.conf"
-            config = launcher.effective_dosbox_config(game_config, Path("mapper.txt"), Path("/games/test"), "GAME.EXE")
-            for line in ("fullscreen=true", "fulldouble=false", "fullfixed=true", "fullresolution=640x480", "output=surface", "usescancodes=false", "frameskip=0", "aspect=true", "scaler=normal2x"):
-                self.assertIn(line, config, game_dir)
-
-    def test_game_config_can_override_shared_render_defaults(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            game_path = Path(temporary) / "dosbox.conf"
-            game_path.write_text("[dosbox]\nmachine=ega\nmemsize=8\n\n[cpu]\ncycles=fixed 3000\n\n[render]\naspect=false\nscaler=none\n")
-            combined = launcher.effective_dosbox_config(game_path, Path("mapper.txt"), Path("/games/test"), "GAME.EXE")
-        self.assertIn("machine=ega", combined)
-        self.assertIn("memsize=8", combined)
-        self.assertIn("cycles=fixed 3000", combined)
-        self.assertGreater(combined.rfind("aspect=false"), combined.rfind("aspect=true"))
-        self.assertGreater(combined.rfind("scaler=none"), combined.rfind("scaler=normal2x"))
-
-    def test_appliance_defaults_to_low_cost_pc_speaker_audio(self):
-        config = launcher.APPLIANCE_DOSBOX_BASE_CONFIG
-        for line in ("rate=22050", "blocksize=2048", "prebuffer=100", "sbtype=none", "pcspeaker=true", "pcrate=22050", "tandy=off", "disney=false", "mpu401=none"):
-            self.assertIn(line, config)
-
-    def test_grand_prix_keeps_its_286_video_and_cpu_override(self):
-        config = (Path(__file__).parents[1] / "games" / "grand-prix" / "dosbox.conf").read_text()
-        self.assertIn("machine=ega", config)
-        self.assertIn("cycles=fixed 3000", config)
-        self.assertNotIn("[mixer]", config)
-
-    def test_dosbox_launch_does_not_detach_from_tty1(self):
+    def test_remote_launch_has_no_local_dosbox_branch(self):
         source = inspect.getsource(launcher.run_game)
-        self.assertNotIn("preexec_fn=", source)
-        self.assertNotIn("setsid", source)
-        self.assertNotIn("setpgrp", source)
-        self.assertNotIn("panic_device", source)
-        self.assertIn("KEY_CODES[PANIC_KEY]", source)
+        self.assertIn("run_remote_game", source)
+        self.assertNotIn("Popen", source)
+        self.assertNotIn("dosbox", source.lower())
 
     def test_remote_pad_map_preserves_button_order_and_normalizes_modifiers(self):
         self.assertEqual(launcher.remote_pad_map({0: "LEFT", 2: "UP", 8: "LCTRL"}), "LEFT,,UP,,,,,,CTRL")
@@ -201,7 +148,7 @@ class DiscoveryTests(unittest.TestCase):
 
     def test_remote_presenter_uses_the_same_fbcon_environment_and_keeps_a_log(self):
         source = inspect.getsource(launcher.run_remote_presenter)
-        self.assertIn("environment.update(dosbox_environment(config))", source)
+        self.assertIn("presenter_environment(config)", source)
         self.assertIn('/tmp/pi286-stream-presenter.log', source)
         self.assertIn('Path(config["remote_dosbox_token_file"]).expanduser()', source)
         self.assertIn("transport", source)
@@ -216,25 +163,19 @@ class DiscoveryTests(unittest.TestCase):
         self.assertTrue(launcher.known_dance_pad("USB Gamepad", 2, 10))
         self.assertFalse(launcher.known_dance_pad("USB Gamepad", 2, 8))
 
-    def test_ddr_mapping_loads_labels_and_generates_dosbox_joystick_bindings(self):
+    def test_ddr_mapping_loads_labels_for_the_stream_presenter(self):
         with tempfile.TemporaryDirectory() as temporary:
             folder = Path(temporary)
             ddr = folder / "ddr.conf"
             ddr.write_text("button0_key=LEFT\nbutton0_label=Doľava\nbutton2_key=UP\nbutton2_label=Skok\nbutton8_key=SPACE\nbutton8_label=Streľba\n")
-            mapper = folder / "mapper.txt"
-            mapper.write_text('key_left "key 276"\nkey_up "key 273"\nkey_space "key 32"\n')
-            game = launcher.Game("Test", "data", "GAME.EXE", folder / "dosbox.conf", mapper, ddr_conf=ddr)
+            game = launcher.Game("Test", "data", "GAME.EXE", ddr_conf=ddr)
             keys, labels = launcher.load_ddr_mapping(game)
             self.assertEqual((keys[0], labels[2], labels[8]), ("LEFT", "Skok", "Streľba"))
-            generated = launcher.ddr_mapper_content(mapper, keys)
-            self.assertIn('key_left "key 276" "stick_0 button 0"', generated)
-            self.assertIn('key_up "key 273" "stick_0 button 2"', generated)
-            self.assertIn('key_space "key 32" "stick_0 button 8"', generated)
 
     def test_ddr_mapping_rejects_missing_or_select_mapping(self):
         with tempfile.TemporaryDirectory() as temporary:
             folder = Path(temporary)
-            game = launcher.Game("Test", "data", "GAME.EXE", folder / "dosbox.conf", folder / "mapper.txt", ddr_conf=folder / "ddr.conf")
+            game = launcher.Game("Test", "data", "GAME.EXE", ddr_conf=folder / "ddr.conf")
             with self.assertRaisesRegex(RuntimeError, "Chýba nastavenie DDR"):
                 launcher.load_ddr_mapping(game)
             game.ddr_conf.write_text("button9_key=SPACE\n")
@@ -247,7 +188,7 @@ class DiscoveryTests(unittest.TestCase):
     def test_pre_game_screen_shows_full_physical_pad_and_slovak_controls(self):
         labels = {button: "nepoužité" for button in range(9)}
         labels.update({2: "Skok", 8: "Streľba"})
-        game = launcher.Game("Prehistorik", "", "", Path(), Path())
+        game = launcher.Game("Prehistorik", "", "")
         keys = {button: "" for button in range(9)}
         keys.update({2: "UP", 8: "SPACE"})
         text = "\n".join(line for line, _ in launcher.pre_game_lines(game, labels, keys))
@@ -264,7 +205,7 @@ class DiscoveryTests(unittest.TestCase):
         labels[8] = "Streľba"
         keys = {button: "" for button in range(9)}
         keys[8] = "SPACE"
-        game = launcher.Game("Test", "", "", Path(), Path())
+        game = launcher.Game("Test", "", "")
         pad_only = "\n".join(line for line, _ in launcher.pre_game_lines(game, labels, keys, has_pad=True, has_keyboard=False))
         keyboard_only = "\n".join(line for line, _ in launcher.pre_game_lines(game, labels, keys, has_pad=False, has_keyboard=True))
         self.assertIn("HORE-L", pad_only)
@@ -293,7 +234,7 @@ class DiscoveryTests(unittest.TestCase):
             def available(self): return True
             def buttons(self): return self.events.pop(0) if self.events else []
         labels = {button: "nepoužité" for button in range(9)}
-        game = launcher.Game("Test", "", "", Path(), Path())
+        game = launcher.Game("Test", "", "")
         original = launcher.Terminal.draw
         launcher.Terminal.draw = lambda *args, **kwargs: None
         try:
@@ -315,7 +256,7 @@ class DiscoveryTests(unittest.TestCase):
                 folder = root / dirname
                 folder.mkdir()
                 (folder / "game.conf").write_text(
-                    "name=%s\ndata_dir=data\nexe=GAME.EXE\ndosbox_conf=dosbox.conf\nmapper_file=mapper.txt\n" % name
+                    "name=%s\ndata_dir=data\nexe=GAME.EXE\n" % name
                 )
             self.assertEqual([game.name for game in launcher.discover(root)], ["Alpha", "zebra"])
 
@@ -337,7 +278,7 @@ class DiscoveryTests(unittest.TestCase):
             archive = root / "game.zip"
             with zipfile.ZipFile(archive, "w") as bundle:
                 bundle.writestr("GAME.EXE", "test")
-            game = launcher.Game("Test", "data", "GAME.EXE", Path("dosbox.conf"), Path("mapper.txt"), str(archive))
+            game = launcher.Game("Test", "data", "GAME.EXE", str(archive))
             data, command = launcher.validate(game, root)
             self.assertEqual(data, root / "data")
             self.assertEqual(command, "GAME.EXE")
@@ -348,14 +289,14 @@ class DiscoveryTests(unittest.TestCase):
             root = Path(temporary)
             folder = root / "game"
             folder.mkdir()
-            (folder / "game.conf").write_text("name=Test\ndata_dir=data\nexe=GAME.EXE\ndosbox_conf=dosbox.conf\nmapper_file=mapper.txt\nasset_zip=legacy.zip\n")
+            (folder / "game.conf").write_text("name=Test\ndata_dir=data\nexe=GAME.EXE\nasset_zip=legacy.zip\n")
             self.assertEqual(launcher.discover(root)[0].asset_archive, "legacy.zip")
 
     def test_existing_data_directory_is_used_without_executable_check(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             (root / "data").mkdir()
-            game = launcher.Game("Test", "data", "MISSING.EXE", Path("dosbox.conf"), Path("mapper.txt"), "/no/such/archive.zip")
+            game = launcher.Game("Test", "data", "MISSING.EXE", "/no/such/archive.zip")
             data, command = launcher.validate(game, root)
             self.assertEqual(data, root / "data")
             self.assertEqual(command, "MISSING.EXE")
