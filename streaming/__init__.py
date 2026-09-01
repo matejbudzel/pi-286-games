@@ -1,1 +1,1 @@
-"""Pi286 remote streaming experiment modules."""
+"""Pi286 remote DOS streaming modules."""

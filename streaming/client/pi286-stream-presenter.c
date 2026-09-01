@@ -1,4 +1,4 @@
-/* Minimal Pi 1 SDL 1.2 fbcon presenter for the experimental remote backend. */
+/* Minimal Pi 1 SDL 1.2 fbcon presenter for the remote DOS backend. */
 #include <SDL.h>
 #include <libwebsockets.h>
 #include <arpa/inet.h>
