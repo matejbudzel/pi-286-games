@@ -3,6 +3,9 @@ body { margin: 0; min-height: 100vh; display: grid; place-items: center; }
 main { width: min(854px, 100vw); text-align: center; }
 h1 { color: #62d9ff; letter-spacing: .25em; }
 #games { display: grid; gap: .5rem; margin: 1rem auto; max-width: 28rem; }
+#pre-game-pad { display: grid; grid-template-columns: repeat(3, 1fr); gap: .35rem; max-width: 28rem; margin: 1rem auto; }
+#pre-game-pad span { min-height: 2.4rem; padding: .25rem; border: 1px solid #34344e; }
+#pre-game-pad small { display: block; color: #9e9eb8; }
 button, select { background: #181827; color: #eee; border: 1px solid #5a5a7d; padding: .7rem; font: inherit; }
 button:hover, button:focus { border-color: #ff70d0; color: #ff70d0; }
 #screen-wrap { position: relative; width: min(640px, 100vw); margin: auto; }

@@ -137,6 +137,16 @@ function setHeldSource(source, keys) {
   held.clear(); for (const key of next) held.add(key); revision++; websocketControl();
 }
 function toggleHud() { hudVisible = !hudVisible; updateHud(); }
+function showPadMap(game) {
+  const labels = game.pre_game.pad_labels, keys = game.pre_game.pad_keys;
+  const legend = document.querySelector("#pre-game-pad"); legend.replaceChildren();
+  for (const button of [6, 2, 7, 0, 8, 3, 4, 1, 5]) {
+    const entry = document.createElement("span");
+    entry.textContent = button === 8 ? "START" : document.querySelector(`[data-pad-button="${button}"]`).textContent;
+    const detail = document.createElement("small"); detail.textContent = keys[button] ? labels[button] : "nepoužité";
+    entry.append(detail); legend.append(entry);
+  }
+}
 addEventListener("keydown", event => { if (!session) return; if (event.key === "F1") { event.preventDefault(); stop(); return; } if (event.key === "F8") { event.preventDefault(); toggleHud(); return; } const key = keyName(event); if (key) { setHeldSource(`keyboard:${key}`, [key]); event.preventDefault(); } });
 addEventListener("keyup", event => { const key = keyName(event); if (key) { setHeldSource(`keyboard:${key}`, []); event.preventDefault(); } });
 document.querySelector("#panic").addEventListener("click", () => stop());
@@ -152,7 +162,7 @@ for (const button of document.querySelectorAll("[data-pad-button]")) {
 async function initialise() {
   try {
     const response = await fetch("/api/games"), payload = await response.json();
-    for (const game of payload.games) { const button = document.createElement("button"); button.textContent = game.name; button.onclick = () => { selectedGame = game; document.querySelector("#pre-game-title").textContent = game.name; document.querySelector("#pre-game-hint").textContent = game.pre_game.launch_hint; document.querySelector("#pre-game").hidden = false; games.hidden = true; }; games.append(button); }
+    for (const game of payload.games) { const button = document.createElement("button"); button.textContent = game.name; button.onclick = () => { selectedGame = game; document.querySelector("#pre-game-title").textContent = game.name; document.querySelector("#pre-game-hint").textContent = game.pre_game.launch_hint; showPadMap(game); document.querySelector("#pre-game").hidden = false; games.hidden = true; }; games.append(button); }
     textStatus("Vyber hru. Tento runtime je určený iba pre dôveryhodnú lokálnu sieť.");
   } catch (error) { textStatus(`Nedá sa načítať launcher: ${error.message}`); }
 }
