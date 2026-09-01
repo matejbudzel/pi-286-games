@@ -27,4 +27,3 @@ audio_rate=22050
 # Stop a session if its client stops polling/controlling it. WebSocket sessions
 # also end immediately when their TCP connection closes.
 session_idle_seconds=8
-max_upload_bytes=134217728

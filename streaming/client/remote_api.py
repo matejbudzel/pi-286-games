@@ -1,13 +1,9 @@
 """Small standard-library client for the Pi286 remote DOSBox backend."""
 from __future__ import annotations
 
-import hashlib
 import json
 from pathlib import Path
 from urllib import error, request
-
-SYNC_TIMEOUT_SECONDS = 60.0
-
 
 class RemoteUnavailable(RuntimeError):
     """The configured server cannot be contacted or authenticated."""
@@ -55,70 +51,6 @@ class RemoteBackend:
 
     def games(self, keyboard: bool, dance_pad: bool):
         return self.json("GET", "/v1/games?keyboard=%d&dance_pad=%d" % (keyboard, dance_pad))
-
-    @staticmethod
-    def manifest(directory: Path):
-        files = {}
-        blobs = []
-        for path in sorted(directory.rglob("*")):
-            if not path.is_file() or path.is_symlink():
-                continue
-            relative = path.relative_to(directory).as_posix()
-            digest = hashlib.sha256()
-            with path.open("rb") as source:
-                for chunk in iter(lambda: source.read(65536), b""):
-                    digest.update(chunk)
-            sha256 = digest.hexdigest()
-            size = path.stat().st_size
-            files[relative] = sha256
-            blobs.append({"sha256": sha256, "size": size, "path": path})
-        if not files:
-            raise RemoteProtocolError("game data directory contains no regular files")
-        return files, blobs
-
-    def sync_directory(self, directory: Path, progress=None):
-        files, blobs = self.manifest(directory)
-        missing = set(self.json("POST", "/v1/manifest", {"blobs": [{"sha256": item["sha256"], "size": item["size"]} for item in blobs]},
-                                timeout=SYNC_TIMEOUT_SECONDS).get("missing", []))
-        total = sum(item["size"] for item in blobs if item["sha256"] in missing)
-        transferred = 0
-        for item in blobs:
-            if item["sha256"] not in missing:
-                continue
-            with item["path"].open("rb") as source:
-                body = source.read()
-            with self._request("PUT", "/v1/blobs/" + item["sha256"], body, "application/octet-stream", SYNC_TIMEOUT_SECONDS):
-                pass
-            transferred += item["size"]
-            if progress:
-                progress(transferred, total, item["path"].name)
-        if progress:
-            progress(total, total, "")
-        return files, {"total": total, "transferred": transferred, "files": len(files)}
-
-    @staticmethod
-    def executable_in_manifest(command: str, files: dict[str, str]) -> str:
-        """Return the manifest path corresponding to a DOS launch command.
-
-        Game archives sometimes contain a single top-level directory. Local
-        DOSBox happens to find a bare executable name in that layout, whereas
-        the remote session manifest must name the file exactly. Prefer the
-        requested relative path, then an unambiguous basename match.
-        """
-        executable = command.replace("\\", "/")
-        if executable in files:
-            return executable
-        folded = executable.casefold()
-        exact_casefold = [path for path in files if path.casefold() == folded]
-        if len(exact_casefold) == 1:
-            return exact_casefold[0]
-        basename = executable.rsplit("/", 1)[-1].casefold()
-        basename_matches = [path for path in files if path.rsplit("/", 1)[-1].casefold() == basename]
-        if len(basename_matches) == 1:
-            return basename_matches[0]
-        if not basename_matches:
-            raise RemoteProtocolError("spúšťací súbor %s nie je medzi hernými dátami" % executable)
-        raise RemoteProtocolError("spúšťací súbor %s nie je jednoznačný v herných dátach" % executable)
 
     def start_session(self, game_id: str, video_scaling: str = "nearest", transport: str = "poll"):
         return self.json("POST", "/v1/sessions", {"game_id": game_id, "video_scaling": video_scaling,

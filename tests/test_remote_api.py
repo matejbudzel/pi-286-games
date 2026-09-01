@@ -1,7 +1,4 @@
-import hashlib
-import tempfile
 import unittest
-from pathlib import Path
 
 from streaming.client.remote_api import RemoteBackend, RemoteProtocolError
 
@@ -33,43 +30,6 @@ class RemoteApiTests(unittest.TestCase):
         backend.json = lambda method, path, payload=None, timeout=None: calls.append((method, path, payload, timeout)) or {"stopped": True}
         self.assertEqual(backend.stop_session("demo"), {"stopped": True})
         self.assertEqual(calls, [("DELETE", "/v1/sessions/demo", None, 5.0)])
-
-    def test_sync_uses_a_long_timeout_without_slowing_health_checks(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary); (root / "GAME.EXE").write_bytes(b"game")
-            backend = RemoteBackend("http://example.test", "token")
-            calls = []
-            backend.json = lambda method, path, payload=None, timeout=None: calls.append((method, path, timeout)) or {"missing": []}
-            backend.sync_directory(root)
-            self.assertEqual(calls, [("POST", "/v1/manifest", 60.0)])
-    def test_manifest_hashes_regular_files_with_safe_posix_paths(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            (root / "GP").mkdir()
-            payload = b"game"
-            (root / "GP" / "GAME.EXE").write_bytes(payload)
-            files, blobs = RemoteBackend.manifest(root)
-        digest = hashlib.sha256(payload).hexdigest()
-        self.assertEqual(files, {"GP/GAME.EXE": digest})
-        self.assertEqual(blobs[0]["size"], len(payload))
-
-    def test_executable_is_resolved_from_a_single_archive_wrapper_directory(self):
-        files = {"GRANDPRIX/GPEGA.EXE": "a" * 64, "GRANDPRIX/README.TXT": "b" * 64}
-        self.assertEqual(RemoteBackend.executable_in_manifest("GPEGA.EXE", files), "GRANDPRIX/GPEGA.EXE")
-
-    def test_executable_resolution_keeps_an_explicit_relative_path(self):
-        files = {"GP/GPEGA.EXE": "a" * 64}
-        self.assertEqual(RemoteBackend.executable_in_manifest("GP\\GPEGA.EXE", files), "GP/GPEGA.EXE")
-
-    def test_executable_resolution_rejects_ambiguous_basename(self):
-        files = {"A/GAME.EXE": "a" * 64, "B/GAME.EXE": "b" * 64}
-        with self.assertRaises(RemoteProtocolError):
-            RemoteBackend.executable_in_manifest("GAME.EXE", files)
-
-    def test_empty_directory_is_not_a_valid_remote_game(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            with self.assertRaises(RemoteProtocolError):
-                RemoteBackend.manifest(Path(temporary))
 
     def test_backend_rejects_non_http_or_empty_credentials(self):
         with self.assertRaises(ValueError):

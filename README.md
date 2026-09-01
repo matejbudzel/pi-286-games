@@ -6,19 +6,17 @@ DOSBox and runs every game session.
 
 ## Runtime flow
 
-1. The launcher lists the local game definitions in `games/`.
-2. Selecting a game checks its local asset directory and, when necessary,
-   installs the configured archive.
-3. It builds a manifest, uploads missing blobs to the authenticated server,
-   and asks the server to start a DOSBox session.
-4. The native presenter shows the video/audio stream and forwards keyboard and
+1. The launcher asks the server for its supported game list and pre-game data.
+2. Selecting a game asks the server to validate its already-provisioned private
+   game directory and start a DOSBox session.
+3. The native presenter shows the video/audio stream and forwards keyboard and
    dance-pad input using WebSocket by default (or explicit HTTP polling).
 
 There is no local DOSBox fallback and no native compilation on the Pi.
 
-Game assets remain outside Git in `game_data_root`; the current upload flow is
-deliberately retained. Per-game metadata contains the display name, local data
-directory, executable, optional archive and DDR map. The remote backend applies
+Game assets remain outside Git in the server's `game_data_root`. Per-game
+metadata contains the display name, server data directory, executable and DDR
+map. The remote backend applies
 the shared 286/EGA DOSBox profile documented in [target-platform notes](docs/target-platform.md).
 
 ## Pi setup

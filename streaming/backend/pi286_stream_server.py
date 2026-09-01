@@ -8,9 +8,7 @@ headless DOSBox process at a time.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import hmac
-import io
 import json
 import math
 import os
@@ -39,7 +37,6 @@ WEB_FILES = {"/": ("index.html", "text/html; charset=utf-8"),
              "/app.js": ("app.js", "text/javascript; charset=utf-8"),
              "/style.css": ("style.css", "text/css; charset=utf-8")}
 
-SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 SESSION_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 DEFAULTS = {
     "bind": "0.0.0.0",
@@ -60,7 +57,6 @@ DEFAULTS = {
     # A lost browser/Pi must not leave its headless DOSBox process alive.
     # WebSockets additionally stop immediately when their TCP connection closes.
     "session_idle_seconds": "8",
-    "max_upload_bytes": str(128 * 1024 * 1024),
     "game_definitions_root": "/opt/pi286-stream/repo/games",
     "game_data_root": "/srv/pi286-games",
 }
@@ -164,21 +160,15 @@ def safe_relative_path(value: str) -> PurePosixPath:
     return path
 
 
-def valid_digest(value: str) -> bool:
-    return bool(SHA256_RE.fullmatch(value))
-
-
 class StreamState:
     def __init__(self, config: dict[str, str], token: str):
         self.config = config
         self.token = token
         self.root = Path(config["state_root"])
-        self.blobs = self.root / "blobs"
         self.sessions = self.root / "sessions"
         self.runtime = self.root / "runtime"
-        for directory in (self.blobs, self.sessions, self.runtime):
+        for directory in (self.sessions, self.runtime):
             directory.mkdir(parents=True, exist_ok=True)
-        self.max_upload_bytes = int(config["max_upload_bytes"])
         self.audio_rate = int(config["audio_rate"])
         self.session_idle_seconds = float(config["session_idle_seconds"])
         if self.session_idle_seconds <= 0:
@@ -204,50 +194,6 @@ class StreamState:
         return {"games": [{"id": game.game_id, "name": game.name, "pre_game": pre_game(game)}
                           for game in sorted(self.games.values(), key=lambda item: item.name.casefold())]}
 
-    def blob_path(self, digest: str) -> Path:
-        return self.blobs / digest[:2] / digest
-
-    def missing(self, blobs: list[dict]) -> list[str]:
-        missing = []
-        for entry in blobs:
-            digest = entry.get("sha256") if isinstance(entry, dict) else None
-            size = entry.get("size") if isinstance(entry, dict) else None
-            if not isinstance(digest, str) or not valid_digest(digest):
-                raise ValueError("every blob needs a lowercase SHA-256")
-            if not isinstance(size, int) or size < 0 or size > self.max_upload_bytes:
-                raise ValueError("invalid blob size")
-            path = self.blob_path(digest)
-            if not path.is_file() or path.stat().st_size != size:
-                missing.append(digest)
-        return missing
-
-    def store_blob(self, digest: str, source, length: int) -> None:
-        if not valid_digest(digest):
-            raise ValueError("invalid SHA-256")
-        if length < 0 or length > self.max_upload_bytes:
-            raise ValueError("upload exceeds max_upload_bytes")
-        destination = self.blob_path(digest)
-        if destination.is_file() and destination.stat().st_size == length:
-            return
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        temporary = destination.with_name(f".{digest}.{secrets.token_hex(8)}.part")
-        hashed = hashlib.sha256()
-        remaining = length
-        try:
-            with temporary.open("xb") as output:
-                while remaining:
-                    chunk = source.read(min(65536, remaining))
-                    if not chunk:
-                        raise ValueError("truncated upload")
-                    hashed.update(chunk)
-                    output.write(chunk)
-                    remaining -= len(chunk)
-            if hashed.hexdigest() != digest:
-                raise ValueError("upload SHA-256 does not match URL")
-            os.replace(temporary, destination)
-        finally:
-            temporary.unlink(missing_ok=True)
-
     def start_session(self, request: dict) -> dict:
         game_id = request.get("game_id")
         video_scaling = request.get("video_scaling", "nearest")
@@ -256,13 +202,23 @@ class StreamState:
             video_scaling = "nearest"
         if transport not in ("poll", "websocket"):
             raise ValueError("transport must be poll or websocket")
-        if not isinstance(game_id, str) or game_id not in self.games:
-            raise ValueError("neznáma hra")
-        game = self.games[game_id]
-        game_dir = Path(self.config["game_data_root"]) / game.data_dir
-        executable_path = self._find_game_executable(game_dir, game.executable)
-        if executable_path is None:
-            raise RuntimeError("Herné dáta pre túto hru nie sú na serveri pripravené.")
+        diagnostic = game_id == "rainbow-cat"
+        if diagnostic:
+            game = GameDefinition("rainbow-cat", "Dúhová mačka", "", "RAINBOW.COM",
+                                  Path(), Path(), ("LEFT", "DOWN", "UP", "RIGHT", "", "", "", "", "ENTER"),
+                                  ("", "", "", "", "", "", "", "", ""))
+            game_dir = self.runtime / "rainbow-cat"
+            game_dir.mkdir(exist_ok=True)
+            (game_dir / "RAINBOW.COM").write_bytes(RAINBOW_CAT_COM)
+            executable_path = PurePosixPath("RAINBOW.COM")
+        else:
+            if not isinstance(game_id, str) or game_id not in self.games:
+                raise ValueError("neznáma hra")
+            game = self.games[game_id]
+            game_dir = Path(self.config["game_data_root"]) / game.data_dir
+            executable_path = self._find_game_executable(game_dir, game.executable)
+            if executable_path is None:
+                raise RuntimeError("Herné dáta pre túto hru nie sú na serveri pripravené.")
         with self.lock:
             if self.active:
                 raise RuntimeError("another DOSBox session is already active")
@@ -320,6 +276,7 @@ class StreamState:
                                             "audio_thread": audio_thread, "audio_process": audio_process,
                                             "window": None, "held_keys": set(),
                                             "game": game,
+                                            "diagnostic": diagnostic,
                                             "poll_stats": self._new_poll_stats(),
                                             "video_scaling": video_scaling,
                                             "transport": transport,
@@ -349,14 +306,8 @@ class StreamState:
 
     def start_rainbow_cat(self, video_scaling: str = "nearest", transport: str = "poll") -> dict:
         """Launch the built-in asset-free stream transport diagnostic."""
-        digest = hashlib.sha256(RAINBOW_CAT_COM).hexdigest()
-        self.store_blob(digest, io.BytesIO(RAINBOW_CAT_COM), len(RAINBOW_CAT_COM))
-        status = self.start_session({"game_id": "rainbow-cat", "executable": "RAINBOW.COM",
-                                     "files": {"RAINBOW.COM": digest}, "video_scaling": video_scaling,
-                                     "transport": transport})
-        with self.lock:
-            self.active[status["id"]]["diagnostic"] = True
-        return status
+        return self.start_session({"game_id": "rainbow-cat", "video_scaling": video_scaling,
+                                   "transport": transport})
 
     def _next_display(self) -> str:
         return f":{200 + (os.getpid() % 300)}"
@@ -1172,7 +1123,7 @@ def make_handler(state: StreamState):
                 length = int(self.headers.get("Content-Length", "-1"))
             except ValueError as error:
                 raise ValueError("invalid Content-Length") from error
-            if length < 0 or length > state.max_upload_bytes:
+            if length < 0 or length > 65536:
                 raise ValueError("invalid request length")
             return json.loads(self.rfile.read(length))
 
@@ -1240,14 +1191,13 @@ def make_handler(state: StreamState):
                 request = self._request_json()
                 if self.path == "/web/api/sessions":
                     self._json(HTTPStatus.CREATED, state.start_session(request))
+                    return
                 elif re.fullmatch(r"/web/api/sessions/[^/]+/poll", self.path):
                     self._poll(self.path.split("/")[4], request)
-                elif not self._check_auth():
                     return
-                elif self.path == "/v1/manifest":
-                    if not isinstance(request, dict) or not isinstance(request.get("blobs"), list): raise ValueError("blobs array required")
-                    self._json(HTTPStatus.OK, {"missing": state.missing(request["blobs"])})
-                elif self.path == "/v1/sessions":
+                if not self._check_auth():
+                    return
+                if self.path == "/v1/sessions":
                     self._json(HTTPStatus.CREATED, state.start_session(request))
                 elif self.path == "/v1/diagnostics/rainbow-cat":
                     self._json(HTTPStatus.CREATED, state.start_rainbow_cat(request.get("video_scaling", "nearest")))
@@ -1261,17 +1211,6 @@ def make_handler(state: StreamState):
             except (ValueError, json.JSONDecodeError) as error: self._json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
             except RuntimeError as error: self._json(HTTPStatus.CONFLICT, {"error": str(error)})
             except (subprocess.SubprocessError, OSError) as error: self._json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": str(error)})
-
-        def do_PUT(self):
-            if not self._check_auth(): return
-            digest = self.path.removeprefix("/v1/blobs/")
-            if not self.path.startswith("/v1/blobs/") or "/" in digest:
-                self._json(HTTPStatus.NOT_FOUND, {"error": "not found"}); return
-            try:
-                length = int(self.headers.get("Content-Length", "-1"))
-                state.store_blob(digest, self.rfile, length)
-                self._json(HTTPStatus.CREATED, {"sha256": digest})
-            except (ValueError, OSError) as error: self._json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
 
         def do_DELETE(self):
             if self.path.startswith("/web/api/sessions/") and "/" not in self.path[len("/web/api/sessions/"):]:
