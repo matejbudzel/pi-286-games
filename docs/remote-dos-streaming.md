@@ -64,6 +64,10 @@ For every presenter the server supplies the game list and pre-game data,
 tailored to keyboard and dance-pad capabilities. This includes Slovak labels
 for all nine dance-pad positions. Game-specific actions such as GP's gear
 mapping are therefore server-side and identical for web and Pi clients.
+Both presenters send normalized `keyboard_held` names and raw
+`dance_pad_held` button positions; the server is the only layer that applies
+the selected game's `ddr.conf`. DOSBox receives only injected keyboard input,
+so game definitions do not use DOSBox `mapperfile` mappings.
 
 ## Diagnostics and session history
 

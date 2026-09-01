@@ -37,7 +37,7 @@ typedef struct {
     int audio_queue_min, audio_queue_max, input_rtt_min, input_rtt_max;
 } SessionStats;
 
-typedef struct { HeldState *held; int *overlay, *quit; const char **pad_keys; SessionStats *stats; } EventState;
+typedef struct { HeldState *held; int *overlay, *quit; SessionStats *stats; } EventState;
 static EventState event_state;
 static const char *dos_key(SDLKey key);
 static int pump_events(void);
@@ -336,19 +336,17 @@ static int pump_events(void) {
         }
         if ((event.type == SDL_KEYDOWN || event.type == SDL_KEYUP) && event.key.keysym.sym == SDLK_F8) { if (event.type == SDL_KEYDOWN) *event_state.overlay = !*event_state.overlay; continue; }
         if ((event.type == SDL_KEYDOWN || event.type == SDL_KEYUP) && (key = dos_key(event.key.keysym.sym))) pressed = event.type == SDL_KEYDOWN;
-        if ((event.type == SDL_JOYBUTTONDOWN || event.type == SDL_JOYBUTTONUP) && event.jbutton.button < 9) { key = event_state.pad_keys[event.jbutton.button]; pressed = event.type == SDL_JOYBUTTONDOWN; }
+        if ((event.type == SDL_JOYBUTTONDOWN || event.type == SDL_JOYBUTTONUP) && event.jbutton.button < 9) {
+            pad_update(event_state.held, event.jbutton.button, event.type == SDL_JOYBUTTONDOWN);
+        }
         if (event.type == SDL_JOYBUTTONDOWN && event.jbutton.button == 9) {
             fprintf(stderr, "presenter: dance-pad SELECT requested quit\n"); fflush(stderr);
             *event_state.quit = 1; return 1;
         }
-        if (key) { held_update(event_state.held, key, pressed); if (event_state.held->revision != before) { event_state.stats->input_events++; changed = 1; } }
+        if (key) held_update(event_state.held, key, pressed);
+        if (event_state.held->revision != before) { event_state.stats->input_events++; changed = 1; }
     }
     return changed;
-}
-
-static void parse_pad_map(char *map, const char **keys) {
-    int index = 0; char *part = map;
-    while (index < 9) { char *comma = strchr(part, ','); if (comma) *comma = 0; keys[index++] = *part ? part : NULL; if (!comma) break; part = comma + 1; }
 }
 
 static SDL_Surface *create_canvas(SDL_Surface *screen) {
@@ -453,19 +451,18 @@ static int local_pattern(void) {
 }
 
 int main(int argc, char **argv) {
-    const char *host, *port, *token_path, *session, *transport, *pad_keys[9] = {0}; FILE *file; char token[256], path[256], body[2048], pad_map[256]; SDL_Joystick *joystick = NULL;
+    const char *host, *port, *token_path, *session, *transport; FILE *file; char token[256], path[256], body[2048]; SDL_Joystick *joystick = NULL;
     unsigned char frame[FRAME], packet[POLL_PACKET_MAX]; SDL_Surface *screen, *canvas; SDL_Event event; SDL_AudioSpec audio, obtained; Metrics metrics = {0}; SessionStats stats = {0}; HeldState held = {0}; int audio_offset = 0, next_offset, n, overlay = 0, video_count = 0, video_seq = 0, audio_length, quit = 0;
     const unsigned char *audio_data; unsigned int poll_revision, input_acked = 0; int diagnostic;
     long long video_window = now_ms(), network_window = video_window; long long request_started, elapsed; size_t network_bytes = 0;
     fprintf(stderr, "presenter: starting\n"); fflush(stderr);
     if (argc == 2 && !strcmp(argv[1], "--local-pattern")) return local_pattern();
-    if (argc != 6 && argc != 7) { fprintf(stderr, "usage: %s HOST PORT TOKEN_FILE SESSION PAD_MAP [poll|websocket]\n", argv[0]); return 2; }
+    if (argc != 5 && argc != 6) { fprintf(stderr, "usage: %s HOST PORT TOKEN_FILE SESSION [poll|websocket]\n", argv[0]); return 2; }
     host = argv[1]; port = argv[2]; token_path = argv[3]; session = argv[4];
-    transport = argc == 7 ? argv[6] : "poll";
+    transport = argc == 6 ? argv[5] : "poll";
     if (strcmp(transport, "poll") && strcmp(transport, "websocket")) { fprintf(stderr, "presenter: invalid transport %s\n", transport); return 2; }
     diagnostic = !strncmp(session, "rainbow-cat-", 12);
     if (diagnostic) overlay = 1;
-    snprintf(pad_map, sizeof(pad_map), "%s", argv[5]); parse_pad_map(pad_map, pad_keys);
     if (!(file = fopen(token_path, "r")) || !fgets(token, sizeof(token), file)) { fprintf(stderr, "cannot read token file %s\n", token_path); return 2; }
     fclose(file); token[strcspn(token, "\r\n")] = 0;
     fprintf(stderr, "presenter: token read; initializing SDL\n"); fflush(stderr);
@@ -479,7 +476,7 @@ int main(int argc, char **argv) {
             screen->format->BytesPerPixel, screen->format->Rmask,
             screen->format->Gmask, screen->format->Bmask); fflush(stderr);
     if (SDL_NumJoysticks() > 0) joystick = SDL_JoystickOpen(0);
-    event_state = (EventState){&held, &overlay, &quit, pad_keys, &stats};
+    event_state = (EventState){&held, &overlay, &quit, &stats};
     memset(&audio, 0, sizeof(audio)); audio.freq = 22050; audio.format = AUDIO_S16LSB; audio.channels = 1; audio.samples = 512; audio.callback = audio_callback;
     if (SDL_OpenAudio(&audio, &obtained) < 0) { fprintf(stderr, "SDL_OpenAudio failed: %s\n", SDL_GetError()); SDL_Quit(); return 1; }
     fprintf(stderr, "presenter: audio %d Hz format=%#x channels=%u samples=%u\n", obtained.freq, obtained.format, obtained.channels, obtained.samples); fflush(stderr);

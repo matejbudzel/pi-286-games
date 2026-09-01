@@ -34,9 +34,20 @@ void held_update(HeldState *held, const char *key, int pressed) {
     if (!pressed && index < held->count) { memmove(held->keys[index], held->keys[index + 1], (size_t)(held->count - index - 1) * sizeof(held->keys[0])); held->count--; held->revision++; }
 }
 
+void pad_update(HeldState *held, int button, int pressed) {
+    if (button < 0 || button >= 9 || held->pad[button] == !!pressed) return;
+    held->pad[button] = !!pressed;
+    held->revision++;
+}
+
 int poll_body(char *body, size_t size, const HeldState *held, int video_seq, int audio_offset) {
-    int used, index; used = snprintf(body, size, "{\"input_revision\":%u,\"video_seq\":%d,\"audio_offset\":%d,\"held_keys\":[", held->revision, video_seq, audio_offset);
+    int used, index; used = snprintf(body, size, "{\"input_revision\":%u,\"video_seq\":%d,\"audio_offset\":%d,\"keyboard_held\":[", held->revision, video_seq, audio_offset);
     if (used < 0 || (size_t)used >= size) return -1;
     for (index = 0; index < held->count; index++) { int added = snprintf(body + used, size - (size_t)used, "%s\"%s\"", index ? "," : "", held->keys[index]); if (added < 0 || (size_t)added >= size - (size_t)used) return -1; used += added; }
-    if ((size_t)used + 3 >= size) return -1; memcpy(body + used, "]}", 3); return used + 2;
+    if ((size_t)used + 20 >= size) return -1;
+    memcpy(body + used, "],\"dance_pad_held\":[", 20); used += 20;
+    for (index = 0; index < 9; index++) if (held->pad[index]) { int added = snprintf(body + used, size - (size_t)used, "%s%d", used > 0 && body[used - 1] != '[' ? "," : "", index); if (added < 0 || (size_t)added >= size - (size_t)used) return -1; used += added; }
+    if ((size_t)used + 3 >= size) return -1;
+    memcpy(body + used, "]}", 3);
+    return used + 2;
 }

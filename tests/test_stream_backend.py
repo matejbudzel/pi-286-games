@@ -39,6 +39,7 @@ class StreamBackendTests(unittest.TestCase):
         self.assertIn("mount c .", config)
         self.assertIn("cd \\GP", config)
         self.assertIn("\nGP.EXE\nexit", config)
+        self.assertNotIn("mapperfile", config)
 
     def test_xvfb_uses_a_visual_accepted_by_debian_dosbox(self):
         source = STATE_MODULE.read_text()

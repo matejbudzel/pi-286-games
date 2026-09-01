@@ -448,17 +448,13 @@ def remote_choice(config):
     except (KeyError, OSError, ValueError, RemoteUnavailable, RemoteProtocolError) as exc:
         raise RuntimeError("Vzdialený DOSBox nie je dostupný: %s" % exc) from exc
 
-def remote_pad_map(keys):
-    translate = {"LCTRL": "CTRL", "LSHIFT": "SHIFT"}
-    return ",".join(translate.get(keys.get(button, ""), keys.get(button, "")) for button in range(9))
-
 def remote_transport(config):
     transport = config.get("remote_dosbox_transport", "poll").lower()
     if transport not in ("poll", "websocket"):
         raise RuntimeError("Neplatný transport vzdialeného DOSBoxu.")
     return transport
 
-def run_remote_presenter(title, config, backend, presenter, session_id, ddr_keys=None, transport="poll"):
+def run_remote_presenter(title, config, backend, presenter, session_id, transport="poll"):
     """Show one remote session through the Pi's isolated SDL fbcon client."""
     parsed = urllib.parse.urlparse(config["remote_dosbox_url"])
     if not parsed.hostname or parsed.scheme != "http":
@@ -469,12 +465,12 @@ def run_remote_presenter(title, config, backend, presenter, session_id, ddr_keys
     with log_path.open("wb") as log:
         token_file = str(Path(config["remote_dosbox_token_file"]).expanduser())
         result = subprocess.run([str(presenter), parsed.hostname, str(parsed.port or 80), token_file, session_id,
-                                 remote_pad_map(ddr_keys or {}), transport], stdout=log, stderr=subprocess.STDOUT, env=environment, check=False)
+                                 transport], stdout=log, stderr=subprocess.STDOUT, env=environment, check=False)
         log.write(("presenter exit status: %d\n" % result.returncode).encode())
     restore_console_display()
     return "panic" if result.returncode == 0 else "failed"
 
-def run_remote_game(game, config, term, data, ddr_keys):
+def run_remote_game(game, config, term, data):
     backend, presenter = remote_choice(config)
     transport = remote_transport(config)
     def progress(done, total, name):
@@ -486,7 +482,7 @@ def run_remote_game(game, config, term, data, ddr_keys):
     session = backend.start_session(re.sub(r"[^a-z0-9_-]", "-", game.data_dir.lower()), executable, files,
                                     video_scaling(config), transport)
     try:
-        return run_remote_presenter(game.name, config, backend, presenter, session["id"], ddr_keys, transport)
+        return run_remote_presenter(game.name, config, backend, presenter, session["id"], transport)
     finally:
         try: backend.stop_session(session["id"])
         except (RemoteUnavailable, RemoteProtocolError): pass
@@ -506,7 +502,7 @@ def run_game(game, config, term, pad, ddr_keys):
     try: data, _command = validate(game, Path(config["game_data_root"]).expanduser(), term, config.get("confirm_key", "SPACE").upper(), pad)
     except InstallationCancelled: return "cancelled"
     except LauncherExit: return "exit"
-    return run_remote_game(game, config, term, data, ddr_keys)
+    return run_remote_game(game, config, term, data)
 
 def main():
     parser = argparse.ArgumentParser(); parser.add_argument("--host-conf", type=Path, default=ROOT / "config" / "host.conf")

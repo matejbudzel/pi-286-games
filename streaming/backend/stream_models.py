@@ -70,14 +70,13 @@ VIDEO_SCALING_MODES = ("nearest", "linear-v", "crt-lite")
 
 class GameDefinition:
     def __init__(self, game_id: str, name: str, data_dir: str, executable: str,
-                 dosbox_conf: Path, mapper_file: Path, pad_keys: tuple[str, ...],
+                 dosbox_conf: Path, pad_keys: tuple[str, ...],
                  pad_labels: tuple[str, ...]):
         self.game_id = game_id
         self.name = name
         self.data_dir = data_dir
         self.executable = executable
         self.dosbox_conf = dosbox_conf
-        self.mapper_file = mapper_file
         self.pad_keys = pad_keys
         self.pad_labels = pad_labels
 
@@ -111,7 +110,7 @@ def load_games(root: Path) -> dict[str, GameDefinition]:
             keys.append(key); labels.append(ddr.get(f"button{button}_label", "nepoužité"))
         game_id = directory.name
         games[game_id] = GameDefinition(game_id, values["name"], values["data_dir"], values["exe"],
-                                        directory / "dosbox.conf", directory / "mapper.txt", tuple(keys), tuple(labels))
+                                        directory / "dosbox.conf", tuple(keys), tuple(labels))
     return games
 
 
@@ -135,5 +134,4 @@ def safe_relative_path(value: str) -> PurePosixPath:
     if not value or path.is_absolute() or ".." in path.parts or str(path) == ".":
         raise ValueError("file paths must be non-empty, relative POSIX paths")
     return path
-
 

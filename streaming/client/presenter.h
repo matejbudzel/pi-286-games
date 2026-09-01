@@ -12,12 +12,13 @@
 #define POLL_HEADER 16
 #define POLL_PACKET_MAX (POLL_HEADER + VIDEO_PACKET_MAX + 65536)
 
-typedef struct { char keys[64][20]; int count; unsigned int revision; } HeldState;
+typedef struct { char keys[64][20]; int count; unsigned char pad[9]; unsigned int revision; } HeldState;
 
 int apply_poll_packet(unsigned char *frame, const unsigned char *packet, size_t length,
                       int *video_capture, int *video_seq, const unsigned char **audio,
                       int *audio_length, int *next_audio);
 void held_update(HeldState *held, const char *key, int pressed);
+void pad_update(HeldState *held, int button, int pressed);
 int poll_body(char *body, size_t size, const HeldState *held, int video_seq, int audio_offset);
 
 #endif
