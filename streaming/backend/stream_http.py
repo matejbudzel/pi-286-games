@@ -170,8 +170,12 @@ def make_handler(state: StreamState):
                         continue
                     if time.monotonic() < next_media:
                         continue
+                    # Keep the 30 Hz deadline relative to the start of this
+                    # media cycle. Scheduling it after capture would add the
+                    # server's capture/encoding time to every frame period.
+                    media_started = time.monotonic()
                     body = state.poll(session_id, request)
-                    next_media = time.monotonic() + 1 / 30
+                    next_media = media_started + 1 / 30
                     if body is not None:
                         self.connection.sendall(websocket_wire.pack_frame(body))
                         media_requested = False

@@ -148,7 +148,8 @@ class StreamBackendTests(unittest.TestCase):
     def test_websocket_media_rate_is_capped_at_30_hz(self):
         source = HTTP_MODULE.read_text()
         self.assertIn("next_media = time.monotonic()", source)
-        self.assertIn("next_media = time.monotonic() + 1 / 30", source)
+        self.assertIn("media_started = time.monotonic()", source)
+        self.assertIn("next_media = media_started + 1 / 30", source)
         self.assertIn("state.touch_session(session_id)", source)
 
     def test_server_hosts_the_small_same_origin_web_presenter(self):
