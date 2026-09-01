@@ -1,5 +1,5 @@
 [Unit]
-Description=Pi286 remote DOS streaming prototype backend
+Description=Pi286 remote DOS streaming server
 After=network-online.target
 Wants=network-online.target
 
