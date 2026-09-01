@@ -7,6 +7,8 @@ from types import SimpleNamespace
 from pathlib import Path
 
 MODULE = Path(__file__).parents[1] / "streaming/backend/pi286_stream_server.py"
+STATE_MODULE = MODULE.with_name("stream_state.py")
+HTTP_MODULE = MODULE.with_name("stream_http.py")
 SPEC = importlib.util.spec_from_file_location("pi286_stream_server", MODULE)
 backend = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(backend)
@@ -38,7 +40,7 @@ class StreamBackendTests(unittest.TestCase):
         self.assertIn("\nGP.EXE\nexit", config)
 
     def test_xvfb_uses_a_visual_accepted_by_debian_dosbox(self):
-        source = MODULE.read_text()
+        source = STATE_MODULE.read_text()
         self.assertIn('"640x480x24"', source)
         self.assertIn('"-fbdir"', source)
 
@@ -65,7 +67,7 @@ class StreamBackendTests(unittest.TestCase):
                 state.frame_path("no-session", "../../etc/passwd")
 
     def test_frame_download_route_matches_xwd_not_a_literal_backslash(self):
-        self.assertIn(r'frames/[0-9]{4}\.xwd', MODULE.read_text())
+        self.assertIn(r'frames/[0-9]{4}\.xwd', HTTP_MODULE.read_text())
 
     def test_audio_uses_left_channel_as_pc_speaker_mono(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -132,7 +134,7 @@ class StreamBackendTests(unittest.TestCase):
             self.assertEqual(stopped, ["expired"])
 
     def test_websocket_media_rate_is_capped_at_30_hz(self):
-        source = MODULE.read_text()
+        source = HTTP_MODULE.read_text()
         self.assertIn("next_media = time.monotonic()", source)
         self.assertIn("next_media = time.monotonic() + 1 / 30", source)
         self.assertIn("state.touch_session(session_id)", source)
@@ -141,7 +143,7 @@ class StreamBackendTests(unittest.TestCase):
         self.assertEqual(set(backend.WEB_FILES), {"/", "/app.js", "/input.js", "/style.css"})
         for name, _content_type in backend.WEB_FILES.values():
             self.assertTrue((backend.WEB_STATIC / name).is_file())
-        source = MODULE.read_text()
+        source = HTTP_MODULE.read_text()
         self.assertIn('path == "/web/api/games"', source)
         self.assertIn('"/web/api/sessions"', source)
         self.assertIn('re.fullmatch(r"/web/api/sessions/[^/]+/stream", path)', source)
@@ -160,7 +162,7 @@ class StreamBackendTests(unittest.TestCase):
             self.assertEqual(state.active["one"].get("poll_revision"), None)
 
     def test_audio_pump_rate_is_stereo_s16le(self):
-        source = MODULE.read_text()
+        source = STATE_MODULE.read_text()
         self.assertIn("self.audio_rate * 2 * 2", source)
         self.assertIn("os.O_RDWR | os.O_NONBLOCK", source)
 
