@@ -1,5 +1,6 @@
 /* Minimal Pi 1 SDL 1.2 fbcon presenter for the experimental remote backend. */
 #include <SDL.h>
+#include <libwebsockets.h>
 #include <arpa/inet.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -328,6 +329,45 @@ static int websocket_take_frame(unsigned char *wire, size_t *used, unsigned char
     return opcode == 8 ? 0 : (int)length;
 }
 
+/* libwebsockets owns the HTTP upgrade, WebSocket framing, masking and partial
+ * receives. The presenter only exchanges our already-defined JSON / P2P1
+ * payloads with this small adapter. */
+typedef struct { struct lws_context *context; struct lws *wsi; const char *token, *host, *path; unsigned char packet[POLL_PACKET_MAX]; size_t used, length; char outgoing[2048]; int pending, ready, failed, closing; } LwsStream;
+
+static int lws_presenter_callback(struct lws *wsi, enum lws_callback_reasons reason, void *user, void *in, size_t len) {
+    LwsStream *stream = lws_context_user(lws_get_context(wsi)); unsigned char *cursor, *end; (void)user;
+    if (!stream) return 0;
+    switch (reason) {
+    case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER:
+        cursor = *(unsigned char **)in; end = cursor + len;
+        if (lws_add_http_header_by_name(wsi, (unsigned char *)"authorization:", (unsigned char *)stream->token, (int)strlen(stream->token), &cursor, end)) return -1;
+        *(unsigned char **)in = cursor; break;
+    case LWS_CALLBACK_CLIENT_ESTABLISHED: stream->wsi = wsi; if (stream->pending) lws_callback_on_writable(wsi); break;
+    case LWS_CALLBACK_CLIENT_WRITEABLE:
+        if (stream->pending) { unsigned char message[LWS_PRE + sizeof(stream->outgoing)]; size_t length = strlen(stream->outgoing); memcpy(message + LWS_PRE, stream->outgoing, length); if (lws_write(wsi, message + LWS_PRE, length, LWS_WRITE_TEXT) < (int)length) return -1; stream->pending = 0; } break;
+    case LWS_CALLBACK_CLIENT_RECEIVE:
+        if (stream->used + len > sizeof(stream->packet)) return -1;
+        memcpy(stream->packet + stream->used, in, len); stream->used += len;
+        if (lws_is_final_fragment(wsi) && !lws_remaining_packet_payload(wsi)) { stream->length = stream->used; stream->used = 0; stream->ready = 1; } break;
+    case LWS_CALLBACK_CLIENT_CONNECTION_ERROR: case LWS_CALLBACK_CLIENT_CLOSED: if (!stream->closing) stream->failed = 1; break;
+    default: break;
+    }
+    return 0;
+}
+
+static const struct lws_protocols lws_presenter_protocols[] = { { "pi286", lws_presenter_callback, 0, POLL_PACKET_MAX }, LWS_PROTOCOL_LIST_TERM };
+static int lws_stream_open(LwsStream *stream, const char *host, const char *port, const char *token, const char *session, const char *body) {
+    struct lws_context_creation_info context = {0}; struct lws_client_connect_info connect = {0}; static char path[128];
+    memset(stream, 0, sizeof(*stream)); stream->host = host; stream->token = token; snprintf(path, sizeof(path), "/v3/sessions/%s/stream", session); stream->path = path; snprintf(stream->outgoing, sizeof(stream->outgoing), "%s", body); stream->pending = 1;
+    context.port = CONTEXT_PORT_NO_LISTEN; context.protocols = lws_presenter_protocols; context.user = stream;
+    if (!(stream->context = lws_create_context(&context))) return 0;
+    connect.context = stream->context; connect.address = host; connect.port = atoi(port); connect.path = stream->path; connect.host = host; connect.origin = host; connect.protocol = "pi286";
+    if (!(stream->wsi = lws_client_connect_via_info(&connect))) { lws_context_destroy(stream->context); stream->context = NULL; return 0; }
+    return 1;
+}
+
+static void lws_stream_queue(LwsStream *stream, const char *body) { snprintf(stream->outgoing, sizeof(stream->outgoing), "%s", body); stream->pending = 1; if (stream->wsi) lws_callback_on_writable(stream->wsi); }
+
 static const char *dos_key(SDLKey key) {
     static char letter[2];
     switch (key) {
@@ -524,29 +564,15 @@ int main(int argc, char **argv) {
     stats.started_ms = now_ms();
     stats.video_request_min = stats.server_capture_min = stats.audio_queue_min = stats.input_rtt_min = 1000000;
     if (!strcmp(transport, "websocket")) {
-        int fd, sent_revision; unsigned char wire[POLL_PACKET_MAX + 14]; size_t wire_used = 0;
-        fd = websocket_open(host, port, token, session);
-        if (fd < 0 || poll_body(body, sizeof(body), &held, video_seq, audio_offset) < 0 || !websocket_send_text(fd, body)) {
-            fprintf(stderr, "presenter: websocket connection failed\n"); if (fd >= 0) close(fd); SDL_CloseAudio(); SDL_FreeSurface(canvas); SDL_Quit(); return 1;
-        }
-        if (fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) | O_NONBLOCK) < 0) { close(fd); SDL_CloseAudio(); SDL_FreeSurface(canvas); SDL_Quit(); return 1; }
+        LwsStream stream; int sent_revision;
+        if (poll_body(body, sizeof(body), &held, video_seq, audio_offset) < 0 || !lws_stream_open(&stream, host, port, token, session, body)) { fprintf(stderr, "presenter: websocket connection failed\n"); SDL_CloseAudio(); SDL_FreeSurface(canvas); SDL_Quit(); return 1; }
         sent_revision = (int)held.revision;
-        fprintf(stderr, "presenter: websocket connected\n"); fflush(stderr);
         for (;;) {
-            fd_set readable; struct timeval timeout; int selected;
-            FD_ZERO(&readable); FD_SET(fd, &readable); timeout.tv_sec = 0; timeout.tv_usec = 10000;
-            selected = select(fd + 1, &readable, NULL, NULL, &timeout);
-            if (selected > 0) {
-                ssize_t received;
-                while ((received = read(fd, wire + wire_used, sizeof(wire) - wire_used)) > 0) {
-                    wire_used += (size_t)received;
-                    if (wire_used == sizeof(wire)) break;
-                }
-                if (received == 0 || (received < 0 && errno != EAGAIN && errno != EWOULDBLOCK) || wire_used == sizeof(wire)) { fprintf(stderr, "presenter: websocket receive failed (%d)\n", received < 0 ? errno : 0); close(fd); fd = -1; }
-            }
-            while (fd >= 0 && (n = websocket_take_frame(wire, &wire_used, packet, sizeof(packet))) != -2) {
+            lws_service(stream.context, 10);
+            if (stream.ready) {
+                n = (int)stream.length; stream.ready = 0;
                 request_started = now_ms(); metrics.video_last_ms = (int)(now_ms() - request_started);
-                if (n > 0 && apply_poll_packet(frame, packet, (size_t)n, &metrics.video_capture_ms, &video_seq, &audio_data, &audio_length, &next_offset)) {
+                if (apply_poll_packet(frame, stream.packet, (size_t)n, &metrics.video_capture_ms, &video_seq, &audio_data, &audio_length, &next_offset)) {
                     stats.polls_completed++; network_bytes += (size_t)n; video_count++; stats.video_frames++; stats.payload_bytes += (unsigned long)n;
                     range_add(metrics.video_last_ms, &stats.video_request_min, &stats.video_request_max, &stats.video_request_total);
                     if (metrics.video_capture_ms >= 0) range_add(metrics.video_capture_ms, &stats.server_capture_min, &stats.server_capture_max, &stats.server_capture_total);
@@ -557,39 +583,32 @@ int main(int argc, char **argv) {
                     if ((unsigned int)sent_revision > input_acked) { metrics.input_last_ms = metrics.video_last_ms; input_acked = (unsigned int)sent_revision; stats.input_acks++; range_add(metrics.input_last_ms, &stats.input_rtt_min, &stats.input_rtt_max, &stats.input_rtt_total); }
                     /* Media acknowledgements carry the latest delta sequence
                      * and PCM offset, even while no key state has changed. */
-                    if (poll_body(body, sizeof(body), &held, video_seq, audio_offset) < 0 || !websocket_send_text(fd, body)) { fprintf(stderr, "presenter: websocket acknowledgement failed (%d)\n", errno); metrics.input_fail++; stats.input_failures++; close(fd); fd = -1; }
-                    else sent_revision = (int)held.revision;
-                } else if (n < 0) { fprintf(stderr, "presenter: invalid websocket frame\n"); metrics.video_fail++; stats.video_failures++; metrics.audio_fail++; stats.audio_failures++; stats.polls_failed++; close(fd); fd = -1; }
-                else { fprintf(stderr, "presenter: server sent websocket close frame\n"); close(fd); fd = -2; }
+                    if (poll_body(body, sizeof(body), &held, video_seq, audio_offset) < 0) { stream.failed = 1; } else { lws_stream_queue(&stream, body); sent_revision = (int)held.revision; }
+                } else { fprintf(stderr, "presenter: invalid websocket packet\n"); stream.failed = 1; }
             }
             if (pump_events()) { /* Send latest held state below without waiting for media. */ }
-            if (fd >= 0 && !quit && (int)held.revision != sent_revision) {
-                if (poll_body(body, sizeof(body), &held, video_seq, audio_offset) < 0 || !websocket_send_text(fd, body)) { fprintf(stderr, "presenter: websocket input update failed (%d)\n", errno); metrics.input_fail++; stats.input_failures++; close(fd); fd = -1; }
-                else sent_revision = (int)held.revision;
+            if (!quit && (int)held.revision != sent_revision) {
+                if (poll_body(body, sizeof(body), &held, video_seq, audio_offset) < 0) stream.failed = 1;
+                else { lws_stream_queue(&stream, body); sent_revision = (int)held.revision; }
             }
             audio_metrics(&metrics); stats.audio_samples++;
             range_add(metrics.audio_queued_ms, &stats.audio_queue_min, &stats.audio_queue_max, &stats.audio_queue_total);
             elapsed = now_ms() - network_window;
             if (elapsed >= 1000) { metrics.net_kbytes = (int)(network_bytes * 1000 / elapsed / 1024); network_bytes = 0; network_window = now_ms(); }
-            if (quit || fd == -2) {
-                if (fd >= 0) { websocket_close(fd); close(fd); }
+            if (quit) {
+                stream.closing = 1; lws_context_destroy(stream.context);
                 if (joystick) SDL_JoystickClose(joystick); write_session_stats(session, &stats, &metrics); SDL_CloseAudio(); SDL_FreeSurface(canvas); SDL_Quit(); return quit ? 0 : 1;
             }
-            if (fd < 0) {
+            if (stream.failed) {
                 /* Brief Wi-Fi hiccups should not throw the player out of a
                  * running DOSBox session. The backend holds it for its idle
                  * grace period while this loop retries the same session. */
                 fprintf(stderr, "presenter: reconnecting websocket\n"); fflush(stderr);
                 SDL_Delay(500);
-                fd = websocket_open(host, port, token, session);
-                wire_used = 0;
-                if (fd >= 0 && poll_body(body, sizeof(body), &held, video_seq, audio_offset) >= 0 && websocket_send_text(fd, body) &&
-                    fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) | O_NONBLOCK) >= 0) {
+                lws_context_destroy(stream.context);
+                if (poll_body(body, sizeof(body), &held, video_seq, audio_offset) >= 0 && lws_stream_open(&stream, host, port, token, session, body)) {
                     sent_revision = (int)held.revision;
                     fprintf(stderr, "presenter: websocket reconnected\n"); fflush(stderr);
-                } else {
-                    if (fd >= 0) close(fd);
-                    fd = -1;
                 }
             }
         }
