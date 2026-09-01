@@ -2,6 +2,10 @@
 bind=0.0.0.0
 port=28680
 state_root=/srv/pi286-stream
+game_definitions_root=/opt/pi286-stream/repo/games
+# Private, already extracted game directories; the server never downloads or
+# unpacks them. Each game.conf data_dir is relative to this root.
+game_data_root=/srv/pi286-games
 token_file=/etc/pi286-stream.token
 dosbox=/usr/bin/dosbox
 xvfb=/usr/bin/Xvfb

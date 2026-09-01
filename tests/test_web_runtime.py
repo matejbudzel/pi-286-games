@@ -34,26 +34,26 @@ class WebRuntimeTests(unittest.TestCase):
         self.assertIn("never queue that PCM", script)
         self.assertIn("audio: zaradené", script)
         self.assertIn('querySelector("#panic")', script)
-        self.assertIn("hudVisible = gameId === \"rainbow-cat\"", script)
         self.assertIn("function toggleHud()", script)
-        self.assertIn("started.pad_keys", script)
+        self.assertIn("keyboard_held", script)
+        self.assertIn("dance_pad_held", script)
         self.assertIn('NumpadEnter: "KP_ENTER"', script)
         self.assertIn('querySelector("#pad-select")', script)
         self.assertIn("setHeldSource", script)
         self.assertIn("pointerdown", script)
         self.assertIn("audioBufferTarget = .35", script)
 
-    def test_diagnostic_session_keeps_lxc_credentials_server_side(self):
+    def test_session_uses_only_the_server_game_id(self):
         calls = []
 
         class Backend:
-            def start_rainbow_cat(self, scaling, transport):
-                calls.append((scaling, transport))
+            def start_session(self, game_id, scaling, transport):
+                calls.append((game_id, scaling, transport))
                 return {"id": "remote-id"}
 
         runtime = web.WebRuntime.__new__(web.WebRuntime)
-        runtime.backend, runtime.games, runtime.sessions = Backend(), {}, {}
-        result = runtime.start("rainbow-cat", "not-a-mode")
-        self.assertEqual(calls, [("nearest", "poll")])
+        runtime.backend, runtime.sessions = Backend(), {}
+        result = runtime.start("grand-prix", "not-a-mode")
+        self.assertEqual(calls, [("grand-prix", "nearest", "poll")])
         self.assertEqual(result["video_scaling"], "nearest")
         self.assertEqual(runtime.sessions[result["id"]], "remote-id")

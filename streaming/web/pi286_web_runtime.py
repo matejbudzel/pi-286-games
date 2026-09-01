@@ -27,7 +27,7 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from launcher.launcher import discover, load_ddr_mapping, values, video_scaling
+from launcher.launcher import values, video_scaling
 from streaming.client.remote_api import RemoteBackend, RemoteProtocolError, RemoteUnavailable
 from streaming import websocket_wire
 
@@ -41,35 +41,19 @@ class WebRuntime:
     def __init__(self, config: dict[str, str], backend_url: str, token_file: Path):
         self.config = config
         self.backend = RemoteBackend.from_token_file(backend_url, token_file)
-        self.games = {game.data_dir: game for game in discover()}
         self.sessions: dict[str, str] = {}
 
-    def game_list(self) -> list[dict[str, str]]:
-        return [{"id": game.data_dir, "name": game.name} for game in self.games.values()]
+    def game_list(self) -> dict:
+        return self.backend.games(True, True)
 
     def start(self, game_id: str, scaling: str, transport: str = "poll") -> dict[str, str]:
         scaling = video_scaling({"video_scaling": scaling})
         if transport not in ("poll", "websocket"):
             transport = "poll"
-        if game_id == "rainbow-cat":
-            remote = self.backend.start_rainbow_cat(scaling, transport)
-        else:
-            game = self.games.get(game_id)
-            if not game:
-                raise ValueError("unknown game")
-            data = Path(self.config["game_data_root"]).expanduser() / game.data_dir
-            files, _summary = self.backend.sync_directory(data)
-            executable = self.backend.executable_in_manifest(shlex.split(game.command)[0], files)
-            remote = self.backend.start_session(re.sub(r"[^a-z0-9_-]", "-", game.data_dir.lower()), executable,
-                                                files, scaling, transport)
+        remote = self.backend.start_session(game_id, scaling, transport)
         local_id = secrets.token_urlsafe(12)
         self.sessions[local_id] = remote["id"]
-        pad_keys = {button: "" for button in range(9)} if game_id == "rainbow-cat" else load_ddr_mapping(self.games[game_id])[0]
-        if game_id == "rainbow-cat":
-            pad_keys.update({0: "LEFT", 1: "DOWN", 2: "UP", 3: "RIGHT", 8: "ENTER"})
-        start_key = pad_keys[8]
-        return {"id": local_id, "name": "Dúhová mačka" if game_id == "rainbow-cat" else self.games[game_id].name,
-                "video_scaling": scaling, "start_key": start_key, "pad_keys": [pad_keys[button] for button in range(9)]}
+        return {"id": local_id, "video_scaling": scaling}
 
     def poll(self, local_id: str, payload: dict) -> tuple[int, bytes, int, int]:
         remote_id = self.sessions.get(local_id)
@@ -156,7 +140,7 @@ def make_handler(runtime: WebRuntime):
         def _http_get(self):
             path = urlsplit(self.path).path
             if path == "/api/games":
-                self.send_json(HTTPStatus.OK, {"games": runtime.game_list(), "scaling": "nearest"})
+                self.send_json(HTTPStatus.OK, runtime.game_list())
                 return
             if path == "/api/status":
                 try:

@@ -20,11 +20,12 @@ class RemoteApiTests(unittest.TestCase):
         backend = RemoteBackend("http://example.test", "token")
         calls = []
         backend.json = lambda method, path, payload=None: calls.append((method, path, payload)) or {"id": "session"}
-        backend.start_session("gp", "GP.EXE", {"GP.EXE": "a" * 64}, "crt-lite")
+        backend.start_session("gp", "crt-lite")
         backend.start_rainbow_cat("linear-v")
         self.assertEqual(calls[0][2]["video_scaling"], "crt-lite")
         self.assertEqual(calls[0][2]["transport"], "poll")
         self.assertEqual(calls[1][2]["video_scaling"], "linear-v")
+        self.assertEqual(calls[0][2], {"game_id": "gp", "video_scaling": "crt-lite", "transport": "poll"})
 
     def test_session_stop_uses_a_shutdown_timeout_longer_than_health_checks(self):
         backend = RemoteBackend("http://example.test", "token")

@@ -56,6 +56,8 @@ DEFAULTS = {
     # WebSockets additionally stop immediately when their TCP connection closes.
     "session_idle_seconds": "8",
     "max_upload_bytes": str(128 * 1024 * 1024),
+    "game_definitions_root": "/opt/pi286-stream/repo/games",
+    "game_data_root": "/srv/pi286-games",
 }
 
 KEYS = {
@@ -86,6 +88,51 @@ VIDEO_KEYFRAME_INTERVAL = 2.0
 POLL_HEADER = 16
 PCM_CHUNK_BYTES = 4096
 VIDEO_SCALING_MODES = ("nearest", "linear-v", "crt-lite")
+
+
+class GameDefinition:
+    def __init__(self, game_id: str, name: str, data_dir: str, executable: str,
+                 dosbox_conf: Path, mapper_file: Path, pad_keys: tuple[str, ...],
+                 pad_labels: tuple[str, ...]):
+        self.game_id = game_id
+        self.name = name
+        self.data_dir = data_dir
+        self.executable = executable
+        self.dosbox_conf = dosbox_conf
+        self.mapper_file = mapper_file
+        self.pad_keys = pad_keys
+        self.pad_labels = pad_labels
+
+
+def ini_values(path: Path) -> dict[str, str]:
+    result = {}
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if line and not line.startswith("#") and "=" in line:
+            key, value = line.split("=", 1)
+            result[key.strip()] = value.strip()
+    return result
+
+
+def load_games(root: Path) -> dict[str, GameDefinition]:
+    games = {}
+    for directory in sorted(root.iterdir() if root.is_dir() else (), key=lambda item: item.name):
+        if not directory.is_dir() or directory.name.startswith("_"):
+            continue
+        values = ini_values(directory / "game.conf")
+        if not all(values.get(key) for key in ("name", "data_dir", "exe")):
+            continue
+        ddr = ini_values(directory / values.get("ddr_file", "ddr.conf"))
+        keys, labels = [], []
+        for button in range(9):
+            key = ddr.get(f"button{button}_key", "").upper()
+            if key == "-": key = ""
+            if key and key not in KEYS: raise ValueError(f"invalid DDR key in {directory.name}")
+            keys.append(key); labels.append(ddr.get(f"button{button}_label", "nepoužité"))
+        game_id = directory.name
+        games[game_id] = GameDefinition(game_id, values["name"], values["data_dir"], values["exe"],
+                                        directory / "dosbox.conf", directory / "mapper.txt", tuple(keys), tuple(labels))
+    return games
 
 
 def read_config(path: Path) -> dict[str, str]:
@@ -135,6 +182,20 @@ class StreamState:
         # once a newer input revision has been accepted.
         self.media_lock = threading.Lock()
         self.active: dict[str, dict] = {}
+        self.games = load_games(Path(config["game_definitions_root"]))
+
+    def game_catalog(self, capabilities: dict | None = None) -> dict:
+        capabilities = capabilities if isinstance(capabilities, dict) else {}
+        keyboard = bool(capabilities.get("keyboard"))
+        dance_pad = bool(capabilities.get("dance_pad"))
+        def pre_game(game: GameDefinition) -> dict:
+            return {"pad_keys": list(game.pad_keys), "pad_labels": list(game.pad_labels),
+                    "keyboard": keyboard, "dance_pad": dance_pad,
+                    "launch_hint": "Stlač SPACE alebo START pre spustenie" if keyboard and dance_pad else
+                                   "Stlač SPACE pre spustenie" if keyboard else "Stlač START pre spustenie" if dance_pad else
+                                   "Pripoj klávesnicu alebo dance pad"}
+        return {"games": [{"id": game.game_id, "name": game.name, "pre_game": pre_game(game)}
+                          for game in sorted(self.games.values(), key=lambda item: item.name.casefold())]}
 
     def blob_path(self, digest: str) -> Path:
         return self.blobs / digest[:2] / digest
@@ -182,47 +243,27 @@ class StreamState:
 
     def start_session(self, request: dict) -> dict:
         game_id = request.get("game_id")
-        executable = request.get("executable")
-        files = request.get("files")
         video_scaling = request.get("video_scaling", "nearest")
         transport = request.get("transport", "poll")
         if video_scaling not in VIDEO_SCALING_MODES:
             video_scaling = "nearest"
         if transport not in ("poll", "websocket"):
             raise ValueError("transport must be poll or websocket")
-        if not isinstance(game_id, str) or not SESSION_RE.fullmatch(game_id):
-            raise ValueError("invalid game_id")
-        if not isinstance(executable, str):
-            raise ValueError("executable is required")
-        executable_path = safe_relative_path(executable)
-        if not isinstance(files, dict) or not files:
-            raise ValueError("files must be a non-empty path-to-SHA-256 object")
-        checked_files: dict[PurePosixPath, str] = {}
-        for relative, digest in files.items():
-            if not isinstance(relative, str) or not isinstance(digest, str) or not valid_digest(digest):
-                raise ValueError("invalid session file manifest")
-            checked_files[safe_relative_path(relative)] = digest
-        if executable_path not in checked_files:
-            raise ValueError("executable must be included in files")
+        if not isinstance(game_id, str) or game_id not in self.games:
+            raise ValueError("neznáma hra")
+        game = self.games[game_id]
+        game_dir = Path(self.config["game_data_root"]) / game.data_dir
+        executable_path = self._find_game_executable(game_dir, game.executable)
+        if executable_path is None:
+            raise RuntimeError("Herné dáta pre túto hru nie sú na serveri pripravené.")
         with self.lock:
             if self.active:
                 raise RuntimeError("another DOSBox session is already active")
-            unavailable = [digest for digest in checked_files.values() if not self.blob_path(digest).is_file()]
-            if unavailable:
-                raise ValueError("session references blobs absent from cache")
             session_id = f"{game_id}-{secrets.token_hex(6)}"
             session_dir = self.sessions / session_id
-            game_dir = session_dir / "game"
-            game_dir.mkdir(parents=True)
-            for relative, digest in checked_files.items():
-                target = game_dir.joinpath(*relative.parts)
-                target.parent.mkdir(parents=True, exist_ok=True)
-                try:
-                    os.link(self.blob_path(digest), target)
-                except OSError:
-                    shutil.copyfile(self.blob_path(digest), target)
+            session_dir.mkdir(parents=True)
             config_path = session_dir / "dosbox.conf"
-            config_path.write_text(self._dosbox_config(executable_path, self.audio_rate), encoding="utf-8")
+            config_path.write_text(self._dosbox_config(executable_path, self.audio_rate, game), encoding="utf-8")
             audio_path = session_dir / "audio-s16le-stereo.raw"
             audio_mode = self.config["audio_capture"]
             if audio_mode not in ("file", "loopback"):
@@ -271,12 +312,33 @@ class StreamState:
             self.active[session_id].update({"audio": audio_path, "audio_stop": audio_stop,
                                             "audio_thread": audio_thread, "audio_process": audio_process,
                                             "window": None, "held_keys": set(),
+                                            "game": game,
                                             "poll_stats": self._new_poll_stats(),
                                             "video_scaling": video_scaling,
                                             "transport": transport,
                                             "last_client_activity": time.monotonic(),
                                             "framebuffer": framebuffer_directory / "Xvfb_screen0"})
             return self.session_status(session_id)
+
+    @staticmethod
+    def _find_game_executable(game_dir: Path, configured: str) -> PurePosixPath | None:
+        """Find a configured DOS executable, including one archive wrapper level.
+
+        The server owns the extracted game data.  Accepting a single matching
+        basename keeps game.conf concise while still supporting the common
+        ``GAME/GAME.EXE`` archive layout.  Ambiguous layouts are rejected.
+        """
+        expected = safe_relative_path(configured.replace("\\", "/"))
+        direct = game_dir.joinpath(*expected.parts)
+        if direct.is_file():
+            return expected
+        if len(expected.parts) != 1 or not game_dir.is_dir():
+            return None
+        matches = [path for path in game_dir.rglob("*")
+                   if path.is_file() and path.name.casefold() == expected.name.casefold()]
+        if len(matches) != 1:
+            return None
+        return PurePosixPath(matches[0].relative_to(game_dir).as_posix())
 
     def start_rainbow_cat(self, video_scaling: str = "nearest", transport: str = "poll") -> dict:
         """Launch the built-in asset-free stream transport diagnostic."""
@@ -293,14 +355,16 @@ class StreamState:
         return f":{200 + (os.getpid() % 300)}"
 
     @staticmethod
-    def _dosbox_config(executable: PurePosixPath, audio_rate: int) -> str:
+    def _dosbox_config(executable: PurePosixPath, audio_rate: int, game: GameDefinition | None = None) -> str:
         # Archives commonly wrap a game in one directory. DOS programs often
         # load data relative to the current DOS directory, so entering that
         # directory is required before launching the executable.
         directory = "\\".join(executable.parent.parts)
         change_directory = "cd \\%s\n" % directory if directory else ""
         command = executable.name
-        return """[sdl]\nfullscreen=false\noutput=surface\nusescancodes=false\n\n[dosbox]\nmachine=ega\nmemsize=8\n\n[cpu]\ncore=normal\ncycles=fixed 3000\n\n[mixer]\nnosound=false\nrate=%d\nblocksize=2048\nprebuffer=100\n\n[speaker]\npcspeaker=true\npcrate=%d\ntandy=off\ndisney=false\n\n[sblaster]\nsbtype=none\n\n[midi]\nmpu401=none\nmididevice=none\n\n[autoexec]\n@echo off\nmount c .\nc:\n%s%s\nexit\n""" % (audio_rate, audio_rate, change_directory, command)
+        game_config = game.dosbox_conf.read_text(encoding="utf-8") if game and game.dosbox_conf.is_file() else ""
+        mapper = "mapperfile=%s\n" % game.mapper_file if game and game.mapper_file.is_file() else ""
+        return """[sdl]\nfullscreen=false\noutput=surface\nusescancodes=false\n%s\n[dosbox]\nmachine=ega\nmemsize=8\n\n[cpu]\ncore=normal\ncycles=fixed 3000\n\n[mixer]\nnosound=false\nrate=%d\nblocksize=2048\nprebuffer=100\n\n[speaker]\npcspeaker=true\npcrate=%d\ntandy=off\ndisney=false\n\n[sblaster]\nsbtype=none\n\n[midi]\nmpu401=none\nmididevice=none\n\n%s\n[autoexec]\n@echo off\nmount c .\nc:\n%s%s\nexit\n""" % (mapper, audio_rate, audio_rate, game_config, change_directory, command)
 
     @staticmethod
     def _alsa_capture_config(audio_path: Path) -> str:
@@ -539,7 +603,8 @@ class StreamState:
         if not isinstance(request, dict):
             raise ValueError("poll object required")
         revision = request.get("input_revision")
-        held = request.get("held_keys")
+        held = request.get("keyboard_held", request.get("held_keys"))
+        pad_held = request.get("dance_pad_held", [])
         video_seq = request.get("video_seq", 0)
         audio_offset = request.get("audio_offset", 0)
         if not isinstance(revision, int) or revision < 0 or not isinstance(video_seq, int) or video_seq < 0:
@@ -548,13 +613,18 @@ class StreamState:
             raise ValueError("invalid poll audio offset")
         if not isinstance(held, list) or len(held) > 64 or any(not isinstance(key, str) or key not in KEYS for key in held):
             raise ValueError("invalid held key state")
-        desired = set(held)
+        if not isinstance(pad_held, list) or any(not isinstance(button, int) or button < 0 or button > 8 for button in pad_held):
+            raise ValueError("invalid dance pad state")
         started = time.monotonic()
         with self.lock:
             item = self.active.get(session_id)
             if not item or item["dosbox"].poll() is not None:
                 raise KeyError(session_id)
             stats = item.setdefault("poll_stats", self._new_poll_stats())
+            desired = set(held)
+            game = item.get("game")
+            if game:
+                desired.update(game.pad_keys[button] for button in pad_held if game.pad_keys[button])
             previous_arrival = stats["last_arrival"]
             stats["last_arrival"] = max(previous_arrival or started, started)
             stats["requests"] += 1
@@ -1100,6 +1170,11 @@ def make_handler(state: StreamState):
                 if path == "/v1/status":
                     self._json(HTTPStatus.OK, {"api": 1, "active_sessions": len(state.active),
                                                 "media_transport": "not implemented"})
+                elif path == "/v1/games":
+                    values = parse_qs(parsed.query)
+                    capabilities = {"keyboard": values.get("keyboard", ["0"])[0] == "1",
+                                    "dance_pad": values.get("dance_pad", ["0"])[0] == "1"}
+                    self._json(HTTPStatus.OK, state.game_catalog(capabilities))
                 elif re.fullmatch(r"/v1/sessions/[^/]+/frames/[0-9]{4}\.xwd", path):
                     parts = path.split("/")
                     self._file(state.frame_path(parts[3], parts[5]))

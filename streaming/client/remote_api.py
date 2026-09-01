@@ -53,6 +53,9 @@ class RemoteBackend:
             raise RemoteProtocolError("unsupported remote API")
         return status
 
+    def games(self, keyboard: bool, dance_pad: bool):
+        return self.json("GET", "/v1/games?keyboard=%d&dance_pad=%d" % (keyboard, dance_pad))
+
     @staticmethod
     def manifest(directory: Path):
         files = {}
@@ -117,10 +120,8 @@ class RemoteBackend:
             raise RemoteProtocolError("spúšťací súbor %s nie je medzi hernými dátami" % executable)
         raise RemoteProtocolError("spúšťací súbor %s nie je jednoznačný v herných dátach" % executable)
 
-    def start_session(self, game_id: str, executable: str, files: dict[str, str], video_scaling: str = "nearest",
-                      transport: str = "poll"):
-        return self.json("POST", "/v1/sessions", {"game_id": game_id, "executable": executable,
-                                                      "files": files, "video_scaling": video_scaling,
+    def start_session(self, game_id: str, video_scaling: str = "nearest", transport: str = "poll"):
+        return self.json("POST", "/v1/sessions", {"game_id": game_id, "video_scaling": video_scaling,
                                                       "transport": transport})
 
     def start_rainbow_cat(self, video_scaling: str = "nearest", transport: str = "poll"):

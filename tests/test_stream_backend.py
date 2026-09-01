@@ -176,6 +176,14 @@ class StreamBackendTests(unittest.TestCase):
         self.assertEqual(backend.KEYS["KP_ENTER"], "KP_Enter")
         self.assertNotIn("rm -rf /", backend.KEYS)
 
+    def test_server_resolves_one_archive_wrapper_directory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "GPC").mkdir()
+            (root / "GPC" / "GPEGA.EXE").write_bytes(b"game")
+            self.assertEqual(backend.StreamState._find_game_executable(root, "GPEGA.EXE"),
+                             backend.PurePosixPath("GPC/GPEGA.EXE"))
+
     def test_rainbow_diagnostic_is_generated_and_does_not_need_game_assets(self):
         self.assertGreater(len(backend.RAINBOW_CAT_COM), 32)
         self.assertEqual(backend.RAINBOW_CAT_COM[:2], b"\xb0\xb6")

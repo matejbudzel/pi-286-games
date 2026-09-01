@@ -5,8 +5,8 @@ const canvas = document.querySelector("#screen"), ctx = canvas.getContext("2d"),
 source.width = width; source.height = height;
 const sourceCtx = source.getContext("2d"), image = sourceCtx.createImageData(width, height);
 const menu = document.querySelector("#menu"), player = document.querySelector("#player"), games = document.querySelector("#games"), status = document.querySelector("#status"), hud = document.querySelector("#hud"), hudToggle = document.querySelector("#hud-toggle");
-let session = null, videoSeq = 0, audioOffset = 0, revision = 0, polling = false, audioContext = null, audioNext = 0, ws = null;
-const held = new Set();
+let session = null, videoSeq = 0, audioOffset = 0, revision = 0, polling = false, audioContext = null, audioNext = 0, ws = null, selectedGame = null;
+const held = new Set(), padHeld = new Set();
 const heldSources = new Map();
 let hudVisible = false, hudWindow = performance.now(), hudPolls = 0, hudFrames = 0, hudPollHz = 0, hudFrameHz = 0, hudPollMs = 0, hudBackendMs = 0, hudServerMs = 0, hudDecodeMs = 0, hudCaptureMs = 0, hudVideoBytes = 0, hudAudioBytes = 0, hudAudioQueued = 0, hudAudioDuplicate = 0, hudAudioDeferred = 0;
 
@@ -74,7 +74,7 @@ async function poll() {
   if (!session || polling) return; polling = true;
   try {
     const started = performance.now();
-    const response = await fetch(`/api/sessions/${session}/poll`, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({input_revision: revision, video_seq: videoSeq, audio_offset: audioOffset, held_keys: [...held]})});
+    const response = await fetch(`/api/sessions/${session}/poll`, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({input_revision: revision, video_seq: videoSeq, audio_offset: audioOffset, keyboard_held: [...held], dance_pad_held: [...padHeld]})});
     if (response.status === 204) return;
     if (!response.ok) throw Error(await response.text());
     const backendMs = Number(response.headers.get("X-Pi286-Web-Backend-Ms")), serverMs = Number(response.headers.get("X-Pi286-Server-Poll-Ms"));
@@ -87,7 +87,7 @@ async function poll() {
   finally { polling = false; if (session) setTimeout(poll, 0); }
 }
 function websocketControl() {
-  if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({input_revision: revision, video_seq: videoSeq, audio_offset: audioOffset, held_keys: [...held]}));
+  if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({input_revision: revision, video_seq: videoSeq, audio_offset: audioOffset, keyboard_held: [...held], dance_pad_held: [...padHeld]}));
 }
 function websocketStart() {
   const scheme = location.protocol === "https:" ? "wss" : "ws";
@@ -114,10 +114,10 @@ async function start(gameId) {
   const transport = document.querySelector("#transport").value;
   const response = await fetch("/api/sessions", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({game_id: gameId, video_scaling: document.querySelector("#scaling").value, transport})});
   if (!response.ok) { textStatus(`Štart zlyhal: ${await response.text()}`); return; }
-  const started = await response.json(); session = started.id; hudVisible = gameId === "rainbow-cat"; for (const button of document.querySelectorAll("[data-pad-button]")) { const key = started.pad_keys?.[Number(button.dataset.padButton)] || ""; button.dataset.padKeys = key; button.disabled = !key; } videoSeq = 0; audioOffset = 0; hudWindow = performance.now(); hudPolls = hudFrames = hudPollHz = hudFrameHz = hudPollMs = hudBackendMs = hudServerMs = hudDecodeMs = hudCaptureMs = hudVideoBytes = hudAudioBytes = hudAudioQueued = hudAudioDuplicate = hudAudioDeferred = 0; frame.fill(0); draw(); updateHud(); menu.hidden = true; player.hidden = false; if (transport === "websocket") websocketStart(); else poll();
+  const started = await response.json(); session = started.id; videoSeq = 0; audioOffset = 0; hudWindow = performance.now(); hudPolls = hudFrames = hudPollHz = hudFrameHz = hudPollMs = hudBackendMs = hudServerMs = hudDecodeMs = hudCaptureMs = hudVideoBytes = hudAudioBytes = hudAudioQueued = hudAudioDuplicate = hudAudioDeferred = 0; frame.fill(0); draw(); updateHud(); menu.hidden = true; player.hidden = false; if (transport === "websocket") websocketStart(); else poll();
 }
 async function stop() {
-  const closing = session; session = null; if (ws) { ws.onclose = null; ws.close(); ws = null; } held.clear(); heldSources.clear(); player.hidden = true; menu.hidden = false;
+  const closing = session; session = null; if (ws) { ws.onclose = null; ws.close(); ws = null; } held.clear(); padHeld.clear(); heldSources.clear(); player.hidden = true; menu.hidden = false;
   if (audioContext) { await audioContext.close(); audioContext = null; }
   if (closing) await fetch(`/api/sessions/${closing}`, {method: "DELETE"});
 }
@@ -143,9 +143,8 @@ document.querySelector("#panic").addEventListener("click", () => stop());
 hudToggle.addEventListener("click", toggleHud);
 document.querySelector("#pad-select").addEventListener("click", () => stop());
 for (const button of document.querySelectorAll("[data-pad-button]")) {
-  const source = event => `pad:${event.pointerId}`;
-  const release = event => { setHeldSource(source(event), []); button.classList.remove("active"); };
-  button.addEventListener("pointerdown", event => { if (!session) return; event.preventDefault(); button.setPointerCapture(event.pointerId); setHeldSource(source(event), button.dataset.padKeys.split(" ")); button.classList.add("active"); });
+  const release = event => { padHeld.delete(Number(button.dataset.padButton)); revision++; websocketControl(); button.classList.remove("active"); };
+  button.addEventListener("pointerdown", event => { if (!session) return; event.preventDefault(); button.setPointerCapture(event.pointerId); padHeld.add(Number(button.dataset.padButton)); revision++; websocketControl(); button.classList.add("active"); });
   button.addEventListener("pointerup", release);
   button.addEventListener("pointercancel", release);
   button.addEventListener("lostpointercapture", release);
@@ -153,9 +152,10 @@ for (const button of document.querySelectorAll("[data-pad-button]")) {
 async function initialise() {
   try {
     const response = await fetch("/api/games"), payload = await response.json();
-    for (const game of payload.games) { const button = document.createElement("button"); button.textContent = game.name; button.onclick = () => start(game.id); games.append(button); }
-    const diagnostic = document.createElement("button"); diagnostic.textContent = "Dúhová mačka"; diagnostic.onclick = () => start("rainbow-cat"); games.append(diagnostic);
+    for (const game of payload.games) { const button = document.createElement("button"); button.textContent = game.name; button.onclick = () => { selectedGame = game; document.querySelector("#pre-game-title").textContent = game.name; document.querySelector("#pre-game-hint").textContent = game.pre_game.launch_hint; document.querySelector("#pre-game").hidden = false; games.hidden = true; }; games.append(button); }
     textStatus("Vyber hru. Tento runtime je určený iba pre dôveryhodnú lokálnu sieť.");
   } catch (error) { textStatus(`Nedá sa načítať launcher: ${error.message}`); }
 }
+document.querySelector("#pre-game-start").onclick = () => { if (selectedGame) start(selectedGame.id); };
+document.querySelector("#pre-game-back").onclick = () => { document.querySelector("#pre-game").hidden = true; games.hidden = false; };
 initialise();
