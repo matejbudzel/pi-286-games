@@ -23,6 +23,14 @@ else
     chown root:pi286stream /etc/pi286-stream.conf
     chmod 0640 /etc/pi286-stream.conf
 fi
+if grep -qx 'audio_capture=loopback' /etc/pi286-stream.conf; then
+    for device in /dev/snd/controlC1 /dev/snd/pcmC1D0p /dev/snd/pcmC1D1c; do
+        if [ ! -c "$device" ]; then
+            echo "error: loopback audio requires $device in the LXC; configure the Proxmox snd_aloop device pass-through first" >&2
+            exit 1
+        fi
+    done
+fi
 if [ ! -s /etc/pi286-stream.token ]; then
     umask 077
     python3 -c 'import secrets; print(secrets.token_urlsafe(32))' >/etc/pi286-stream.token

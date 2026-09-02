@@ -37,6 +37,30 @@ checkout is `/opt/pi286-stream/repo`, service configuration is
 The `pi286-stream` systemd service reads the bearer token from
 `/etc/pi286-stream.token`.
 
+### ALSA loopback pass-through
+
+When `audio_capture=loopback`, the Proxmox host—not the LXC—must load
+`snd_aloop` and pass all three required Loopback nodes into the unprivileged
+container. Do this before running the in-container installer; the installer
+checks for the nodes and stops with a clear error if one is missing.
+
+On the Proxmox host, after confirming the Loopback card is card `1` and that
+the LXC service user maps to UID `999` and GID `991`, configure LXC 112 as
+follows:
+
+```sh
+printf 'snd_aloop\n' >/etc/modules-load.d/snd-aloop.conf
+modprobe snd_aloop
+pct set 112 -dev0 /dev/snd/controlC1,uid=999,gid=991,mode=0660
+pct set 112 -dev1 /dev/snd/pcmC1D0p,uid=999,gid=991,mode=0660
+pct set 112 -dev3 /dev/snd/pcmC1D1c,uid=999,gid=991,mode=0660
+pct reboot 112
+```
+
+`pcmC1D0p` is DOSBox's playback endpoint and `pcmC1D1c` is the paired capture
+endpoint used by `arecord`. The card number is host-dependent; use
+`aplay -l`/`arecord -l` and adjust every `C1` path consistently if it differs.
+
 The server's private game data root is configured with `game_data_root` and
 defaults to `/srv/pi286-games`. Administrators provision game files there in
 their final extracted form; the service never downloads or unpacks them.
