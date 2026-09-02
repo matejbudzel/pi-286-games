@@ -14,6 +14,9 @@ let textTapRunning = false;
 let hudVisible = false, hudWindow = performance.now(), hudPolls = 0, hudFrames = 0, hudPollHz = 0, hudFrameHz = 0, hudPollMs = 0, hudBackendMs = 0, hudServerMs = 0, hudDecodeMs = 0, hudCaptureMs = 0, hudVideoBytes = 0, hudAudioBytes = 0, hudAudioQueued = 0, hudAudioDuplicate = 0, hudAudioDeferred = 0;
 
 function textStatus(value) { status.textContent = value; }
+function inputCapabilities() { return {keyboard: inputMode.value !== "pad", dancePad: inputMode.value !== "keyboard"}; }
+function showGameList() { document.querySelector("#pre-game").hidden = true; games.hidden = false; }
+function updateVirtualControls() { const caps = inputCapabilities(); document.querySelector("#virtual-keys").hidden = !caps.keyboard; document.querySelector("#virtual-pad").hidden = !caps.dancePad; }
 function draw() {
   for (let i = 0, pixel = 0; i < frame.length; i += 2, pixel += 4) {
     const value = frame[i] | frame[i + 1] << 8;
@@ -154,14 +157,14 @@ async function start(gameId) {
   const transport = document.querySelector("#transport").value;
   const response = await fetch("/web/api/sessions", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({game_id: gameId, video_scaling: document.querySelector("#scaling").value, transport})});
   if (!response.ok) { textStatus(`Štart zlyhal: ${await response.text()}`); return; }
-  const started = await response.json(); session = started.id; videoSeq = 0; audioOffset = 0; statsReported = false; clientStats = {transport, startedAt: new Date().toISOString(), startedAtMs: performance.now(), lastFrameAt: 0, frames: 0, frameIntervals: newMetric(), captureMs: newMetric(), decodeDrawMs: newMetric(), videoBytes: newMetric(), audioBytes: newMetric()}; hudWindow = performance.now(); hudPolls = hudFrames = hudPollHz = hudFrameHz = hudPollMs = hudBackendMs = hudServerMs = hudDecodeMs = hudCaptureMs = hudVideoBytes = hudAudioBytes = hudAudioQueued = hudAudioDuplicate = hudAudioDeferred = 0; frame.fill(0); draw(); updateHud(); menu.hidden = true; player.hidden = false; if (transport === "websocket") websocketStart(); else poll();
+  const started = await response.json(); session = started.id; updateVirtualControls(); videoSeq = 0; audioOffset = 0; statsReported = false; clientStats = {transport, startedAt: new Date().toISOString(), startedAtMs: performance.now(), lastFrameAt: 0, frames: 0, frameIntervals: newMetric(), captureMs: newMetric(), decodeDrawMs: newMetric(), videoBytes: newMetric(), audioBytes: newMetric()}; hudWindow = performance.now(); hudPolls = hudFrames = hudPollHz = hudFrameHz = hudPollMs = hudBackendMs = hudServerMs = hudDecodeMs = hudCaptureMs = hudVideoBytes = hudAudioBytes = hudAudioQueued = hudAudioDeferred = 0; frame.fill(0); draw(); updateHud(); menu.hidden = true; player.hidden = false; if (transport === "websocket") websocketStart(); else poll();
 }
 async function stop() {
   const closing = session;
   if (closing) { try { await reportBrowserStats(closing); } catch (error) { console.warn(error); } }
   session = null; if (ws) { ws.onclose = null; ws.close(); ws = null; } held.clear(); padHeld.clear(); heldSources.clear(); textTapQueue.length = 0;
   for (const button of document.querySelectorAll("[data-modifier]")) button.setAttribute("aria-pressed", "false");
-  player.hidden = true; menu.hidden = false;
+  player.hidden = true; menu.hidden = false; showGameList();
   if (audioContext) { await audioContext.close(); audioContext = null; }
   if (closing) await fetch(`/web/api/sessions/${closing}`, {method: "DELETE"});
 }
@@ -204,7 +207,7 @@ function virtualKey(button) {
 function toggleHud() { hudVisible = !hudVisible; updateHud(); }
 function showPadMap(game) {
   const labels = game.pre_game.pad_labels, keys = game.pre_game.pad_keys;
-  const legend = document.querySelector("#pre-game-pad"); legend.replaceChildren();
+  const legend = document.querySelector("#pre-game-pad"); legend.replaceChildren(); legend.hidden = !inputCapabilities().dancePad;
   for (const button of [6, 2, 7, 0, 8, 3, 4, 1, 5]) {
     const entry = document.createElement("span");
     entry.textContent = button === 8 ? "START" : document.querySelector(`[data-pad-button="${button}"]`).textContent;
@@ -239,12 +242,13 @@ for (const button of document.querySelectorAll("[data-pad-button]")) {
 }
 async function initialise() {
   try {
-    const response = await fetch("/web/api/games"), payload = await response.json();
+    const caps = inputCapabilities(); const response = await fetch(`/web/api/games?keyboard=${caps.keyboard ? 1 : 0}&dance_pad=${caps.dancePad ? 1 : 0}`), payload = await response.json();
+    games.replaceChildren(); showGameList();
     for (const game of payload.games) { const button = document.createElement("button"); button.textContent = game.name; button.onclick = () => { selectedGame = game; document.querySelector("#pre-game-title").textContent = game.name; document.querySelector("#pre-game-hint").textContent = game.pre_game.launch_hint; const instructions = document.querySelector("#pre-game-instructions"); instructions.replaceChildren(...game.pre_game.instructions.map(line => { const p = document.createElement("p"); p.textContent = line; return p; })); showPadMap(game); document.querySelector("#pre-game").hidden = false; games.hidden = true; }; games.append(button); }
     textStatus("Vyber hru. Tento runtime je určený iba pre dôveryhodnú lokálnu sieť.");
   } catch (error) { textStatus(`Nedá sa načítať launcher: ${error.message}`); }
 }
 document.querySelector("#pre-game-start").onclick = () => { if (selectedGame) start(selectedGame.id); };
-document.querySelector("#pre-game-back").onclick = () => { document.querySelector("#pre-game").hidden = true; games.hidden = false; };
+document.querySelector("#pre-game-back").onclick = showGameList;
 inputMode.onchange = () => initialise();
 initialise();
