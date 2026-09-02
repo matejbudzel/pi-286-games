@@ -5,7 +5,7 @@ const canvas = document.querySelector("#screen"), ctx = canvas.getContext("2d"),
 source.width = width; source.height = height;
 const sourceCtx = source.getContext("2d"), image = sourceCtx.createImageData(width, height);
 const menu = document.querySelector("#menu"), player = document.querySelector("#player"), games = document.querySelector("#games"), status = document.querySelector("#status"), hud = document.querySelector("#hud"), hudToggle = document.querySelector("#hud-toggle");
-const textEntry = document.querySelector("#text-entry"), virtualKeyboard = document.querySelector("#virtual-keyboard");
+const textEntry = document.querySelector("#text-entry"), virtualKeyboard = document.querySelector("#virtual-keyboard"), inputMode = document.querySelector("#input-mode");
 let session = null, videoSeq = 0, audioOffset = 0, revision = 0, polling = false, audioContext = null, audioNext = 0, ws = null, selectedGame = null, clientStats = null, statsReported = false;
 const held = new Set(), padHeld = new Set();
 const heldSources = new Map();
@@ -240,10 +240,11 @@ for (const button of document.querySelectorAll("[data-pad-button]")) {
 async function initialise() {
   try {
     const response = await fetch("/web/api/games"), payload = await response.json();
-    for (const game of payload.games) { const button = document.createElement("button"); button.textContent = game.name; button.onclick = () => { selectedGame = game; document.querySelector("#pre-game-title").textContent = game.name; document.querySelector("#pre-game-hint").textContent = game.pre_game.launch_hint; showPadMap(game); document.querySelector("#pre-game").hidden = false; games.hidden = true; }; games.append(button); }
+    for (const game of payload.games) { const button = document.createElement("button"); button.textContent = game.name; button.onclick = () => { selectedGame = game; document.querySelector("#pre-game-title").textContent = game.name; document.querySelector("#pre-game-hint").textContent = game.pre_game.launch_hint; const instructions = document.querySelector("#pre-game-instructions"); instructions.replaceChildren(...game.pre_game.instructions.map(line => { const p = document.createElement("p"); p.textContent = line; return p; })); showPadMap(game); document.querySelector("#pre-game").hidden = false; games.hidden = true; }; games.append(button); }
     textStatus("Vyber hru. Tento runtime je určený iba pre dôveryhodnú lokálnu sieť.");
   } catch (error) { textStatus(`Nedá sa načítať launcher: ${error.message}`); }
 }
 document.querySelector("#pre-game-start").onclick = () => { if (selectedGame) start(selectedGame.id); };
 document.querySelector("#pre-game-back").onclick = () => { document.querySelector("#pre-game").hidden = true; games.hidden = false; };
+inputMode.onchange = () => initialise();
 initialise();

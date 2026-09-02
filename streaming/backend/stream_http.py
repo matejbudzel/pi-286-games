@@ -219,7 +219,7 @@ def make_handler(state: StreamState):
                 if self._web_file(path):
                     return
                 if path == "/web/api/games":
-                    self._json(HTTPStatus.OK, state.game_catalog({"keyboard": True, "dance_pad": True}))
+                    self._json(HTTPStatus.OK, state.game_catalog({"keyboard": query.get("keyboard", ["1"])[0] == "1", "dance_pad": query.get("dance_pad", ["1"])[0] == "1"}))
                 elif re.fullmatch(r"/web/api/sessions/[^/]+/stream", path):
                     session_id = path.split("/")[4]
                     state.session_status(session_id)

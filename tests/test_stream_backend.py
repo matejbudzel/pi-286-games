@@ -46,6 +46,54 @@ class StreamBackendTests(unittest.TestCase):
         self.assertIn('"640x480x24"', source)
         self.assertIn('"-fbdir"', source)
 
+    def test_startup_keypress_is_one_shot_and_does_not_change_held_keys(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = backend.StreamState({**backend.DEFAULTS, "state_root": directory}, "x" * 32)
+            state.active["barbarian"] = {"dosbox": SimpleNamespace(poll=lambda: None), "window": None,
+                                         "display": ":99", "held_keys": {"SPACE"}}
+            state._find_dosbox_window = lambda _display: "123"
+            injected = []
+            state._inject_key = lambda _item, window, key, pressed: injected.append((window, key, pressed))
+            state._startup_keypress("barbarian", "3")
+            self.assertEqual(injected, [("123", "3", True), ("123", "3", False)])
+            self.assertEqual(state.active["barbarian"]["held_keys"], {"SPACE"})
+
+    def test_startup_keypress_skips_an_exited_session(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = backend.StreamState({**backend.DEFAULTS, "state_root": directory}, "x" * 32)
+            state.active["barbarian"] = {"dosbox": SimpleNamespace(poll=lambda: 0), "window": None,
+                                         "display": ":99", "held_keys": set()}
+            state._find_dosbox_window = lambda _display: self.fail("exited session must not look for a window")
+            state._startup_keypress("barbarian", "3")
+
+    def test_startup_key_sequence_preserves_order(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = backend.StreamState({**backend.DEFAULTS, "state_root": directory}, "x" * 32)
+            pressed = []
+            state._startup_keypress = lambda session, key: pressed.append((session, key))
+            state._startup_key_sequence("barbarian", ((0, "3"), (0, "SPACE"), (0, "2")), time.monotonic())
+            self.assertEqual(pressed, [("barbarian", "3"), ("barbarian", "SPACE"), ("barbarian", "2")])
+
+    def test_barbarian_configures_the_delayed_ega_choice(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = backend.StreamState({**backend.DEFAULTS, "state_root": directory,
+                                         "game_definitions_root": str(Path(__file__).parents[1] / "games")},
+                                        "x" * 32)
+            game = state.games["barbarian"]
+            self.assertEqual(game.startup_keys, ((4, "3"), (14, "SPACE"), (14.25, "2"), (15.25, "4")))
+            self.assertEqual(game.keyboard_actions["LEFT"], "left")
+            self.assertEqual(game.pad_actions[6], ("attack", "object1"))
+
+    def test_barbarian_object_action_switches_panel_then_uses_object(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = backend.StreamState({**backend.DEFAULTS, "state_root": directory}, "x" * 32)
+            item = {"barbarian": {"panel": 1}}
+            tapped = []
+            state._tap_key = lambda _item, key: tapped.append(key)
+            state._barbarian_action(item, "object2")
+            self.assertEqual(item["barbarian"]["panel"], 2)
+            self.assertEqual(tapped, ["SPACE", "F2", "F5"])
+
     def test_stable_xvfb_frame_requires_two_identical_copies(self):
         with tempfile.TemporaryDirectory() as directory:
             frame = Path(directory) / "Xvfb_screen0"

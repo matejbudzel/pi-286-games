@@ -294,6 +294,12 @@ def pre_game_lines(game, labels, keys=None, has_pad=True, has_keyboard=True):
     by_button = dict(PAD_LAYOUT)
     def panel(button): return "%s: %s" % (by_button[button], labels[button])
     lines = [(game.name, True), ("", False)]
+    raw = values(game.ddr_conf)
+    instruction_key = "pregame_both" if has_pad and has_keyboard else "pregame_pad" if has_pad else "pregame_keyboard"
+    instructions = [line for line in raw.get(instruction_key, "").split("|") if line]
+    if instructions:
+        lines.extend((line, False) for line in instructions)
+        lines.append(("", False))
     if has_pad:
         lines.extend([("[ %s ]  [ %s ]  [ %s ]" % (panel(6), panel(2), panel(7)), False),
                       ("", False), ("[ %s ]      TY      [ %s ]" % (panel(0), panel(3)), False),

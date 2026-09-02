@@ -43,7 +43,9 @@ class StreamState(VideoMixin):
         keyboard = bool(capabilities.get("keyboard"))
         dance_pad = bool(capabilities.get("dance_pad"))
         def pre_game(game: GameDefinition) -> dict:
+            mode = "both" if keyboard and dance_pad else "keyboard" if keyboard else "pad"
             return {"pad_keys": list(game.pad_keys), "pad_labels": list(game.pad_labels),
+                    "instructions": game.pregame.get(mode, []),
                     "keyboard": keyboard, "dance_pad": dance_pad,
                     "launch_hint": "Stlač SPACE alebo START pre spustenie" if keyboard and dance_pad else
                                    "Stlač SPACE pre spustenie" if keyboard else "Stlač START pre spustenie" if dance_pad else
@@ -124,6 +126,7 @@ class StreamState(VideoMixin):
             environment.update({"DISPLAY": display, "SDL_AUDIODRIVER": "alsa",
                                 "AUDIODEV": "default" if audio_mode == "file" else self.config["audio_playback_device"],
                                 "HOME": str(session_dir)})
+            dosbox_started = time.monotonic()
             dosbox = subprocess.Popen([self.config["dosbox"], "-conf", str(config_path)], cwd=game_dir,
                                       env=environment, stdout=log, stderr=subprocess.STDOUT,
                                       start_new_session=True)
@@ -139,6 +142,9 @@ class StreamState(VideoMixin):
                                             "transport": transport,
                                             "last_client_activity": time.monotonic(),
                                             "framebuffer": framebuffer_directory / "Xvfb_screen0"})
+            if game.startup_keys:
+                threading.Thread(target=self._startup_key_sequence, args=(session_id, game.startup_keys, dosbox_started),
+                                 daemon=True).start()
             return self.session_status(session_id)
 
     @staticmethod
@@ -462,10 +468,13 @@ class StreamState(VideoMixin):
             if not item or item["dosbox"].poll() is not None:
                 raise KeyError(session_id)
             stats = item.setdefault("poll_stats", self._new_poll_stats())
-            desired = set(held)
             game = item.get("game")
-            if game:
-                desired.update(game.pad_keys[button] for button in pad_held if game.pad_keys[button])
+            if game and game.input_profile == "barbarian_toolsets":
+                desired = self._barbarian_input(item, game, set(held), set(pad_held))
+            else:
+                desired = set(held)
+                if game:
+                    desired.update(game.pad_keys[button] for button in pad_held if game.pad_keys[button])
             previous_arrival = stats["last_arrival"]
             stats["last_arrival"] = max(previous_arrival or started, started)
             stats["requests"] += 1
@@ -538,6 +547,78 @@ class StreamState(VideoMixin):
         if result.returncode:
             item["window"] = None
             raise RuntimeError("XTEST input injection failed")
+
+    def _tap_key(self, item: dict, key: str) -> None:
+        window = item["window"] or self._find_dosbox_window(item["display"])
+        if not window:
+            raise RuntimeError("DOSBox input window is not ready")
+        item["window"] = window
+        self._inject_key(item, window, key, True)
+        self._inject_key(item, window, key, False)
+
+    def _barbarian_input(self, item: dict, game: GameDefinition, keyboard: set[str], pad: set[int]) -> set[str]:
+        state = item.setdefault("barbarian", {"panel": 1, "keyboard": set(), "pad": set(), "pending_up": 0.0})
+        now = time.monotonic()
+        if state["pending_up"] and now >= state["pending_up"]:
+            state["pending_up"] = 0.0
+            self._barbarian_action(item, "up")
+        pressed_keyboard = keyboard - state["keyboard"]
+        pressed_pad = pad - state["pad"]
+        for key in pressed_keyboard:
+            action = game.keyboard_actions.get(key, "")
+            if action: self._barbarian_action(item, action)
+        for button in pressed_pad:
+            primary, secondary = game.pad_actions[button]
+            action = primary if state["panel"] == 1 else secondary
+            if action == "up_or_down":
+                if state["pending_up"] and now < state["pending_up"]:
+                    state["pending_up"] = 0.0
+                    self._barbarian_action(item, "down")
+                else:
+                    state["pending_up"] = now + 0.25
+            elif action: self._barbarian_action(item, action)
+        state["keyboard"], state["pad"] = keyboard, pad
+        held_actions = {game.keyboard_actions.get(key, "") for key in keyboard}
+        if state["panel"] == 1:
+            held_actions.update(game.pad_actions[button][0] for button in pad)
+        return {"F1" for action in held_actions if action == "left"} | {"F4" for action in held_actions if action == "right"}
+
+    def _barbarian_action(self, item: dict, action: str) -> None:
+        panel2 = {"get", "put", "object1", "object2", "object3"}
+        if action == "toggle":
+            item["barbarian"]["panel"] = 2 if item["barbarian"]["panel"] == 1 else 1
+            self._tap_key(item, "SPACE")
+            return
+        wanted = 2 if action in panel2 else 1
+        if item["barbarian"]["panel"] != wanted:
+            item["barbarian"]["panel"] = wanted
+            self._tap_key(item, "SPACE")
+        keys = {"left": "F1", "up": "F2", "down": "F3", "right": "F4", "stop": "F5", "jump": "F6",
+                "run": "F7", "attack": "F8", "defend": "F9", "get": "F1", "put": "F3",
+                "object1": "F4", "object2": "F5", "object3": "F6"}
+        if action.startswith("object"):
+            self._tap_key(item, "F2")
+        if action in keys and action not in ("left", "right"):
+            self._tap_key(item, keys[action])
+
+    def _startup_key_sequence(self, session_id: str, actions: tuple[tuple[float, str], ...],
+                              started: float) -> None:
+        for delay, key in actions:
+            time.sleep(max(0, started + delay - time.monotonic()))
+            self._startup_keypress(session_id, key)
+
+    def _startup_keypress(self, session_id: str, key: str) -> None:
+        """Send one game-specific startup key without changing client-held keys."""
+        with self.lock:
+            item = self.active.get(session_id)
+            if not item or item["dosbox"].poll() is not None:
+                return
+            window = item["window"] or self._find_dosbox_window(item["display"])
+            if not window:
+                return
+            item["window"] = window
+            self._inject_key(item, window, key, True)
+            self._inject_key(item, window, key, False)
 
     def _find_dosbox_window(self, display: str) -> str | None:
         result = subprocess.run([self.config["xdotool"], "search", "--onlyvisible", "--name", "DOSBox"],

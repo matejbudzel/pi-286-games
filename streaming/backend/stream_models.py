@@ -71,7 +71,9 @@ VIDEO_SCALING_MODES = ("nearest", "linear-v", "crt-lite")
 class GameDefinition:
     def __init__(self, game_id: str, name: str, data_dir: str, executable: str,
                  dosbox_conf: Path, pad_keys: tuple[str, ...],
-                 pad_labels: tuple[str, ...]):
+                 pad_labels: tuple[str, ...], startup_keys: tuple[tuple[float, str], ...] = (),
+                 input_profile: str = "", keyboard_actions: dict[str, str] | None = None,
+                 pad_actions: tuple[tuple[str, str], ...] = (), pregame: dict[str, list[str]] | None = None):
         self.game_id = game_id
         self.name = name
         self.data_dir = data_dir
@@ -79,6 +81,11 @@ class GameDefinition:
         self.dosbox_conf = dosbox_conf
         self.pad_keys = pad_keys
         self.pad_labels = pad_labels
+        self.startup_keys = startup_keys
+        self.input_profile = input_profile
+        self.keyboard_actions = keyboard_actions or {}
+        self.pad_actions = pad_actions
+        self.pregame = pregame or {}
 
 
 def ini_values(path: Path) -> dict[str, str]:
@@ -108,9 +115,30 @@ def load_games(root: Path) -> dict[str, GameDefinition]:
             if key == "-": key = ""
             if key and key not in KEYS: raise ValueError(f"invalid DDR key in {directory.name}")
             keys.append(key); labels.append(ddr.get(f"button{button}_label", "nepoužité"))
+        startup_keys = []
+        for action in filter(None, values.get("startup_key_sequence", "").split(",")):
+            try:
+                delay_text, startup_key = action.split(":", 1)
+                startup_delay = float(delay_text)
+            except ValueError as error:
+                raise ValueError(f"invalid startup key sequence in {directory.name}") from error
+            startup_key = startup_key.upper()
+            if startup_delay < 0 or startup_key not in KEYS:
+                raise ValueError(f"invalid startup key sequence in {directory.name}")
+            if startup_keys and startup_delay < startup_keys[-1][0]:
+                raise ValueError(f"startup key sequence must be ordered in {directory.name}")
+            startup_keys.append((startup_delay, startup_key))
+        input_profile = ddr.get("input_profile", "")
+        keyboard_actions = {key[9:-7]: value for key, value in ddr.items()
+                            if key.startswith("keyboard_") and key.endswith("_action") and key[9:-7] in KEYS}
+        pad_actions = tuple((ddr.get(f"button{button}_primary_action", ""),
+                             ddr.get(f"button{button}_secondary_action", "")) for button in range(9))
+        pregame = {name: [line for line in ddr.get("pregame_" + name, "").split("|") if line]
+                   for name in ("keyboard", "pad", "both")}
         game_id = directory.name
         games[game_id] = GameDefinition(game_id, values["name"], values["data_dir"], values["exe"],
-                                        directory / "dosbox.conf", tuple(keys), tuple(labels))
+                                        directory / "dosbox.conf", tuple(keys), tuple(labels),
+                                        tuple(startup_keys), input_profile, keyboard_actions, pad_actions, pregame)
     return games
 
 
