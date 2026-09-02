@@ -215,7 +215,7 @@ class StreamBackendTests(unittest.TestCase):
         index = (backend.WEB_STATIC / "index.html").read_text()
         source = (backend.WEB_STATIC / "virtual-controls.js").read_text()
         style = (backend.WEB_STATIC / "style.css").read_text()
-        for key in ("ESC", "CTRL", "SHIFT", "ALT", "META", "DELETE"):
+        for key in ("ESC", "CTRL", "SHIFT", "ALT", "META", "BACKSPACE"):
             self.assertIn(f'data-virtual-key="{key}"', index)
         self.assertIn('id="text-entry"', index)
         self.assertIn('inputmode="text"', index)
