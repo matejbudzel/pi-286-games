@@ -11,6 +11,9 @@ ROOT = Path(__file__).resolve().parents[2]
 WEB_STATIC = ROOT / "streaming" / "web" / "static"
 WEB_FILES = {"/": ("index.html", "text/html; charset=utf-8"),
              "/app.js": ("app.js", "text/javascript; charset=utf-8"),
+             "/menu.js": ("menu.js", "text/javascript; charset=utf-8"),
+             "/stream-session.js": ("stream-session.js", "text/javascript; charset=utf-8"),
+             "/virtual-controls.js": ("virtual-controls.js", "text/javascript; charset=utf-8"),
              "/input.js": ("input.js", "text/javascript; charset=utf-8"),
              "/style.css": ("style.css", "text/css; charset=utf-8")}
 

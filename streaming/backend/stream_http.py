@@ -13,14 +13,8 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 from streaming.backend import websocket_wire
-from streaming.backend.stream_models import ROOT, VIDEO_HEIGHT, VIDEO_WIDTH
+from streaming.backend.stream_models import VIDEO_HEIGHT, VIDEO_WIDTH, WEB_FILES, WEB_STATIC
 from streaming.backend.stream_state import StreamState
-
-WEB_STATIC = ROOT / "streaming" / "web" / "static"
-WEB_FILES = {"/": ("index.html", "text/html; charset=utf-8"),
-             "/app.js": ("app.js", "text/javascript; charset=utf-8"),
-             "/input.js": ("input.js", "text/javascript; charset=utf-8"),
-             "/style.css": ("style.css", "text/css; charset=utf-8")}
 
 def make_handler(state: StreamState):
     class Handler(BaseHTTPRequestHandler):

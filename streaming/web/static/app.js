@@ -1,12 +1,15 @@
 import {keyName} from "/input.js";
+import {installMenu} from "/menu.js";
+import {installVirtualControls} from "/virtual-controls.js";
+import {createSession} from "/stream-session.js";
 const width = 320, height = 240, frame = new Uint8Array(width * height * 2);
 const audioBufferTarget = .35, audioStartLead = .08;
 const canvas = document.querySelector("#screen"), ctx = canvas.getContext("2d"), source = document.createElement("canvas");
 source.width = width; source.height = height;
 const sourceCtx = source.getContext("2d"), image = sourceCtx.createImageData(width, height);
 const menu = document.querySelector("#menu"), player = document.querySelector("#player"), games = document.querySelector("#games"), status = document.querySelector("#status"), hud = document.querySelector("#hud"), hudToggle = document.querySelector("#hud-toggle");
-const textEntry = document.querySelector("#text-entry"), virtualKeyboard = document.querySelector("#virtual-keyboard"), inputMode = document.querySelector("#input-mode");
-let session = null, videoSeq = 0, audioOffset = 0, revision = 0, polling = false, audioContext = null, audioNext = 0, ws = null, selectedGame = null, clientStats = null, statsReported = false;
+const inputMode = document.querySelector("#input-mode");
+let session = null, videoSeq = 0, audioOffset = 0, revision = 0, polling = false, audioContext = null, audioNext = 0, ws = null, clientStats = null, statsReported = false;
 const held = new Set(), padHeld = new Set();
 const heldSources = new Map();
 const textTapQueue = [];
@@ -192,10 +195,6 @@ function tapTextKey(key) {
   };
   next();
 }
-function textKey(character) {
-  const punctuation = {" ": "SPACE", "-": "MINUS", "=": "EQUALS", "[": "LEFTBRACKET", "]": "RIGHTBRACKET", "\\": "BACKSLASH", ";": "SEMICOLON", "'": "QUOTE", "`": "BACKQUOTE", ",": "COMMA", ".": "PERIOD", "/": "SLASH"};
-  return punctuation[character] || (/^[a-z0-9]$/i.test(character) ? character.toUpperCase() : null);
-}
 function virtualKey(button) {
   const key = button.dataset.virtualKey;
   if (!session || !key) return;
@@ -216,40 +215,11 @@ function showPadMap(game) {
     entry.append(detail); legend.append(entry);
   }
 }
-addEventListener("keydown", event => { if (!session || event.target === textEntry) return; if (event.key === "F1") { event.preventDefault(); stop(); return; } if (event.key === "F8") { event.preventDefault(); toggleHud(); return; } const key = keyName(event); if (key) { setHeldSource(`keyboard:${key}`, [key]); event.preventDefault(); } });
-addEventListener("keyup", event => { if (event.target === textEntry) return; const key = keyName(event); if (key) { setHeldSource(`keyboard:${key}`, []); event.preventDefault(); } });
-document.querySelector("#panic").addEventListener("click", () => stop());
 hudToggle.addEventListener("click", toggleHud);
-document.querySelector("#pad-select").addEventListener("click", () => stop());
-for (const button of document.querySelectorAll("[data-virtual-key]")) button.addEventListener("click", () => virtualKey(button));
-virtualKeyboard.addEventListener("click", () => textEntry.focus({preventScroll: true}));
-textEntry.addEventListener("beforeinput", event => {
-  if (!session) return;
-  let keys = [];
-  if (event.inputType === "deleteContentBackward") keys = ["BACKSPACE"];
-  else if (event.inputType === "deleteContentForward") keys = ["DELETE"];
-  else if (event.inputType === "insertLineBreak") keys = ["ENTER"];
-  else if (event.inputType === "insertText" && event.data) keys = [...event.data].map(textKey).filter(Boolean);
-  if (!keys.length) return;
-  event.preventDefault(); textEntry.value = "";
-  for (const key of keys) tapTextKey(key);
-});
-for (const button of document.querySelectorAll("[data-pad-button]")) {
-  const release = event => { padHeld.delete(Number(button.dataset.padButton)); revision++; websocketControl(); button.classList.remove("active"); };
-  button.addEventListener("pointerdown", event => { if (!session) return; event.preventDefault(); button.setPointerCapture(event.pointerId); padHeld.add(Number(button.dataset.padButton)); revision++; websocketControl(); button.classList.add("active"); });
-  button.addEventListener("pointerup", release);
-  button.addEventListener("pointercancel", release);
-  button.addEventListener("lostpointercapture", release);
+function setPadButton(button, pressed, element) {
+  if (pressed) padHeld.add(button); else padHeld.delete(button);
+  revision++; websocketControl(); element.classList.toggle("active", pressed);
 }
-async function initialise() {
-  try {
-    const caps = inputCapabilities(); const response = await fetch(`/web/api/games?keyboard=${caps.keyboard ? 1 : 0}&dance_pad=${caps.dancePad ? 1 : 0}`), payload = await response.json();
-    games.replaceChildren(); showGameList();
-    for (const game of payload.games) { const button = document.createElement("button"); button.textContent = game.name; button.onclick = () => { selectedGame = game; document.querySelector("#pre-game-title").textContent = game.name; document.querySelector("#pre-game-hint").textContent = game.pre_game.launch_hint; const instructions = document.querySelector("#pre-game-instructions"); instructions.replaceChildren(...game.pre_game.instructions.map(line => { const p = document.createElement("p"); p.textContent = line; return p; })); showPadMap(game); showPreGame(); }; games.append(button); }
-    textStatus("Vyber hru. Tento runtime je určený iba pre dôveryhodnú lokálnu sieť.");
-  } catch (error) { textStatus(`Nedá sa načítať launcher: ${error.message}`); }
-}
-document.querySelector("#pre-game-start").onclick = () => { if (selectedGame) start(selectedGame.id); };
-document.querySelector("#pre-game-back").onclick = showGameList;
-inputMode.onchange = () => initialise();
-initialise();
+const streamSession = createSession({begin: start, end: stop});
+installVirtualControls({active: () => Boolean(session), keyName, setHeldSource, tapKey: virtualKey, stop: streamSession.stop, toggleHud, setPadButton});
+installMenu({start: streamSession.start, inputMode, textStatus, showGameList, showPreGame, showPadMap});

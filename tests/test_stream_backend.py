@@ -202,7 +202,7 @@ class StreamBackendTests(unittest.TestCase):
         self.assertIn("state.touch_session(session_id)", source)
 
     def test_server_hosts_the_small_same_origin_web_presenter(self):
-        self.assertEqual(set(backend.WEB_FILES), {"/", "/app.js", "/input.js", "/style.css"})
+        self.assertEqual(set(backend.WEB_FILES), {"/", "/app.js", "/menu.js", "/stream-session.js", "/virtual-controls.js", "/input.js", "/style.css"})
         for name, _content_type in backend.WEB_FILES.values():
             self.assertTrue((backend.WEB_STATIC / name).is_file())
         source = HTTP_MODULE.read_text()
@@ -213,13 +213,14 @@ class StreamBackendTests(unittest.TestCase):
 
     def test_web_presenter_offers_modifier_toggles_and_mobile_text_entry(self):
         index = (backend.WEB_STATIC / "index.html").read_text()
-        source = (backend.WEB_STATIC / "app.js").read_text()
+        source = (backend.WEB_STATIC / "virtual-controls.js").read_text()
+        app = (backend.WEB_STATIC / "app.js").read_text()
         for key in ("ESC", "CTRL", "SHIFT", "ALT", "META", "DELETE"):
             self.assertIn(f'data-virtual-key="{key}"', index)
         self.assertIn('id="text-entry"', index)
         self.assertIn('inputmode="text"', index)
-        self.assertIn('textEntry.addEventListener("beforeinput"', source)
-        self.assertIn('button.dataset.modifier === "true"', source)
+        self.assertIn('entry.addEventListener("beforeinput"', source)
+        self.assertIn('button.dataset.modifier === "true"', app)
 
     def test_empty_held_snapshot_does_not_require_dosbox_input_window(self):
         state = backend.StreamState.__new__(backend.StreamState)
