@@ -471,6 +471,8 @@ class StreamState(VideoMixin):
             game = item.get("game")
             if game and game.input_profile == "barbarian_toolsets":
                 desired = self._barbarian_input(item, game, set(held), set(pad_held))
+            elif game and game.input_profile == "prehistorik_mat":
+                desired = self._prehistorik_input(game, set(held), set(pad_held))
             else:
                 desired = set(held)
                 if game:
@@ -582,6 +584,15 @@ class StreamState(VideoMixin):
         if state["panel"] == 1:
             held_actions.update(game.pad_actions[button][0] for button in pad)
         return {"F1" for action in held_actions if action == "left"} | {"F4" for action in held_actions if action == "right"}
+
+    @staticmethod
+    def _prehistorik_input(game: GameDefinition, keyboard: set[str], pad: set[int]) -> set[str]:
+        """Map Prehistorik's diagonal mat buttons to simultaneous arrows."""
+        desired = set(keyboard)
+        desired.update(game.pad_keys[button] for button in pad if game.pad_keys[button])
+        if 6 in pad: desired.add("LEFT")
+        if 7 in pad: desired.add("RIGHT")
+        return desired
 
     def _barbarian_action(self, item: dict, action: str) -> None:
         panel2 = {"get", "put", "object1", "object2", "object3"}

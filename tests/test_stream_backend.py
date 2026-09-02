@@ -84,6 +84,17 @@ class StreamBackendTests(unittest.TestCase):
             self.assertEqual(game.keyboard_actions["LEFT"], "left")
             self.assertEqual(game.pad_actions[6], ("attack", "object1"))
 
+    def test_prehistorik_maps_diagonal_pad_buttons_and_delayed_ega_choice(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = backend.StreamState({**backend.DEFAULTS, "state_root": directory,
+                                         "game_definitions_root": str(Path(__file__).parents[1] / "games")},
+                                        "x" * 32)
+            game = state.games["prehistorik"]
+            self.assertEqual(game.startup_keys, ((6, "ENTER"),))
+            self.assertEqual(state._prehistorik_input(game, set(), {6}), {"UP", "LEFT"})
+            self.assertEqual(state._prehistorik_input(game, set(), {7}), {"UP", "RIGHT"})
+            self.assertEqual(state._prehistorik_input(game, set(), {4, 5, 8}), {"SPACE"})
+
     def test_barbarian_object_action_switches_panel_then_uses_object(self):
         with tempfile.TemporaryDirectory() as directory:
             state = backend.StreamState({**backend.DEFAULTS, "state_root": directory}, "x" * 32)
