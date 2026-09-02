@@ -215,6 +215,7 @@ def make_handler(state: StreamState):
         def do_GET(self):
             parsed = urlsplit(self.path)
             path = parsed.path
+            query = parse_qs(parsed.query)
             try:
                 if self._web_file(path):
                     return
