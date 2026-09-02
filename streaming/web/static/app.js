@@ -15,7 +15,8 @@ let hudVisible = false, hudWindow = performance.now(), hudPolls = 0, hudFrames =
 
 function textStatus(value) { status.textContent = value; }
 function inputCapabilities() { return {keyboard: inputMode.value !== "pad", dancePad: inputMode.value !== "keyboard"}; }
-function showGameList() { document.querySelector("#pre-game").hidden = true; games.hidden = false; }
+function showGameList() { document.querySelector("#pre-game").hidden = true; games.hidden = false; document.querySelector("#menu-options").hidden = false; }
+function showPreGame() { games.hidden = true; document.querySelector("#pre-game").hidden = false; document.querySelector("#menu-options").hidden = true; }
 function updateVirtualControls() { const caps = inputCapabilities(); document.querySelector("#virtual-keys").hidden = !caps.keyboard; document.querySelector("#virtual-pad").hidden = !caps.dancePad; }
 function draw() {
   for (let i = 0, pixel = 0; i < frame.length; i += 2, pixel += 4) {
@@ -244,7 +245,7 @@ async function initialise() {
   try {
     const caps = inputCapabilities(); const response = await fetch(`/web/api/games?keyboard=${caps.keyboard ? 1 : 0}&dance_pad=${caps.dancePad ? 1 : 0}`), payload = await response.json();
     games.replaceChildren(); showGameList();
-    for (const game of payload.games) { const button = document.createElement("button"); button.textContent = game.name; button.onclick = () => { selectedGame = game; document.querySelector("#pre-game-title").textContent = game.name; document.querySelector("#pre-game-hint").textContent = game.pre_game.launch_hint; const instructions = document.querySelector("#pre-game-instructions"); instructions.replaceChildren(...game.pre_game.instructions.map(line => { const p = document.createElement("p"); p.textContent = line; return p; })); showPadMap(game); document.querySelector("#pre-game").hidden = false; games.hidden = true; }; games.append(button); }
+    for (const game of payload.games) { const button = document.createElement("button"); button.textContent = game.name; button.onclick = () => { selectedGame = game; document.querySelector("#pre-game-title").textContent = game.name; document.querySelector("#pre-game-hint").textContent = game.pre_game.launch_hint; const instructions = document.querySelector("#pre-game-instructions"); instructions.replaceChildren(...game.pre_game.instructions.map(line => { const p = document.createElement("p"); p.textContent = line; return p; })); showPadMap(game); showPreGame(); }; games.append(button); }
     textStatus("Vyber hru. Tento runtime je určený iba pre dôveryhodnú lokálnu sieť.");
   } catch (error) { textStatus(`Nedá sa načítať launcher: ${error.message}`); }
 }
