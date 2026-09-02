@@ -214,12 +214,16 @@ class StreamBackendTests(unittest.TestCase):
     def test_web_presenter_offers_modifier_toggles_and_mobile_text_entry(self):
         index = (backend.WEB_STATIC / "index.html").read_text()
         source = (backend.WEB_STATIC / "virtual-controls.js").read_text()
+        style = (backend.WEB_STATIC / "style.css").read_text()
         for key in ("ESC", "CTRL", "SHIFT", "ALT", "META", "DELETE"):
             self.assertIn(f'data-virtual-key="{key}"', index)
         self.assertIn('id="text-entry"', index)
         self.assertIn('inputmode="text"', index)
         self.assertIn('entry.addEventListener("beforeinput"', source)
         self.assertIn('button.dataset.modifier === "true"', source)
+        self.assertIn("-webkit-touch-callout: none", style)
+        self.assertIn("#text-entry", style)
+        self.assertIn("font-size: 16px", style)
 
     def test_empty_held_snapshot_does_not_require_dosbox_input_window(self):
         state = backend.StreamState.__new__(backend.StreamState)
