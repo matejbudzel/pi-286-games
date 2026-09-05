@@ -50,3 +50,7 @@ framebuffer_depth=16
 up_key=UP
 down_key=DOWN
 confirm_key=SPACE
+
+# Pi-only native applications: one name/command/working_dir .conf per app.
+# Relative directories are resolved beside the active host.conf.
+local_apps_dir=local-apps

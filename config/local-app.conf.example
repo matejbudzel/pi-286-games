@@ -1,0 +1,4 @@
+# Copy to config/local-apps/pi-dance.conf on the Pi; adjust installation paths.
+name=Pi Dance
+command=./.venv/bin/pi-dance
+working_dir=~/work/own/pi-dance

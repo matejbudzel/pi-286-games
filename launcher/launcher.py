@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Minimal terminal UI and remote DOS game stream supervisor for pi-286-games."""
-import argparse, fcntl, glob, os, re, select, shlex, shutil, socket, struct, subprocess, sys, tempfile, termios, time, traceback, tty, urllib.error, urllib.parse, urllib.request, zipfile
+import argparse, fcntl, glob, os, re, select, shlex, shutil, signal, socket, struct, subprocess, sys, tempfile, termios, time, traceback, tty, urllib.error, urllib.parse, urllib.request, zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -55,6 +55,157 @@ class LauncherExit(Exception):
 @dataclass(frozen=True)
 class Game:
     name: str; data_dir: str; command: str; asset_archive: str = ""; ddr_conf: Path = Path()
+
+@dataclass(frozen=True)
+class LocalApp:
+    name: str
+    command: str
+    working_dir: Path
+
+@dataclass(frozen=True)
+class RemoteGame:
+    name: str
+    game_id: str
+    pre_game: dict
+
+
+def discover_local(directory):
+    apps = []
+    for path in sorted(directory.glob("*.conf")):
+        conf = values(path)
+        if not conf.get("name") or not conf.get("command"):
+            raise RuntimeError("Chýba názov alebo príkaz aplikácie: %s" % path)
+        working_dir = Path(conf.get("working_dir", str(Path.home()))).expanduser()
+        if not working_dir.is_absolute(): working_dir = path.parent / working_dir
+        apps.append(LocalApp(conf["name"], conf["command"], working_dir.resolve()))
+    return apps
+
+
+def menu_games(config, host_conf, has_keyboard, has_pad):
+    directory = Path(config.get("local_apps_dir", "local-apps")).expanduser()
+    if not directory.is_absolute(): directory = host_conf.resolve().parent / directory
+    games = discover_local(directory)
+    warning = ""
+    try:
+        backend = RemoteBackend.from_token_file(config["remote_dosbox_url"], Path(config["remote_dosbox_token_file"]).expanduser())
+        catalog = backend.games(has_keyboard, has_pad)
+        games.extend(RemoteGame(item["name"], item["id"], item["pre_game"]) for item in catalog["games"])
+    except (KeyError, OSError, ValueError, RemoteUnavailable, RemoteProtocolError):
+        warning = "Server hier nie je dostupný"
+    return sorted(games, key=lambda game: game.name.casefold()), warning
+
+
+class PanicKeyboard:
+    """Observe evdev copies of F1 without consuming the application's TTY input."""
+    event = struct.Struct("llHHi")  # Native timeval: works on ARMv6 and the build host.
+
+    def __init__(self):
+        self.fds = {}
+        self.next_scan = 0
+
+    def __enter__(self):
+        self.scan()
+        if not self.fds and keyboard_available():
+            raise RuntimeError("F1 nie je dostupné. Skontroluj prístup k /dev/input/event*.")
+        return self
+
+    def scan(self):
+        for path in glob.glob("/dev/input/event*"):
+            if path in self.fds: continue
+            fd = None
+            try:
+                fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
+                # EVIOCGBIT(EV_KEY): only keep devices advertising KEY_F1 (59).
+                bits = fcntl.ioctl(fd, 0x80084521, b"\0" * 8)
+                if bits[59 // 8] & (1 << (59 % 8)):
+                    self.fds[path] = fd
+                else: os.close(fd)
+            except OSError:
+                if fd is not None:
+                    try: os.close(fd)
+                    except OSError: pass
+        self.next_scan = time.monotonic() + 2
+
+    def pressed(self):
+        if time.monotonic() >= self.next_scan: self.scan()
+        pressed = False
+        for path, fd in list(self.fds.items()):
+            try:
+                raw = os.read(fd, self.event.size * 64)
+                if not raw: raise OSError("disconnected")
+            except BlockingIOError: continue
+            except OSError:
+                os.close(fd); del self.fds[path]; continue
+            for _, _, kind, code, value in self.event.iter_unpack(raw):
+                if kind == 1 and code == 59 and value == 1: pressed = True
+        return pressed
+
+    def __exit__(self, *_):
+        for fd in self.fds.values(): os.close(fd)
+        self.fds.clear()
+
+
+def foreground(fd, group):
+    previous = signal.signal(signal.SIGTTOU, signal.SIG_IGN)
+    try: os.tcsetpgrp(fd, group)
+    finally: signal.signal(signal.SIGTTOU, previous)
+
+
+def stop_local_process(process):
+    """Stop the owned process group, including children left by a wrapper."""
+    try: os.killpg(process.pid, signal.SIGTERM)
+    except ProcessLookupError: pass
+    try: process.wait(timeout=2)
+    except subprocess.TimeoutExpired: pass
+    try: os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError: pass
+    process.wait()
+
+
+def run_local_app(app, term, pad):
+    process = None
+    saved = termios.tcgetattr(term.fd)
+    group = os.tcgetpgrp(term.fd)
+    keyboard_mode = fcntl.ioctl(term.fd, 0x4B44, b"\0" * 4)  # KDGKBMODE
+    try:
+        command = [os.path.expanduser(arg) for arg in shlex.split(app.command)]
+        if not command: raise ValueError("empty command")
+        with PanicKeyboard() as panic:
+            # Hand the real console to the child before it can read from it.
+            def claim_console():
+                os.setpgrp()
+                foreground(term.fd, os.getpgrp())
+            termios.tcsetattr(term.fd, termios.TCSAFLUSH, term.old)
+            process = subprocess.Popen(command, cwd=app.working_dir, preexec_fn=claim_console)
+            while process.poll() is None:
+                if panic.pressed(): return "panic"
+                time.sleep(.05)
+            return "panic" if process.returncode == 0 else "failed"
+    except (OSError, ValueError, subprocess.SubprocessError) as exc:
+        raise RuntimeError("Aplikáciu sa nepodarilo spustiť: %s" % exc) from exc
+    finally:
+        if process is not None: stop_local_process(process)
+        foreground(term.fd, group)
+        fcntl.ioctl(term.fd, 0x4B45, struct.unpack("i", keyboard_mode)[0])  # KDSKBMODE
+        termios.tcsetattr(term.fd, termios.TCSAFLUSH, saved)
+        # Reopen the launcher's pad to discard events generated while playing.
+        pad.__exit__(); pad.fds = []; pad.__enter__()
+        restore_console_display()
+
+
+def wait_for_remote_start(term, pad, game, volume):
+    data = game.pre_game
+    keys = {button: {"SHIFT": "LSHIFT", "CTRL": "LCTRL"}.get(key, key)
+            for button, key in enumerate(data["pad_keys"])}
+    labels = dict(enumerate(data["pad_labels"]))
+    lines = pre_game_lines(game, labels, keys, data["dance_pad"], data["keyboard"])
+    lines[-1] = (data["launch_hint"], True)
+    Terminal.draw(lines, "\x1b[93m", top_corner=sound_status(volume))
+    while True:
+        key = next_input(term, pad)
+        if key in ("SPACE", "START", "ENTER"): return True
+        if key == "CTRL_C": return "exit"
+        if key in ("SELECT", "ESC", "F1"): return False
 
 def values(path):
     result = {}
@@ -179,7 +330,7 @@ def load_ddr_mapping(game):
     return keys, labels
 
 def pad_panic(buttons):
-    """SELECT is never handed to a game: it always returns to the launcher."""
+    """SELECT returns from DOS games; local apps own their pad input."""
     return 9 in buttons
 
 def keyboard_available(devices_path=Path("/proc/bus/input/devices")):
@@ -294,9 +445,12 @@ def pre_game_lines(game, labels, keys=None, has_pad=True, has_keyboard=True):
     by_button = dict(PAD_LAYOUT)
     def panel(button): return "%s: %s" % (by_button[button], labels[button])
     lines = [(game.name, True), ("", False)]
-    raw = values(game.ddr_conf)
-    instruction_key = "pregame_both" if has_pad and has_keyboard else "pregame_pad" if has_pad else "pregame_keyboard"
-    instructions = [line for line in raw.get(instruction_key, "").split("|") if line]
+    if isinstance(game, RemoteGame):
+        instructions = game.pre_game["instructions"]
+    else:
+        raw = values(game.ddr_conf)
+        instruction_key = "pregame_both" if has_pad and has_keyboard else "pregame_pad" if has_pad else "pregame_keyboard"
+        instructions = [line for line in raw.get(instruction_key, "").split("|") if line]
     if instructions:
         lines.extend((line, False) for line in instructions)
         lines.append(("", False))
@@ -310,7 +464,7 @@ def pre_game_lines(game, labels, keys=None, has_pad=True, has_keyboard=True):
         lines.append(("Klávesnica:", False))
         for button in range(9):
             key = (keys or {}).get(button, "")
-            if key: lines.append(("%s: %s" % (KEY_NAMES[key], labels[button]), False))
+            if key: lines.append(("%s: %s" % (KEY_NAMES.get(key, key), labels[button]), False))
         lines.append(("ESC: späť do menu", False))
     lines.extend([("", False), (("SPACE / START - spustiť hru" if has_pad and has_keyboard else "START - spustiť hru" if has_pad else "SPACE - spustiť hru"), True)])
     return lines
@@ -476,17 +630,10 @@ def run_remote_presenter(title, config, backend, presenter, session_id, transpor
     restore_console_display()
     return "panic" if result.returncode == 0 else "failed"
 
-def run_remote_game(game, config, term, data):
+def run_remote_game(game, config, term):
     backend, presenter = remote_choice(config)
     transport = remote_transport(config)
-    def progress(done, total, name):
-        percent = 100 if not total else done * 100 // total
-        install_screen(term, game, "Pripravujem vzdialenú hru", "Nahrávam herné dáta " + name, percent)
-    install_screen(term, game, "Pripravujem vzdialenú hru", "Kontrolujem herné dáta...", 0)
-    files, _ = backend.sync_directory(data, progress)
-    executable = backend.executable_in_manifest(shlex.split(game.command)[0], files)
-    session = backend.start_session(re.sub(r"[^a-z0-9_-]", "-", game.data_dir.lower()), executable, files,
-                                    video_scaling(config), transport)
+    session = backend.start_session(game.game_id, video_scaling(config), transport)
     try:
         return run_remote_presenter(game.name, config, backend, presenter, session["id"], transport)
     finally:
@@ -505,22 +652,22 @@ def run_rainbow_cat(config):
         except (RemoteUnavailable, RemoteProtocolError): pass
 
 def run_game(game, config, term, pad, ddr_keys):
-    try: data, _command = validate(game, Path(config["game_data_root"]).expanduser(), term, config.get("confirm_key", "SPACE").upper(), pad)
-    except InstallationCancelled: return "cancelled"
-    except LauncherExit: return "exit"
-    return run_remote_game(game, config, term, data)
+    return run_remote_game(game, config, term)
 
 def main():
     parser = argparse.ArgumentParser(); parser.add_argument("--host-conf", type=Path, default=ROOT / "config" / "host.conf")
     args = parser.parse_args(); config = values(ROOT / "config" / "host.conf.example"); config.update(values(args.host_conf))
-    games = discover()
-    if not games: print("No valid game definitions found.", file=sys.stderr); return 1
     selected = 0; confirm = config.get("confirm_key", "SPACE").upper(); corner = ""; redraw = True
-    diagnostic_index = len(games); bye_index = diagnostic_index + 1
     volume = volume_percent(config.get(AUDIO_VOLUME_KEY, "96")); set_audio_volume(volume)
     restart_hint = False
     with Terminal() as term, DancePad() as pad:
         term.splash()
+        try:
+            games, corner = menu_games(config, args.host_conf, keyboard_available(), pad.available)
+        except RuntimeError as exc:
+            error(term, pad, Game("Miestne aplikácie", "", ""), str(exc), confirm)
+            return 1
+        diagnostic_index = len(games); bye_index = diagnostic_index + 1
         while True:
             if redraw:
                 lines = [(g.name, n == selected) for n, g in enumerate(games)] + [("", False), (RAINBOW_CAT_LABEL, selected == diagnostic_index), ("", False), ("Bye bye!", selected == bye_index)]
@@ -562,14 +709,16 @@ def main():
                         if not error(term, pad, Game(RAINBOW_CAT_LABEL, "", ""), "Vzdialený test zlyhal. Detaily sú v /tmp/pi286-stream-launcher-error.log.", confirm): return 0
                 else:
                     try:
-                        ddr_keys, ddr_labels = load_ddr_mapping(games[selected])
-                        ready = wait_for_game_start(term, pad, games[selected], ddr_labels, ddr_keys, volume)
-                        if ready == "exit": return 0
-                        if not ready: continue
-                        result = run_game(games[selected], config, term, pad, ddr_keys)
+                        if isinstance(games[selected], LocalApp):
+                            result = run_local_app(games[selected], term, pad)
+                        else:
+                            ready = wait_for_remote_start(term, pad, games[selected], volume)
+                            if ready == "exit": return 0
+                            if not ready: continue
+                            result = run_game(games[selected], config, term, pad, None)
                         if result == "exit": return 0
                         if result == "panic": corner = network_address()
-                        if result == "failed" and not error(term, pad, games[selected], "Vzdialený prehrávač skončil s chybou.", confirm): return 0
+                        if result == "failed" and not error(term, pad, games[selected], "Aplikácia skončila s chybou.", confirm): return 0
                     except RuntimeError as exc:
                         if not error(term, pad, games[selected], str(exc), confirm): return 0
     if restart_hint:
