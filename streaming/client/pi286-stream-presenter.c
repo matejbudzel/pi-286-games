@@ -2,6 +2,9 @@
 #include <SDL.h>
 #include <libwebsockets.h>
 #include "presenter.h"
+#include "input_devices.h"
+static InputDevices input_devices;
+static void close_input_devices(void) { input_devices_close(&input_devices); }
 #include <arpa/inet.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -336,15 +339,11 @@ static int pump_events(void) {
         }
         if ((event.type == SDL_KEYDOWN || event.type == SDL_KEYUP) && event.key.keysym.sym == SDLK_F8) { if (event.type == SDL_KEYDOWN) *event_state.overlay = !*event_state.overlay; continue; }
         if ((event.type == SDL_KEYDOWN || event.type == SDL_KEYUP) && (key = dos_key(event.key.keysym.sym))) pressed = event.type == SDL_KEYDOWN;
-        if ((event.type == SDL_JOYBUTTONDOWN || event.type == SDL_JOYBUTTONUP) && event.jbutton.button < 9) {
-            pad_update(event_state.held, event.jbutton.button, event.type == SDL_JOYBUTTONDOWN);
-        }
-        if (event.type == SDL_JOYBUTTONDOWN && event.jbutton.button == 9) {
-            fprintf(stderr, "presenter: dance-pad SELECT requested quit\n"); fflush(stderr);
-            *event_state.quit = 1; return 1;
-        }
         if (key) held_update(event_state.held, key, pressed);
         if (event_state.held->revision != before) { event_state.stats->input_events++; changed = 1; }
+    }
+    if (input_devices_poll(&input_devices, event_state.held, event_state.quit, now_ms())) {
+        event_state.stats->input_events++; changed = 1;
     }
     return changed;
 }
@@ -432,8 +431,8 @@ static int local_pattern(void) {
     static const unsigned short colors[] = { 0xf800, 0x07e0, 0x001f, 0xffff, 0xffe0, 0xf81f };
     SDL_Surface *screen, *canvas; SDL_Event event; int x, y;
     if (SDL_Init(SDL_INIT_VIDEO) < 0) { fprintf(stderr, "SDL_Init failed: %s\n", SDL_GetError()); return 1; }
-    if (!(screen = SDL_SetVideoMode(640, 480, 16, SDL_FULLSCREEN))) { fprintf(stderr, "SDL_SetVideoMode failed: %s\n", SDL_GetError()); SDL_Quit(); return 1; }
-    if (!(canvas = create_canvas(screen))) { fprintf(stderr, "SDL_CreateRGBSurface failed: %s\n", SDL_GetError()); SDL_Quit(); return 1; }
+    if (!(screen = SDL_SetVideoMode(640, 480, 16, SDL_FULLSCREEN))) { fprintf(stderr, "SDL_SetVideoMode failed: %s\n", SDL_GetError()); close_input_devices(); SDL_Quit(); return 1; }
+    if (!(canvas = create_canvas(screen))) { fprintf(stderr, "SDL_CreateRGBSurface failed: %s\n", SDL_GetError()); close_input_devices(); SDL_Quit(); return 1; }
     for (y = 0; y < H; y++) for (x = 0; x < W; x++) {
         unsigned short color = colors[((x / 40) + (y / 25)) % (sizeof(colors) / sizeof(colors[0]))];
         size_t offset = (size_t)(y * W + x) * 2;
@@ -444,17 +443,18 @@ static int local_pattern(void) {
     for (;;) {
         while (SDL_PollEvent(&event)) if (event.type == SDL_QUIT ||
             (event.type == SDL_KEYDOWN && (event.key.keysym.sym == SDLK_F1 || event.key.keysym.sym == SDLK_ESCAPE))) {
-            SDL_FreeSurface(canvas); SDL_Quit(); return 0;
+            SDL_FreeSurface(canvas); close_input_devices(); SDL_Quit(); return 0;
         }
         SDL_Delay(20);
     }
 }
 
 int main(int argc, char **argv) {
-    const char *host, *port, *token_path, *session, *transport; FILE *file; char token[256], path[256], body[2048]; SDL_Joystick *joystick = NULL;
+    const char *host, *port, *token_path, *session, *transport; FILE *file; char token[256], path[256], body[2048];
     unsigned char frame[FRAME], packet[POLL_PACKET_MAX]; SDL_Surface *screen, *canvas; SDL_Event event; SDL_AudioSpec audio, obtained; Metrics metrics = {0}; SessionStats stats = {0}; HeldState held = {0}; int audio_offset = 0, next_offset, n, overlay = 0, video_count = 0, video_seq = 0, audio_length, quit = 0;
     const unsigned char *audio_data; unsigned int poll_revision, input_acked = 0; int diagnostic;
     long long video_window = now_ms(), network_window = video_window; long long request_started, elapsed; size_t network_bytes = 0;
+    input_devices_init(&input_devices);
     fprintf(stderr, "presenter: starting\n"); fflush(stderr);
     if (argc == 2 && !strcmp(argv[1], "--local-pattern")) return local_pattern();
     if (argc != 5 && argc != 6) { fprintf(stderr, "usage: %s HOST PORT TOKEN_FILE SESSION [poll|websocket]\n", argv[0]); return 2; }
@@ -466,22 +466,21 @@ int main(int argc, char **argv) {
     if (!(file = fopen(token_path, "r")) || !fgets(token, sizeof(token), file)) { fprintf(stderr, "cannot read token file %s\n", token_path); return 2; }
     fclose(file); token[strcspn(token, "\r\n")] = 0;
     fprintf(stderr, "presenter: token read; initializing SDL\n"); fflush(stderr);
-    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_JOYSTICK | SDL_INIT_EVENTTHREAD) < 0) { fprintf(stderr, "SDL_Init failed: %s\n", SDL_GetError()); return 1; }
+    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_EVENTTHREAD) < 0) { fprintf(stderr, "SDL_Init failed: %s\n", SDL_GetError()); return 1; }
     fprintf(stderr, "presenter: SDL initialized; opening framebuffer\n"); fflush(stderr);
-    if (!(screen = SDL_SetVideoMode(640, 480, 16, SDL_FULLSCREEN))) { fprintf(stderr, "SDL_SetVideoMode failed: %s\n", SDL_GetError()); SDL_Quit(); return 1; }
-    if (!(canvas = create_canvas(screen))) { fprintf(stderr, "SDL_CreateRGBSurface failed: %s\n", SDL_GetError()); SDL_Quit(); return 1; }
+    if (!(screen = SDL_SetVideoMode(640, 480, 16, SDL_FULLSCREEN))) { fprintf(stderr, "SDL_SetVideoMode failed: %s\n", SDL_GetError()); close_input_devices(); SDL_Quit(); return 1; }
+    if (!(canvas = create_canvas(screen))) { fprintf(stderr, "SDL_CreateRGBSurface failed: %s\n", SDL_GetError()); close_input_devices(); SDL_Quit(); return 1; }
     fprintf(stderr, "presenter: surface %dx%d pitch=%d logical-pitch=%d bpp=%d bytes=%d masks=%08x/%08x/%08x\n",
             screen->w, screen->h, screen->pitch,
             screen->w * screen->format->BytesPerPixel, screen->format->BitsPerPixel,
             screen->format->BytesPerPixel, screen->format->Rmask,
             screen->format->Gmask, screen->format->Bmask); fflush(stderr);
-    if (SDL_NumJoysticks() > 0) joystick = SDL_JoystickOpen(0);
     event_state = (EventState){&held, &overlay, &quit, &stats};
     memset(&audio, 0, sizeof(audio)); audio.freq = 22050; audio.format = AUDIO_S16LSB; audio.channels = 1; audio.samples = 512; audio.callback = audio_callback;
-    if (SDL_OpenAudio(&audio, &obtained) < 0) { fprintf(stderr, "SDL_OpenAudio failed: %s\n", SDL_GetError()); SDL_Quit(); return 1; }
+    if (SDL_OpenAudio(&audio, &obtained) < 0) { fprintf(stderr, "SDL_OpenAudio failed: %s\n", SDL_GetError()); close_input_devices(); SDL_Quit(); return 1; }
     fprintf(stderr, "presenter: audio %d Hz format=%#x channels=%u samples=%u\n", obtained.freq, obtained.format, obtained.channels, obtained.samples); fflush(stderr);
     if (obtained.freq != 22050 || obtained.format != AUDIO_S16LSB || obtained.channels != 1) {
-        fprintf(stderr, "presenter: unsupported negotiated audio format\n"); SDL_CloseAudio(); SDL_FreeSurface(canvas); SDL_Quit(); return 1;
+        fprintf(stderr, "presenter: unsupported negotiated audio format\n"); SDL_CloseAudio(); SDL_FreeSurface(canvas); close_input_devices(); SDL_Quit(); return 1;
     }
     fprintf(stderr, "presenter: ready\n"); fflush(stderr);
     SDL_PauseAudio(0);
@@ -489,7 +488,7 @@ int main(int argc, char **argv) {
     stats.video_request_min = stats.server_capture_min = stats.audio_queue_min = stats.input_rtt_min = 1000000;
     if (!strcmp(transport, "websocket")) {
         LwsStream stream; int sent_revision;
-        if (poll_body(body, sizeof(body), &held, video_seq, audio_offset) < 0 || !lws_stream_open(&stream, host, port, token, session, body)) { fprintf(stderr, "presenter: websocket connection failed\n"); SDL_CloseAudio(); SDL_FreeSurface(canvas); SDL_Quit(); return 1; }
+        if (poll_body(body, sizeof(body), &held, video_seq, audio_offset) < 0 || !lws_stream_open(&stream, host, port, token, session, body)) { fprintf(stderr, "presenter: websocket connection failed\n"); SDL_CloseAudio(); SDL_FreeSurface(canvas); close_input_devices(); SDL_Quit(); return 1; }
         sent_revision = (int)held.revision;
         for (;;) {
             lws_service(stream.context, 10);
@@ -525,7 +524,7 @@ int main(int argc, char **argv) {
             if (elapsed >= 1000) { metrics.net_kbytes = (int)(network_bytes * 1000 / elapsed / 1024); network_bytes = 0; network_window = now_ms(); }
             if (quit) {
                 stream.closing = 1; lws_context_destroy(stream.context);
-                if (joystick) SDL_JoystickClose(joystick); write_session_stats(session, &stats, &metrics); SDL_CloseAudio(); SDL_FreeSurface(canvas); SDL_Quit(); return quit ? 0 : 1;
+                write_session_stats(session, &stats, &metrics); SDL_CloseAudio(); SDL_FreeSurface(canvas); close_input_devices(); SDL_Quit(); return quit ? 0 : 1;
             }
             if (stream.failed) {
                 /* Brief Wi-Fi hiccups should not throw the player out of a
@@ -575,7 +574,7 @@ int main(int argc, char **argv) {
         elapsed = now_ms() - network_window;
         if (elapsed >= 1000) { metrics.net_kbytes = (int)(network_bytes * 1000 / elapsed / 1024); network_bytes = 0; network_window = now_ms(); }
         pump_events();
-        if (quit) { if (joystick) SDL_JoystickClose(joystick); write_session_stats(session, &stats, &metrics); SDL_CloseAudio(); SDL_FreeSurface(canvas); SDL_Quit(); return 0; }
+        if (quit) { write_session_stats(session, &stats, &metrics); SDL_CloseAudio(); SDL_FreeSurface(canvas); close_input_devices(); SDL_Quit(); return 0; }
         SDL_Delay(30);
     }
 }

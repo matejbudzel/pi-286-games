@@ -11,7 +11,7 @@ test -f "$sysroot/usr/include/alsa/asoundlib.h" && test -f "$stage/opt/sdl12-fbc
 mkdir -p "$(dirname "$out")"
 flags='-O2 -fomit-frame-pointer -marm -march=armv6zk -mtune=arm1176jzf-s -mfpu=vfp -mfloat-abi=hard'
 objects=""
-for source in pi286-stream-presenter.c presenter_protocol.c; do
+for source in pi286-stream-presenter.c presenter_protocol.c input_devices.c; do
   object=${out}.${source%.c}.o
   "$cc" --sysroot="$sysroot" $flags -I"$repo/streaming/client" -I"$stage/opt/sdl12-fbcon/include/SDL" -I"$lws_stage/opt/pi286/libwebsockets/include" -c "$repo/streaming/client/$source" -o "$object"
   objects="$objects $object"

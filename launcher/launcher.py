@@ -6,6 +6,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path: sys.path.insert(0, str(ROOT))
+if str(ROOT / "launcher") not in sys.path: sys.path.insert(0, str(ROOT / "launcher"))
+from display_monitor import DisplayMonitor
 from streaming.client.remote_api import RemoteBackend, RemoteProtocolError, RemoteUnavailable
 JS_EVENT = struct.Struct("IhBB")
 PAD_DEVICE_NAME = "WiseGroup.,Ltd X-PAD, Extreme Dance Pad"
@@ -105,8 +107,6 @@ class PanicKeyboard:
 
     def __enter__(self):
         self.scan()
-        if not self.fds and keyboard_available():
-            raise RuntimeError("F1 nie je dostupné. Skontroluj prístup k /dev/input/event*.")
         return self
 
     def scan(self):
@@ -285,9 +285,16 @@ def known_dance_pad(name, axes, buttons):
 
 class DancePad:
     """Read only the known DDR pad's Linux joystick button numbers; axes are ignored."""
-    def __init__(self): self.fds = []
+    def __init__(self):
+        self.fds = []
+        self.devices = {}
+        self.next_scan = 0
     def __enter__(self):
+        self.scan()
+        return self
+    def scan(self):
         for device in glob.glob("/dev/input/js*"):
+            if device in self.devices: continue
             fd = None
             try:
                 fd = os.open(device, os.O_RDONLY | os.O_NONBLOCK)
@@ -295,24 +302,33 @@ class DancePad:
                 axes = fcntl.ioctl(fd, JSIOCGAXES, b"\0")[0]
                 buttons = fcntl.ioctl(fd, JSIOCGBUTTONS, b"\0")[0]
                 if known_dance_pad(name, axes, buttons):
-                    self.fds.append(fd); fd = None
+                    self.fds.append(fd); self.devices[device] = fd; fd = None
             except OSError:
                 pass
             finally:
                 if fd is not None: os.close(fd)
-        return self
+        self.next_scan = time.monotonic() + 2
     def __exit__(self, *_):
         for fd in self.fds: os.close(fd)
+        self.fds.clear()
+        self.devices.clear()
     @property
     def available(self): return bool(self.fds)
     def buttons(self):
         pressed = []
-        for fd in self.fds:
+        for fd in list(self.fds):
             try: raw = os.read(fd, JS_EVENT.size * 32)
             except BlockingIOError: continue
+            except OSError: raw = b""
+            if not raw:
+                os.close(fd); self.fds.remove(fd)
+                self.devices = {path: item for path, item in self.devices.items() if item != fd}
+                continue
             for pos in range(0, len(raw) - JS_EVENT.size + 1, JS_EVENT.size):
                 _, value, typ, number = JS_EVENT.unpack_from(raw, pos)
-                if typ & 0x7f == 1 and value == 1: pressed.append(number)
+                # A held START/SELECT at reconnect is not a new menu action.
+                if typ == 1 and value == 1: pressed.append(number)
+        if time.monotonic() >= self.next_scan: self.scan()
         return pressed
 
 def load_ddr_mapping(game):
@@ -412,8 +428,9 @@ def sound_status(percent=None):
 
 def next_input(term, pad, timeout=.1):
     key = term.key(timeout)
+    buttons = pad.buttons()
     if key: return key
-    for button in pad.buttons():
+    for button in buttons:
         action = PAD_ACTIONS.get(button)
         if action: return action
     return None
@@ -622,13 +639,32 @@ def run_remote_presenter(title, config, backend, presenter, session_id, transpor
     game_running_screen(Game(title, "", ""), PANIC_KEY)
     environment = presenter_environment(config)
     log_path = Path("/tmp/pi286-stream-presenter.log")
-    with log_path.open("wb") as log:
-        token_file = str(Path(config["remote_dosbox_token_file"]).expanduser())
-        result = subprocess.run([str(presenter), parsed.hostname, str(parsed.port or 80), token_file, session_id,
-                                 transport], stdout=log, stderr=subprocess.STDOUT, env=environment, check=False)
-        log.write(("presenter exit status: %d\n" % result.returncode).encode())
-    restore_console_display()
-    return "panic" if result.returncode == 0 else "failed"
+    fd = sys.stdin.fileno()
+    saved = termios.tcgetattr(fd)
+    keyboard_mode = fcntl.ioctl(fd, 0x4B44, b"\0" * 4)  # KDGKBMODE
+    process = None
+    try:
+        with log_path.open("wb") as log:
+            token_file = str(Path(config["remote_dosbox_token_file"]).expanduser())
+            process = subprocess.Popen([str(presenter), parsed.hostname, str(parsed.port or 80), token_file, session_id,
+                                        transport], stdout=log, stderr=subprocess.STDOUT, env=environment)
+            with DisplayMonitor(cec=config.get("display_cec", "0").lower() in ("1", "true", "yes")) as display:
+                while process.poll() is None:
+                    if display.disconnected.wait(.1):
+                        return "panic"  # The caller's finally block deletes the DOSBox session.
+            log.write(("presenter exit status: %d\n" % process.returncode).encode())
+            return "panic" if process.returncode == 0 else "failed"
+    finally:
+        try:
+            if process is not None and process.poll() is None:
+                process.terminate()
+                try: process.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    process.kill(); process.wait()
+        finally:
+            fcntl.ioctl(fd, 0x4B45, struct.unpack("i", keyboard_mode)[0])  # KDSKBMODE
+            termios.tcsetattr(fd, termios.TCSAFLUSH, saved)
+            restore_console_display()
 
 def run_remote_game(game, config, term):
     backend, presenter = remote_choice(config)
@@ -652,7 +688,9 @@ def run_rainbow_cat(config):
         except (RemoteUnavailable, RemoteProtocolError): pass
 
 def run_game(game, config, term, pad, ddr_keys):
-    return run_remote_game(game, config, term)
+    try: return run_remote_game(game, config, term)
+    finally:
+        if pad is not None: pad.__exit__(); pad.__enter__()
 
 def main():
     parser = argparse.ArgumentParser(); parser.add_argument("--host-conf", type=Path, default=ROOT / "config" / "host.conf")
@@ -699,7 +737,8 @@ def main():
                         if not error(term, pad, Game("Systém", "", ""), "Vypnutie systému zlyhalo.", confirm): return 0
                 elif selected == diagnostic_index:
                     try:
-                        result = run_rainbow_cat(config)
+                        try: result = run_rainbow_cat(config)
+                        finally: pad.__exit__(); pad.__enter__()
                         if result == "panic": corner = network_address()
                         if result == "failed" and not error(term, pad, Game(RAINBOW_CAT_LABEL, "", ""), "Vzdialený prehrávač skončil s chybou.", confirm): return 0
                     except RuntimeError as exc:

@@ -13,7 +13,8 @@ class StreamPresenterSourceTests(unittest.TestCase):
         self.assertIn("Media acknowledgements carry", source)
         self.assertIn("'A' + key - SDLK_a", source)
         self.assertIn("[poll|websocket]", source)
-        self.assertIn("pad_update(event_state.held, event.jbutton.button", source)
+        self.assertIn("input_devices_poll(&input_devices", source)
+        self.assertNotIn("SDL_JoystickOpen", source)
         self.assertNotIn("parse_pad_map", source)
 
     def test_native_presenter_uses_the_same_normalized_input_schema_as_web(self):
