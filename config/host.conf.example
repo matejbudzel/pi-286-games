@@ -1,9 +1,6 @@
 # Host-specific launcher settings.
 # Copy this file to config/host.conf and keep host.conf out of Git.
 
-# Root directory containing the actual game binaries and assets.
-game_data_root=~/pi-286-game-files
-
 # The launcher always starts its DOSBox session on this authenticated server.
 # remote_dosbox_url=http://192.168.100.194:28680
 # remote_dosbox_token_file=~/.config/pi286-stream.token
@@ -28,8 +25,6 @@ audio_volume_percent=96
 # Keep 0 for the normal 640x480 path. With 1, SDL centers its unscaled
 # 640x480 logical surface in any larger compatible RGB565 framebuffer.
 presenter_sdl_fb_pillarbox=0
-# Optional diagnostic canvas color for unused physical pixels, six RGB hex
-# digits. Leave commented for the normal black bars.
 
 # Raspberry Pi legacy physical framebuffer/HDMI mode for the presenter.
 framebuffer_hdmi_group=2
