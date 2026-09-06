@@ -180,7 +180,7 @@ def run_local_app(app, term, pad):
             while process.poll() is None:
                 if panic.pressed(): return "panic"
                 time.sleep(.05)
-            return "panic" if process.returncode == 0 else "failed"
+            return "done" if process.returncode == 0 else "failed"
     except (OSError, ValueError, subprocess.SubprocessError) as exc:
         raise RuntimeError("Aplikáciu sa nepodarilo spustiť: %s" % exc) from exc
     finally:

@@ -22,7 +22,11 @@ class TtyServiceTests(unittest.TestCase):
         self.assertIn("Wants=pi-286-games-audio.service", rendered)
         self.assertIn("Conflicts=getty@tty1.service", rendered)
         self.assertIn("TTYPath=/dev/tty1", rendered)
-        self.assertIn("ExecStopPost=+/usr/bin/systemctl --no-block start getty@tty1.service", rendered)
+        self.assertIn('ExecStopPost=+/bin/sh -c', rendered)
+        self.assertIn('SERVICE_RESULT', rendered)
+        self.assertIn('start getty@tty1.service', rendered)
+        self.assertIn("Restart=on-failure", rendered)
+        self.assertIn("RestartSec=2", rendered)
 
     def test_installer_replaces_profile_hook_with_tty_service(self):
         installer = (ROOT / "scripts" / "install-dietpi.sh").read_text()

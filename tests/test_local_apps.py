@@ -80,7 +80,8 @@ class LocalAppsTests(unittest.TestCase):
                             launcher.run_local_app(app, term, pad)
                         stop.assert_not_called()
                     else:
-                        self.assertEqual(launcher.run_local_app(app, term, pad), 'failed' if outcome == 'crash' else 'panic')
+                        expected = 'failed' if outcome == 'crash' else 'panic' if outcome == 'panic' else 'done'
+                        self.assertEqual(launcher.run_local_app(app, term, pad), expected)
                         stop.assert_called_once_with(process)
                     self.assertEqual(spawn.call_args.args[0], ['./dance', 'two words'])
                     term.key.assert_not_called()
@@ -128,7 +129,7 @@ class LocalAppsTests(unittest.TestCase):
                         monitor.return_value.__enter__.return_value.pressed.return_value = False
                         app = launcher.LocalApp('Input', '%s %s %s' % (sys.executable, script, result), Path(root))
                         status = launcher.run_local_app(app, term, pad)
-                        os._exit(0 if status == 'panic' else 1)
+                        os._exit(0 if status == 'done' else 1)
                 except BaseException:
                     os._exit(2)
             try:

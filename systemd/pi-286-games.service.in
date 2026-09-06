@@ -18,10 +18,15 @@ TTYPath=/dev/tty1
 TTYReset=yes
 TTYVHangup=yes
 ExecStart=/usr/bin/python3 @REPO@/launcher/launcher.py --host-conf @REPO@/config/host.conf
-# A normal launcher exit (including Ctrl-C) restores DietPi's tty1 getty. The
-# non-blocking request avoids waiting on this unit's own stop job.
-ExecStopPost=+/usr/bin/systemctl --no-block start getty@tty1.service
-Restart=no
+# A normal launcher exit (including Ctrl-C) restores DietPi's tty1 getty. An
+# unexpected launcher failure is restarted instead, so a local fbdev app cannot
+# strand the appliance at a shell if it triggers a launcher crash. The
+# non-blocking request avoids waiting on this unit's own stop job. systemd
+# supplies SERVICE_RESULT to ExecStopPost, so getty is restored only after a
+# clean exit; an automatic restart retains tty1 for the launcher.
+ExecStopPost=+/bin/sh -c 'if [ "$SERVICE_RESULT" = success ]; then /usr/bin/systemctl --no-block start getty@tty1.service; fi'
+Restart=on-failure
+RestartSec=2
 
 [Install]
 WantedBy=multi-user.target

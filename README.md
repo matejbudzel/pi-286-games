@@ -67,13 +67,15 @@ settings. Configure pi-dance's own `pi-dance.ini` with `backend = fbdev` and
 and private songs separately.
 
 Local apps start directly from the menu and own keyboard and pad input,
-including SELECT. F1 is the fixed panic control, monitored independently via
-`/dev/input/event*` (the launcher user needs the `input` group configured by the
-installer). The monitor does not grab devices; apps must leave evdev accessible
-and reserve F1 for return. The launcher stops the app's process group on panic,
-escalates to SIGKILL after a two-second grace period, and restores the console.
-Normal exit returns to the menu; an error exit shows a Slovak error message.
-Launch commands must remain running until the app ends and must not daemonize.
+including SELECT. Their normal termination flow returns to the menu; launch
+commands must remain running until the app ends and must not daemonize. F1 is a
+keyboard-only emergency return for a hung local app, monitored independently
+via `/dev/input/event*` (the launcher user needs the `input` group configured
+by the installer). It never consumes SELECT or other pad input. The launcher
+stops the app's process group on F1, escalates to SIGKILL after a two-second
+grace period, and restores the console. An error exit shows a Slovak error
+message. Ctrl-C is the only normal launcher-to-shell escape; systemd restarts
+the launcher after an unexpected failure.
 
 The catalog loads at launcher startup. Restart `pg-start` after changing
 entries or to reload a previously unavailable server catalog. Local entries
@@ -110,8 +112,8 @@ Monitoring ownership follows the application: the launcher's HDMI worker exists
 only while its remote presenter runs, and is joined before returning to the menu.
 It never queries CEC, changes display mode, or kills a local app because HDMI or
 an input device disappeared while that app is running. `pi-dance` keeps its own
-pause/reconnect policy and `[display] cec` setting. F1 remains the launcher's
-independent return control; SELECT belongs to the local app.
+pause/reconnect policy and `[display] cec` setting. F1 remains the
+keyboard-only emergency return control; SELECT belongs to the local app.
 
 After deploying the updated launcher **and rebuilding/deploying the presenter**,
 check on the Pi: unplug/replug each controller while holding a movement key or
