@@ -388,3 +388,6 @@ class StreamBackendTests(unittest.TestCase):
         self.assertEqual(len(converted), 640 * 480 * 2)
         self.assertEqual(converted[:2], bytes((0x00, 0xf8)))
         self.assertEqual(converted[-2:], bytes((0x1f, 0x00)))
+
+        header[11] = 32
+        self.assertEqual(backend.StreamState._xwd_to_rgb565_2x(struct.pack(">25I", *header) + pixels), converted)

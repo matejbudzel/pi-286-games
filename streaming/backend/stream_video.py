@@ -271,7 +271,7 @@ class VideoMixin:
         header_size, width, height = header[0], header[4], header[5]
         byte_order, bits_per_pixel, bytes_per_line = header[7], header[11], header[12]
         pixels = header_size + header[19] * 12
-        if (width, height, byte_order, bits_per_pixel, bytes_per_line) != (640, 480, 0, 24, 640 * 4):
+        if (width, height, byte_order, bytes_per_line) != (640, 480, 0, 640 * 4) or bits_per_pixel not in (24, 32):
             raise ValueError("unexpected 2x Xvfb image dimensions")
         if pixels + bytes_per_line * height > len(source):
             raise ValueError("truncated XWD pixels")
