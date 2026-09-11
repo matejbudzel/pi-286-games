@@ -26,6 +26,6 @@ gcc_runtime="$sysroot/usr/lib/gcc/arm-linux-gnueabihf/14"
 "$cc" --sysroot="$sysroot" $flags -pie -nostartfiles -nodefaultlibs \
   "$runtime/Scrt1.o" "$runtime/crti.o" "$gcc_runtime/crtbeginS.o" $objects \
   -L"$stage/opt/sdl12-fbcon/lib" -Wl,-rpath,/opt/sdl12-fbcon/lib -lSDL "$lws_stage/opt/pi286/libwebsockets/lib/libwebsockets.a" "$runtime/libpthread.so.0" \
-  "$runtime/libc.so.6" "$runtime/libgcc_s.so.1" "$gcc_runtime/crtendS.o" "$runtime/crtn.o" -o "$out"
+  "$runtime/libc.so.6" "$runtime/libz.so.1" "$runtime/libgcc_s.so.1" "$gcc_runtime/crtendS.o" "$runtime/crtn.o" -o "$out"
 rm -f $objects
 file "$out" | grep -q ARM && readelf -A "$out" | grep -Eq 'Tag_CPU_arch: v6|Tag_CPU_arch: v6KZ' && readelf -A "$out" | grep -q 'Tag_ABI_VFP_args: VFP registers'

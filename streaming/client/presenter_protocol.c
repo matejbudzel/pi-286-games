@@ -1,6 +1,7 @@
 #include "presenter.h"
 #include <stdio.h>
 #include <string.h>
+#include <zlib.h>
 
 static unsigned int read_be16(const unsigned char *value) { return ((unsigned int)value[0] << 8) | value[1]; }
 static unsigned int read_be32(const unsigned char *value) { return ((unsigned int)value[0] << 24) | ((unsigned int)value[1] << 16) | ((unsigned int)value[2] << 8) | value[3]; }
@@ -10,6 +11,7 @@ static int apply_video_packet(unsigned char *frame, const unsigned char *packet,
     if (length < VIDEO_HEADER || memcmp(packet, "P2V1", 4)) return 0;
     kind = packet[4]; count = read_be16(packet + 6);
     if (kind == 1) { if (count || length != VIDEO_HEADER + FRAME) return 0; memcpy(frame, packet + VIDEO_HEADER, FRAME); return 1; }
+    if (kind == 3) { unsigned long output = FRAME; if (count || uncompress(frame, &output, packet + VIDEO_HEADER, (unsigned long)(length - VIDEO_HEADER)) != Z_OK || output != FRAME) return 0; return 3; }
     if (kind != 2 || count > (W / TILE) * (H / TILE) || length != VIDEO_HEADER + count * (2 + TILE * TILE * 2)) return 0;
     offset = VIDEO_HEADER;
     for (tile = 0; tile < count; tile++) {

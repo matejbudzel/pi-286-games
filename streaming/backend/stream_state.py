@@ -57,10 +57,13 @@ class StreamState(VideoMixin):
         game_id = request.get("game_id")
         video_scaling = request.get("video_scaling", "nearest")
         transport = request.get("transport", "poll")
+        compression = request.get("compression", "")
         if video_scaling not in VIDEO_SCALING_MODES:
             video_scaling = "nearest"
         if transport not in ("poll", "websocket"):
             raise ValueError("transport must be poll or websocket")
+        if compression not in ("", "zlib"):
+            raise ValueError("unsupported video compression")
         diagnostic = game_id == "rainbow-cat"
         if diagnostic:
             game = GameDefinition("rainbow-cat", "Dúhová mačka", "", "RAINBOW.COM",
@@ -140,6 +143,7 @@ class StreamState(VideoMixin):
                                             "poll_stats": self._new_poll_stats(),
                                             "video_scaling": video_scaling,
                                             "transport": transport,
+                                            "compression": compression,
                                             "last_client_activity": time.monotonic(),
                                             "framebuffer": framebuffer_directory / "Xvfb_screen0"})
             if game.startup_keys:

@@ -52,9 +52,11 @@ class RemoteBackend:
     def games(self, keyboard: bool, dance_pad: bool):
         return self.json("GET", "/v1/games?keyboard=%d&dance_pad=%d" % (keyboard, dance_pad))
 
-    def start_session(self, game_id: str, video_scaling: str = "nearest", transport: str = "poll"):
-        return self.json("POST", "/v1/sessions", {"game_id": game_id, "video_scaling": video_scaling,
-                                                      "transport": transport})
+    def start_session(self, game_id: str, video_scaling: str = "nearest", transport: str = "poll", compression: str = ""):
+        payload = {"game_id": game_id, "video_scaling": video_scaling, "transport": transport}
+        if compression:
+            payload["compression"] = compression
+        return self.json("POST", "/v1/sessions", payload)
 
     def start_rainbow_cat(self, video_scaling: str = "nearest", transport: str = "poll"):
         """Start the server's asset-free video/audio/input transport check."""

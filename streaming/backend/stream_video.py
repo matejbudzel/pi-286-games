@@ -6,6 +6,7 @@ import secrets
 import struct
 import subprocess
 import time
+import zlib
 from pathlib import Path
 
 from streaming.backend.stream_models import (VIDEO_BYTES, VIDEO_HEIGHT, VIDEO_KEYFRAME_INTERVAL,
@@ -54,7 +55,7 @@ class VideoMixin:
                 item["video_previous"] = frame
                 if keyframe:
                     item["video_last_keyframe"] = time.monotonic()
-                return packet, item["video_sequence"], 0
+                return self._compress_keyframe(packet, item), item["video_sequence"], 0
             temporary = self.runtime / f"{session_id}-video-{secrets.token_hex(4)}.xwd"
             try:
                 frame = self._native_frame(item["framebuffer"], item.get("video_scaling", "nearest"))
@@ -78,7 +79,7 @@ class VideoMixin:
                 item["video_previous"] = frame
                 if keyframe:
                     item["video_last_keyframe"] = time.monotonic()
-                return packet, item["video_sequence"], capture_ms
+                return self._compress_keyframe(packet, item), item["video_sequence"], capture_ms
             finally:
                 temporary.unlink(missing_ok=True)
 
@@ -132,6 +133,15 @@ class VideoMixin:
                 color = 0x0000 if edge else 0xfdb7
                 struct.pack_into("<H", output, (y * VIDEO_WIDTH + x) * 2, color)
         return VideoMixin._apply_crt_lite(bytes(output), video_scaling)
+
+    @staticmethod
+    def _compress_keyframe(packet: bytes, item: dict) -> bytes:
+        if item.get("compression") != "zlib" or packet[4] != 1:
+            return packet
+        compressed = zlib.compress(packet[16:], 1)
+        if len(compressed) >= len(packet) - 16:
+            return packet
+        return packet[:4] + bytes((3, 0, 0, 0)) + packet[8:16] + compressed
 
     @staticmethod
     def _video_packet(frame: bytes, previous: bytes | None, sequence: int, capture_ms: int,

@@ -37,7 +37,7 @@ def run(game_id, config):
     if transport not in ("poll", "websocket"): raise RuntimeError("Neplatný transport vzdialeného DOSBoxu.")
     parsed = urllib.parse.urlparse(config["remote_dosbox_url"])
     if parsed.scheme != "http" or not parsed.hostname: raise RuntimeError("Neplatná adresa vzdialeného DOSBoxu.")
-    session = remote.start_session(game_id, config.get("video_scaling", "nearest"), transport)
+    session = remote.start_session(game_id, config.get("video_scaling", "nearest"), transport, config.get("remote_dosbox_compression", ""))
     try:
         # The launcher service supplies the appliance SDL/fbcon and ALSA setup.
         # This provider only owns the DOS stream session and its input protocol.
