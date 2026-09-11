@@ -3,7 +3,9 @@
 set -eu
 
 repo=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-sysroot=${PI286_SYSROOT:-$repo/.cache/pi286-sysroot}
+# The launcher owns the Pi sysroot used by every native framebuffer guest.
+launcher_repo=${PI_GAMES_LAUNCHER_REPO:-$repo/../pi-games-launcher}
+sysroot=${PI286_SYSROOT:-$launcher_repo/.cache/pi286-sysroot}
 source_dir=${LWS_SOURCE_DIR:-$repo/.cache/libwebsockets-source}
 build_dir=${LWS_BUILD_DIR:-$repo/.cache/libwebsockets-armv6-build}
 stage_dir=${LWS_STAGE_DIR:-$repo/.cache/libwebsockets-armv6-stage}
