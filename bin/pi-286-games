@@ -1,2 +1,13 @@
 #!/bin/sh
-exec python3 "$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)/provider.py" "$@"
+set -eu
+script=$0
+while [ -h "$script" ]; do
+    directory=$(CDPATH= cd -- "$(dirname -- "$script")" && pwd)
+    target=$(readlink "$script")
+    case $target in
+        /*) script=$target ;;
+        *) script=$directory/$target ;;
+    esac
+done
+root=$(CDPATH= cd -- "$(dirname -- "$script")/.." && pwd)
+exec python3 "$root/provider.py" "$@"

@@ -1,6 +1,8 @@
 import importlib.util
 import json
 from pathlib import Path
+import subprocess
+from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
@@ -36,3 +38,10 @@ class ProviderTests(unittest.TestCase):
         with patch.object(provider, "backend", return_value=remote), patch.object(provider.os, "access", return_value=True), patch.object(provider.subprocess, "call", return_value=0) as call:
             self.assertEqual(provider.run("pop", config), 0)
         self.assertNotIn("env", call.call_args.kwargs)
+
+    def test_command_resolves_an_installed_symlink(self):
+        with TemporaryDirectory() as directory:
+            command = Path(directory) / "pi-286-games"
+            command.symlink_to(ROOT / "bin/pi-286-games")
+            result = subprocess.run([str(command), "--help"], text=True, stdout=subprocess.PIPE, check=True)
+        self.assertIn("pi-286-games launcher provider", result.stdout)
