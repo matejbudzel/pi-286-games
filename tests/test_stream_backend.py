@@ -225,6 +225,21 @@ class StreamBackendTests(unittest.TestCase):
             state.poll("one", {"input_revision": 2, "video_seq": 6, "audio_offset": 0, "held_keys": []})
             self.assertEqual(requested, [False, False])
 
+    def test_poll_uses_a_new_mismatched_2x_hash_for_one_recovery_keyframe(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = backend.StreamState(dict(backend.DEFAULTS, state_root=directory), "x" * 32)
+            state.active["one"] = {"dosbox": SimpleNamespace(poll=lambda: None), "held_keys": set(),
+                                   "video_sequence": 7, "compression": "zlib-2x", "video_hashes": {6: 123}}
+            requested = []
+            state.video_frame = lambda session, force: (requested.append(force) or (b"video", 8, 2))
+            state.audio_chunk = lambda session, offset: (b"", offset)
+            request = {"input_revision": 1, "video_seq": 7, "video_hash_sequence": 6,
+                       "video_hash": 456, "audio_offset": 0, "held_keys": []}
+            state.poll("one", request)
+            request["input_revision"] = 2
+            state.poll("one", request)
+            self.assertEqual(requested, [True, False])
+
     def test_poll_stats_distinguish_forced_and_dense_full_video_packets(self):
         stats = backend.StreamState._new_poll_stats()
         full = struct.pack(">4sBBHII", b"P2V1", 1, 0, 0, 1, 0)
@@ -385,8 +400,10 @@ class StreamBackendTests(unittest.TestCase):
 
     def test_zlib_2x_packet_is_distinct_and_contains_a_native_frame(self):
         frame = bytes((index * 19) % 256 for index in range(640 * 480 * 2))
-        packet, keyframe = backend.StreamState._video_2x_packet(frame, None, 9, 12, True)
+        packet, keyframe, delivered, cursor = backend.StreamState._video_2x_packet(frame, None, 9, 12, True)
         self.assertTrue(keyframe)
+        self.assertEqual(delivered, frame)
+        self.assertEqual(cursor, 0)
         self.assertEqual(packet[:8], b"P2V1\x04\x00\x00\x00")
         self.assertEqual(struct.unpack_from(">II", packet, 8), (9, 12))
         import zlib
@@ -396,10 +413,31 @@ class StreamBackendTests(unittest.TestCase):
         previous = bytes(640 * 480 * 2)
         frame = bytearray(previous)
         frame[(32 * 640 + 32) * 2] = 0xff
-        packet, keyframe = backend.StreamState._video_2x_packet(bytes(frame), previous, 10, 13, False)
+        packet, keyframe, delivered, _cursor = backend.StreamState._video_2x_packet(bytes(frame), bytearray(previous), 10, 13, False)
         self.assertFalse(keyframe)
+        self.assertEqual(delivered, frame)
         self.assertEqual(packet[:8], b"P2V1\x05\x00\x00\x01")
         self.assertEqual(len(packet), backend.VIDEO_PACKET_HEADER + 2 + 32 * 32 * 2)
+
+    def test_zlib_2x_delta_is_limited_and_converges_from_delivered_state(self):
+        delivered = bytearray(640 * 480 * 2)
+        frame = bytearray(delivered)
+        for tile in range(30):
+            tile_x, tile_y = tile % 20, tile // 20
+            frame[((tile_y * 32 * 640 + tile_x * 32) * 2)] = tile + 1
+        packet, keyframe, delivered, cursor = backend.StreamState._video_2x_packet(bytes(frame), delivered, 11, 0, False)
+        self.assertFalse(keyframe)
+        self.assertEqual(struct.unpack_from(">H", packet, 6)[0], 24)
+        self.assertNotEqual(delivered, frame)
+        self.assertEqual(cursor, 24)
+
+    def test_zlib_2x_hash_history_is_bounded(self):
+        item = {}
+        for sequence in range(200):
+            backend.StreamState._remember_video_hash(item, sequence, bytearray(640 * 480 * 2))
+        self.assertEqual(len(item["video_hashes"]), 150)
+        self.assertNotIn(49, item["video_hashes"])
+        self.assertIn(50, item["video_hashes"])
 
     def test_xwd_2x_conversion_preserves_the_complete_native_root(self):
         header = [100, 7, 2, 24, 640, 480, 0, 0, 32, 0, 8, 24, 640 * 4,

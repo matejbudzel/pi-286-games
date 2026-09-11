@@ -1,6 +1,7 @@
 /* Minimal Pi 1 SDL 1.2 fbcon presenter for the remote DOS backend. */
 #include <SDL.h>
 #include <libwebsockets.h>
+#include <zlib.h>
 #include "presenter.h"
 #include "input_devices.h"
 static InputDevices input_devices;
@@ -31,6 +32,10 @@ typedef struct {
     int input_last_ms, input_fail, net_kbytes;
 } Metrics;
 static void audio_metrics(Metrics *metrics);
+
+static unsigned int frame_crc32(const unsigned char *frame) {
+    return (unsigned int)crc32(0L, frame, FRAME2);
+}
 
 typedef struct {
     long long started_ms, started_cpu_ms, video_request_total, server_capture_total, audio_queue_total, input_rtt_total;
@@ -530,9 +535,9 @@ static int local_pattern(void) {
 
 int main(int argc, char **argv) {
     const char *host, *port, *token_path, *session, *transport; FILE *file; char token[256], path[256], body[2048];
-    static unsigned char frame[FRAME], frame2[FRAME2], packet[POLL_PACKET_MAX]; SDL_Surface *screen, *canvas; SDL_Event event; SDL_AudioSpec audio, obtained; Metrics metrics = {0}; SessionStats stats = {0}; HeldState held = {0}; int audio_offset = 0, next_offset, n, overlay = 0, video_count = 0, video_seq = 0, audio_length, quit = 0, is_2x = 0;
+    static unsigned char frame[FRAME], frame2[FRAME2], packet[POLL_PACKET_MAX]; SDL_Surface *screen, *canvas; SDL_Event event; SDL_AudioSpec audio, obtained; Metrics metrics = {0}; SessionStats stats = {0}; HeldState held = {0}; int audio_offset = 0, next_offset, n, overlay = 0, video_count = 0, video_seq = 0, audio_length, quit = 0, is_2x = 0, video_hash_seq = 0; unsigned int video_hash = 0;
     const unsigned char *audio_data; unsigned int poll_revision, input_acked = 0; int diagnostic;
-    long long video_window = now_ms(), network_window = video_window; long long request_started, stage_started, elapsed; size_t network_bytes = 0;
+    long long video_window = now_ms(), network_window = video_window, video_hash_at = 0; long long request_started, stage_started, elapsed; size_t network_bytes = 0;
     input_devices_init(&input_devices);
     fprintf(stderr, "presenter: starting\n"); fflush(stderr);
     if (argc == 2 && !strcmp(argv[1], "--local-pattern")) return local_pattern();
@@ -569,7 +574,7 @@ int main(int argc, char **argv) {
     stats.input_min = stats.service_min = stats.decode_min = stats.render_min = stats.frame_gap_min = 1000000;
     if (!strcmp(transport, "websocket")) {
         LwsStream stream; int sent_revision;
-        if (poll_body(body, sizeof(body), &held, video_seq, audio_offset) < 0 || !lws_stream_open(&stream, host, port, token, session, body)) { fprintf(stderr, "presenter: websocket connection failed\n"); SDL_CloseAudio(); SDL_FreeSurface(canvas); close_input_devices(); SDL_Quit(); return 1; }
+        if (poll_body(body, sizeof(body), &held, video_seq, audio_offset, video_hash_seq, video_hash) < 0 || !lws_stream_open(&stream, host, port, token, session, body)) { fprintf(stderr, "presenter: websocket connection failed\n"); SDL_CloseAudio(); SDL_FreeSurface(canvas); close_input_devices(); SDL_Quit(); return 1; }
         sent_revision = (int)held.revision;
         for (;;) {
             stage_started = now_ms(); lws_service(stream.context, 10);
@@ -585,11 +590,12 @@ int main(int argc, char **argv) {
                     elapsed = now_ms() - video_window;
                     if (elapsed >= 1000) { metrics.video_fps_tenths = (int)(video_count * 10000 / elapsed); video_count = 0; video_window = now_ms(); }
                     if (audio_length > 0 && next_offset > audio_offset) { audio_put(audio_data, (size_t)audio_length); audio_offset = next_offset; }
+                    if (is_2x && now_ms() - video_hash_at >= 2000) { video_hash = frame_crc32(frame2); video_hash_seq = video_seq; video_hash_at = now_ms(); }
                     stage_add(stage_started, &stats.decode_total, &stats.decode_samples, &stats.decode_min, &stats.decode_max);
                     if ((unsigned int)sent_revision > input_acked) { metrics.input_last_ms = metrics.video_last_ms; input_acked = (unsigned int)sent_revision; stats.input_acks++; range_add(metrics.input_last_ms, &stats.input_rtt_min, &stats.input_rtt_max, &stats.input_rtt_total); }
                     /* Media acknowledgements carry the latest delta sequence
                      * and PCM offset, even while no key state has changed. */
-                    if (poll_body(body, sizeof(body), &held, video_seq, audio_offset) < 0) { stream.failed = 1; } else { lws_stream_queue(&stream, body); sent_revision = (int)held.revision; }
+                    if (poll_body(body, sizeof(body), &held, video_seq, audio_offset, video_hash_seq, video_hash) < 0) { stream.failed = 1; } else { lws_stream_queue(&stream, body); sent_revision = (int)held.revision; }
                     /* Keep the server and audio stream ahead of the expensive
                      * software scale.  The browser likewise sends its control
                      * update before its next paint gets a chance to run. */
@@ -601,7 +607,7 @@ int main(int argc, char **argv) {
             stage_started = now_ms(); if (pump_events()) { /* Send latest held state below without waiting for media. */ }
             stage_add(stage_started, &stats.input_total, &stats.input_samples, &stats.input_min, &stats.input_max);
             if (!quit && (int)held.revision != sent_revision) {
-                if (poll_body(body, sizeof(body), &held, video_seq, audio_offset) < 0) stream.failed = 1;
+                if (poll_body(body, sizeof(body), &held, video_seq, audio_offset, video_hash_seq, video_hash) < 0) stream.failed = 1;
                 else { lws_stream_queue(&stream, body); sent_revision = (int)held.revision; }
             }
             audio_metrics(&metrics); stats.audio_samples++;
@@ -619,7 +625,7 @@ int main(int argc, char **argv) {
                 fprintf(stderr, "presenter: reconnecting websocket\n"); fflush(stderr);
                 SDL_Delay(500);
                 lws_context_destroy(stream.context);
-                if (poll_body(body, sizeof(body), &held, video_seq, audio_offset) >= 0 && lws_stream_open(&stream, host, port, token, session, body)) {
+                if (poll_body(body, sizeof(body), &held, video_seq, audio_offset, video_hash_seq, video_hash) >= 0 && lws_stream_open(&stream, host, port, token, session, body)) {
                     sent_revision = (int)held.revision;
                     fprintf(stderr, "presenter: websocket reconnected\n"); fflush(stderr);
                 }
@@ -628,7 +634,7 @@ int main(int argc, char **argv) {
     }
     for (;;) {
         snprintf(path, sizeof(path), "/v2/sessions/%s/poll", session);
-        if (poll_body(body, sizeof(body), &held, video_seq, audio_offset) < 0) { fprintf(stderr, "presenter: poll body too large\n"); break; }
+        if (poll_body(body, sizeof(body), &held, video_seq, audio_offset, video_hash_seq, video_hash) < 0) { fprintf(stderr, "presenter: poll body too large\n"); break; }
         poll_revision = held.revision;
         request_started = now_ms();
         stats.polls_started++;
@@ -645,6 +651,7 @@ int main(int argc, char **argv) {
             elapsed = now_ms() - video_window;
             if (elapsed >= 1000) { metrics.video_fps_tenths = (int)(video_count * 10000 / elapsed); video_count = 0; video_window = now_ms(); }
             if (audio_length > 0 && next_offset > audio_offset) { audio_put(audio_data, (size_t)audio_length); audio_offset = next_offset; }
+            if (is_2x && now_ms() - video_hash_at >= 2000) { video_hash = frame_crc32(frame2); video_hash_seq = video_seq; video_hash_at = now_ms(); }
             stage_add(stage_started, &stats.decode_total, &stats.decode_samples, &stats.decode_min, &stats.decode_max);
             stage_started = now_ms(); audio_metrics(&metrics);
             if (is_2x) render_2x(screen, frame2, overlay, &metrics, diagnostic); else render(screen, canvas, frame, overlay, &metrics, diagnostic);

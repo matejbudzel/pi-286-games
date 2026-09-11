@@ -23,6 +23,7 @@ int apply_poll_packet(unsigned char *frame, unsigned char *frame2, int *is_2x, c
                       int *audio_length, int *next_audio);
 void held_update(HeldState *held, const char *key, int pressed);
 void pad_update(HeldState *held, int button, int pressed);
-int poll_body(char *body, size_t size, const HeldState *held, int video_seq, int audio_offset);
+int poll_body(char *body, size_t size, const HeldState *held, int video_seq, int audio_offset,
+              int video_hash_sequence, unsigned int video_hash);
 
 #endif

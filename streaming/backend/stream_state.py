@@ -476,8 +476,12 @@ class StreamState(VideoMixin):
         held = request.get("keyboard_held", request.get("held_keys"))
         pad_held = request.get("dance_pad_held", [])
         video_seq = request.get("video_seq", 0)
+        video_hash_sequence = request.get("video_hash_sequence", 0)
+        video_hash = request.get("video_hash", 0)
         audio_offset = request.get("audio_offset", 0)
-        if not isinstance(revision, int) or revision < 0 or not isinstance(video_seq, int) or video_seq < 0:
+        if (not isinstance(revision, int) or revision < 0 or not isinstance(video_seq, int) or video_seq < 0 or
+                not isinstance(video_hash_sequence, int) or video_hash_sequence < 0 or
+                not isinstance(video_hash, int) or video_hash < 0 or video_hash > 0xffffffff):
             raise ValueError("invalid poll revision")
         if not isinstance(audio_offset, int) or audio_offset < 0 or audio_offset % 2:
             raise ValueError("invalid poll audio offset")
@@ -531,11 +535,16 @@ class StreamState(VideoMixin):
                     return None
                 # The stream is reliable and ordered. A control update can
                 # legitimately carry an earlier acknowledgement while a
-                # newer media frame is being painted; forcing a keyframe in
-                # that case creates a self-amplifying 150 KiB-frame backlog.
-                # The first frame and bounded periodic keyframes below retain
-                # recovery, while a reconnect preserves the presenter's frame.
+                # newer media frame is being painted, so sequence lag alone
+                # is not recovery evidence. The Pi instead reports a bounded
+                # history CRC for its reconstructed 2x framebuffer.
                 force_keyframe = False
+                if item.get("compression") == "zlib-2x" and video_hash_sequence:
+                    expected = item.get("video_hashes", {}).get(video_hash_sequence)
+                    report = (video_hash_sequence, video_hash)
+                    if (expected is None or expected != video_hash) and item.get("video_hash_last_report") != report:
+                        force_keyframe = True
+                    item["video_hash_last_report"] = report
             video_started = time.monotonic()
             video, _sequence, _capture_ms = self.video_frame(session_id, force_keyframe)
             audio_started = time.monotonic()
