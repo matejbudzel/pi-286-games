@@ -1,8 +1,12 @@
 #include <assert.h>
 #include <limits.h>
+#include <stdlib.h>
+#include <string.h>
+#include <zlib.h>
 #include "input_devices.c"
 int main(void) {
-    InputDevices devices; HeldState held = {0}; int quit = 0, fds[2]; unsigned int revision;
+    InputDevices devices; HeldState held = {0}; int quit = 0, fds[2], is_2x, capture, sequence, audio_length, next_audio; unsigned int revision;
+    unsigned char *raw, *compressed, *packet, frame[FRAME], frame2[FRAME2]; const unsigned char *audio; uLongf compressed_length;
     struct js_event event = {0};
     input_devices_init(&devices); devices.next_scan = LLONG_MAX;
     event.type = JS_EVENT_BUTTON | JS_EVENT_INIT; event.number = 9; event.value = 1;
@@ -24,6 +28,15 @@ int main(void) {
     assert(input_devices_poll(&devices, &held, &quit, 0));
     assert(held.count == 0 && held.pad[2] && devices.keyboards[0].fd == -1);
     event.number = 9; pad_event(&held, &quit, &event); assert(quit);
+    raw = malloc(FRAME2); compressed = malloc(compressBound(FRAME2)); packet = malloc(POLL_HEADER + VIDEO_HEADER + compressBound(FRAME2));
+    assert(raw && compressed && packet);
+    memset(raw, 0x5a, FRAME2); compressed_length = compressBound(FRAME2);
+    assert(compress2(compressed, &compressed_length, raw, FRAME2, 1) == Z_OK);
+    memcpy(packet, "P2P1", 4); packet[4] = packet[5] = 0; packet[6] = (unsigned char)((VIDEO_HEADER + compressed_length) >> 8); packet[7] = (unsigned char)(VIDEO_HEADER + compressed_length);
+    memset(packet + 8, 0, 8); memcpy(packet + POLL_HEADER, "P2V1\004\0\0\0", 8); memset(packet + POLL_HEADER + 8, 0, 8); memcpy(packet + POLL_HEADER + VIDEO_HEADER, compressed, compressed_length);
+    assert(apply_poll_packet(frame, frame2, &is_2x, packet, POLL_HEADER + VIDEO_HEADER + compressed_length, &capture, &sequence, &audio, &audio_length, &next_audio));
+    assert(is_2x && !memcmp(frame2, raw, FRAME2));
+    free(packet); free(compressed); free(raw);
     input_devices_close(&devices);
     return 0;
 }

@@ -12,6 +12,10 @@ from pathlib import Path
 from streaming.backend.stream_models import (VIDEO_BYTES, VIDEO_HEIGHT, VIDEO_KEYFRAME_INTERVAL,
                                              VIDEO_PACKET_HEADER, VIDEO_TILE, VIDEO_WIDTH)
 
+VIDEO_2X_WIDTH = 640
+VIDEO_2X_HEIGHT = 480
+VIDEO_2X_BYTES = VIDEO_2X_WIDTH * VIDEO_2X_HEIGHT * 2
+
 
 class VideoMixin:
     def capture_frame(self, session_id: str) -> dict:
@@ -47,7 +51,12 @@ class VideoMixin:
                     cat_y += 3
                 item["diagnostic_cat_y"] = max(0, min(VIDEO_HEIGHT - 40, cat_y))
                 frame = self._diagnostic_frame(item["video_sequence"], item["diagnostic_cat_y"],
-                                               item.get("video_scaling", "nearest"))
+                                               "nearest" if item.get("compression") == "zlib-2x" else item.get("video_scaling", "nearest"))
+                if item.get("compression") == "zlib-2x":
+                    frame = self._scale_frame_2x(frame, item.get("video_scaling", "nearest"))
+                    capture_ms = 0
+                    packet = self._video_2x_packet(frame, item["video_sequence"], capture_ms)
+                    return packet, item["video_sequence"], capture_ms
                 keyframe = force_keyframe or not item.get("video_previous") or \
                     time.monotonic() - item.get("video_last_keyframe", 0.0) >= VIDEO_KEYFRAME_INTERVAL
                 packet, keyframe = self._video_packet(frame, item.get("video_previous"),
@@ -58,7 +67,8 @@ class VideoMixin:
                 return self._compress_keyframe(packet, item), item["video_sequence"], 0
             temporary = self.runtime / f"{session_id}-video-{secrets.token_hex(4)}.xwd"
             try:
-                frame = self._native_frame(item["framebuffer"], item.get("video_scaling", "nearest"))
+                two_x = item.get("compression") == "zlib-2x"
+                frame = None if two_x else self._native_frame(item["framebuffer"], item.get("video_scaling", "nearest"))
                 source = None if frame is not None else self._stable_xvfb_frame(item["framebuffer"])
                 if source is None and frame is None:
                     # Direct Xvfb memory reads are much faster than running xwd
@@ -69,9 +79,12 @@ class VideoMixin:
                                    stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=3, check=True)
                     source = temporary.read_bytes()
                 if frame is None:
-                    frame = self._xwd_to_rgb565(source, item.get("video_scaling", "nearest"))
+                    frame = (self._xwd_to_rgb565_2x(source, item.get("video_scaling", "nearest")) if two_x
+                             else self._xwd_to_rgb565(source, item.get("video_scaling", "nearest")))
                 item["video_sequence"] = item.get("video_sequence", 0) + 1
                 capture_ms = int((time.monotonic() - started) * 1000)
+                if two_x:
+                    return self._video_2x_packet(frame, item["video_sequence"], capture_ms), item["video_sequence"], capture_ms
                 keyframe = force_keyframe or not item.get("video_previous") or \
                     time.monotonic() - item.get("video_last_keyframe", 0.0) >= VIDEO_KEYFRAME_INTERVAL
                 packet, keyframe = self._video_packet(frame, item.get("video_previous"),
@@ -142,6 +155,17 @@ class VideoMixin:
         if len(compressed) >= len(packet) - 16:
             return packet
         return packet[:4] + bytes((3, 0, 0, 0)) + packet[8:16] + compressed
+
+    @staticmethod
+    def _video_2x_packet(frame: bytes, sequence: int, capture_ms: int) -> bytes:
+        """Encode the Pi-only native 640x480 stream frame.
+
+        Unlike kind 3 this is never a 320x240 keyframe: its distinct kind
+        keeps older presenters from treating a 2x payload as a normal frame.
+        """
+        if len(frame) != VIDEO_2X_BYTES:
+            raise ValueError("invalid 2x RGB565 frame size")
+        return struct.pack(">4sBBHII", b"P2V1", 4, 0, 0, sequence, capture_ms) + zlib.compress(frame, 1)
 
     @staticmethod
     def _video_packet(frame: bytes, previous: bytes | None, sequence: int, capture_ms: int,
@@ -239,13 +263,50 @@ class VideoMixin:
         return bytes(output)
 
     @staticmethod
+    def _xwd_to_rgb565_2x(source: bytes, video_scaling: str = "nearest") -> bytes:
+        """Convert the complete native 640x480 Xvfb root without resampling."""
+        if len(source) < 100:
+            raise ValueError("truncated XWD header")
+        header = struct.unpack_from(">25I", source)
+        header_size, width, height = header[0], header[4], header[5]
+        byte_order, bits_per_pixel, bytes_per_line = header[7], header[11], header[12]
+        pixels = header_size + header[19] * 12
+        if (width, height, byte_order, bits_per_pixel, bytes_per_line) != (640, 480, 0, 24, 640 * 4):
+            raise ValueError("unexpected 2x Xvfb image dimensions")
+        if pixels + bytes_per_line * height > len(source):
+            raise ValueError("truncated XWD pixels")
+        output = bytearray(VIDEO_2X_BYTES)
+        destination = 0
+        for y in range(VIDEO_2X_HEIGHT):
+            row = pixels + y * bytes_per_line
+            for offset in range(row, row + VIDEO_2X_WIDTH * 4, 4):
+                color = ((source[offset + 2] & 0xf8) << 8) | ((source[offset + 1] & 0xfc) << 3) | (source[offset] >> 3)
+                output[destination], output[destination + 1] = color & 0xff, color >> 8
+                destination += 2
+        return VideoMixin._apply_crt_lite_sized(bytes(output), video_scaling, VIDEO_2X_WIDTH, VIDEO_2X_HEIGHT)
+
+    @staticmethod
+    def _scale_frame_2x(frame: bytes, video_scaling: str) -> bytes:
+        output = bytearray(VIDEO_2X_BYTES)
+        for y in range(VIDEO_HEIGHT):
+            source = frame[y * VIDEO_WIDTH * 2:(y + 1) * VIDEO_WIDTH * 2]
+            expanded = b"".join(pixel * 2 for pixel in (source[offset:offset + 2] for offset in range(0, len(source), 2)))
+            output[(y * 2) * VIDEO_2X_WIDTH * 2:(y * 2 + 1) * VIDEO_2X_WIDTH * 2] = expanded
+            output[(y * 2 + 1) * VIDEO_2X_WIDTH * 2:(y * 2 + 2) * VIDEO_2X_WIDTH * 2] = expanded
+        return VideoMixin._apply_crt_lite_sized(bytes(output), video_scaling, VIDEO_2X_WIDTH, VIDEO_2X_HEIGHT)
+
+    @staticmethod
     def _apply_crt_lite(frame: bytes, video_scaling: str) -> bytes:
+        return VideoMixin._apply_crt_lite_sized(frame, video_scaling, VIDEO_WIDTH, VIDEO_HEIGHT)
+
+    @staticmethod
+    def _apply_crt_lite_sized(frame: bytes, video_scaling: str, width: int, height: int) -> bytes:
         if video_scaling != "crt-lite":
             return frame
         output = bytearray(frame)
-        for y in range(1, VIDEO_HEIGHT, 2):
-            for x in range(VIDEO_WIDTH):
-                offset = (y * VIDEO_WIDTH + x) * 2
+        for y in range(1, height, 2):
+            for x in range(width):
+                offset = (y * width + x) * 2
                 color = output[offset] | output[offset + 1] << 8
                 color = ((color & 0xf800) * 7 // 8 & 0xf800) | ((color & 0x07e0) * 7 // 8 & 0x07e0) | ((color & 0x001f) * 7 // 8 & 0x001f)
                 output[offset], output[offset + 1] = color & 0xff, color >> 8

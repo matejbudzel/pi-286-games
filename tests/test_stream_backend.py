@@ -41,6 +41,13 @@ class StreamBackendTests(unittest.TestCase):
         self.assertIn("\nGP.EXE\nexit", config)
         self.assertNotIn("mapperfile", config)
 
+    def test_zlib_2x_config_makes_only_that_session_use_dosbox_scaling(self):
+        normal = backend.StreamState._dosbox_config(backend.safe_relative_path("GP.EXE"), 22050)
+        two_x = backend.StreamState._dosbox_config(backend.safe_relative_path("GP.EXE"), 22050,
+                                                    compression="zlib-2x")
+        self.assertNotIn("scaler=normal2x", normal)
+        self.assertIn("[render]\nscaler=normal2x", two_x)
+
     def test_xvfb_uses_a_visual_accepted_by_debian_dosbox(self):
         source = STATE_MODULE.read_text()
         self.assertIn('"640x480x24"', source)
@@ -362,3 +369,22 @@ class StreamBackendTests(unittest.TestCase):
         self.assertTrue(keyframe)
         self.assertEqual(full[:8], b"P2V1\x01\x00\x00\x00")
         self.assertEqual(len(full), backend.VIDEO_PACKET_HEADER + backend.VIDEO_BYTES)
+
+    def test_zlib_2x_packet_is_distinct_and_contains_a_native_frame(self):
+        frame = bytes((index * 19) % 256 for index in range(640 * 480 * 2))
+        packet = backend.StreamState._video_2x_packet(frame, 9, 12)
+        self.assertEqual(packet[:8], b"P2V1\x04\x00\x00\x00")
+        self.assertEqual(struct.unpack_from(">II", packet, 8), (9, 12))
+        import zlib
+        self.assertEqual(zlib.decompress(packet[16:]), frame)
+
+    def test_xwd_2x_conversion_preserves_the_complete_native_root(self):
+        header = [100, 7, 2, 24, 640, 480, 0, 0, 32, 0, 8, 24, 640 * 4,
+                  4, 0x00ff0000, 0x0000ff00, 0x000000ff, 8, 256, 0, 0, 640, 480, 0, 0]
+        pixels = bytearray(640 * 480 * 4)
+        pixels[0:3] = bytes((0, 0, 255))
+        pixels[-4:-1] = bytes((255, 0, 0))
+        converted = backend.StreamState._xwd_to_rgb565_2x(struct.pack(">25I", *header) + pixels)
+        self.assertEqual(len(converted), 640 * 480 * 2)
+        self.assertEqual(converted[:2], bytes((0x00, 0xf8)))
+        self.assertEqual(converted[-2:], bytes((0x1f, 0x00)))

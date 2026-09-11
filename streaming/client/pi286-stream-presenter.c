@@ -110,7 +110,7 @@ static void video_packet_stats(SessionStats *stats, const unsigned char *packet,
     stats->video_payload_bytes += video_length;
     if ((int)video_length < stats->video_packet_min) stats->video_packet_min = (int)video_length;
     if ((int)video_length > stats->video_packet_max) stats->video_packet_max = (int)video_length;
-    if (packet[POLL_HEADER + 4] == 1) stats->video_keyframes++;
+    if (packet[POLL_HEADER + 4] == 1 || packet[POLL_HEADER + 4] == 4) stats->video_keyframes++;
     else if (packet[POLL_HEADER + 4] == 2) {
         tiles = ((unsigned int)packet[POLL_HEADER + 6] << 8) | packet[POLL_HEADER + 7];
         stats->video_deltas++; stats->video_delta_tiles += tiles;
@@ -496,6 +496,15 @@ static void render(SDL_Surface *screen, SDL_Surface *canvas, const unsigned char
     SDL_BlitSurface(canvas, NULL, screen, NULL); SDL_Flip(screen);
 }
 
+static void render_2x(SDL_Surface *screen, const unsigned char *frame, int overlay, const Metrics *metrics, int diagnostic) {
+    int y;
+    if (SDL_LockSurface(screen) < 0) return;
+    for (y = 0; y < H2; y++) memcpy((unsigned char *)screen->pixels + y * screen->pitch, frame + y * W2 * 2, W2 * 2);
+    if (overlay) draw_overlay(screen, metrics, diagnostic);
+    SDL_UnlockSurface(screen);
+    SDL_Flip(screen);
+}
+
 static int local_pattern(void) {
     static unsigned char frame[FRAME];
     static const unsigned short colors[] = { 0xf800, 0x07e0, 0x001f, 0xffff, 0xffe0, 0xf81f };
@@ -521,7 +530,7 @@ static int local_pattern(void) {
 
 int main(int argc, char **argv) {
     const char *host, *port, *token_path, *session, *transport; FILE *file; char token[256], path[256], body[2048];
-    unsigned char frame[FRAME], packet[POLL_PACKET_MAX]; SDL_Surface *screen, *canvas; SDL_Event event; SDL_AudioSpec audio, obtained; Metrics metrics = {0}; SessionStats stats = {0}; HeldState held = {0}; int audio_offset = 0, next_offset, n, overlay = 0, video_count = 0, video_seq = 0, audio_length, quit = 0;
+    static unsigned char frame[FRAME], frame2[FRAME2], packet[POLL_PACKET_MAX]; SDL_Surface *screen, *canvas; SDL_Event event; SDL_AudioSpec audio, obtained; Metrics metrics = {0}; SessionStats stats = {0}; HeldState held = {0}; int audio_offset = 0, next_offset, n, overlay = 0, video_count = 0, video_seq = 0, audio_length, quit = 0, is_2x = 0;
     const unsigned char *audio_data; unsigned int poll_revision, input_acked = 0; int diagnostic;
     long long video_window = now_ms(), network_window = video_window; long long request_started, stage_started, elapsed; size_t network_bytes = 0;
     input_devices_init(&input_devices);
@@ -568,7 +577,7 @@ int main(int argc, char **argv) {
             if (stream.ready) {
                 n = (int)stream.length; stream.ready = 0;
                 request_started = now_ms(); metrics.video_last_ms = (int)(now_ms() - request_started); stage_started = now_ms();
-                if (apply_poll_packet(frame, stream.packet, (size_t)n, &metrics.video_capture_ms, &video_seq, &audio_data, &audio_length, &next_offset)) {
+                if (apply_poll_packet(frame, frame2, &is_2x, stream.packet, (size_t)n, &metrics.video_capture_ms, &video_seq, &audio_data, &audio_length, &next_offset)) {
                     stats.polls_completed++; network_bytes += (size_t)n; video_count++; stats.video_frames++; stats.payload_bytes += (unsigned long)n;
                     video_packet_stats(&stats, stream.packet, (size_t)n);
                     range_add(metrics.video_last_ms, &stats.video_request_min, &stats.video_request_max, &stats.video_request_total);
@@ -585,7 +594,7 @@ int main(int argc, char **argv) {
                      * software scale.  The browser likewise sends its control
                      * update before its next paint gets a chance to run. */
                     if (!stream.failed) { stage_started = now_ms(); lws_service(stream.context, 0); stage_add(stage_started, &stats.service_total, &stats.service_samples, &stats.service_min, &stats.service_max); }
-                    stage_started = now_ms(); audio_metrics(&metrics); render(screen, canvas, frame, overlay, &metrics, diagnostic);
+                    stage_started = now_ms(); audio_metrics(&metrics); if (is_2x) render_2x(screen, frame2, overlay, &metrics, diagnostic); else render(screen, canvas, frame, overlay, &metrics, diagnostic);
                     stage_add(stage_started, &stats.render_total, &stats.render_samples, &stats.render_min, &stats.render_max); frame_presented(&stats);
                 } else { fprintf(stderr, "presenter: invalid websocket packet\n"); stream.failed = 1; }
             }
@@ -627,7 +636,7 @@ int main(int argc, char **argv) {
         stage_add(request_started, &stats.service_total, &stats.service_samples, &stats.service_min, &stats.service_max);
         metrics.video_last_ms = (int)(now_ms() - request_started);
         stage_started = now_ms();
-        if (n > 0 && apply_poll_packet(frame, packet, (size_t)n, &metrics.video_capture_ms, &video_seq, &audio_data, &audio_length, &next_offset)) {
+        if (n > 0 && apply_poll_packet(frame, frame2, &is_2x, packet, (size_t)n, &metrics.video_capture_ms, &video_seq, &audio_data, &audio_length, &next_offset)) {
             stats.polls_completed++;
             network_bytes += (size_t)n; video_count++; stats.video_frames++; stats.payload_bytes += (unsigned long)n;
             video_packet_stats(&stats, packet, (size_t)n);
@@ -638,7 +647,7 @@ int main(int argc, char **argv) {
             if (audio_length > 0 && next_offset > audio_offset) { audio_put(audio_data, (size_t)audio_length); audio_offset = next_offset; }
             stage_add(stage_started, &stats.decode_total, &stats.decode_samples, &stats.decode_min, &stats.decode_max);
             stage_started = now_ms(); audio_metrics(&metrics);
-            render(screen, canvas, frame, overlay, &metrics, diagnostic);
+            if (is_2x) render_2x(screen, frame2, overlay, &metrics, diagnostic); else render(screen, canvas, frame, overlay, &metrics, diagnostic);
             stage_add(stage_started, &stats.render_total, &stats.render_samples, &stats.render_min, &stats.render_max); frame_presented(&stats);
             if (poll_revision > input_acked) { metrics.input_last_ms = metrics.video_last_ms; input_acked = poll_revision; stats.input_acks++; range_add(metrics.input_last_ms, &stats.input_rtt_min, &stats.input_rtt_max, &stats.input_rtt_total); }
         } else if (n == -2) {

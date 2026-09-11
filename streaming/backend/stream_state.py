@@ -62,7 +62,7 @@ class StreamState(VideoMixin):
             video_scaling = "nearest"
         if transport not in ("poll", "websocket"):
             raise ValueError("transport must be poll or websocket")
-        if compression not in ("", "zlib"):
+        if compression not in ("", "zlib", "zlib-2x"):
             raise ValueError("unsupported video compression")
         diagnostic = game_id == "rainbow-cat"
         if diagnostic:
@@ -88,7 +88,7 @@ class StreamState(VideoMixin):
             session_dir = self.sessions / session_id
             session_dir.mkdir(parents=True)
             config_path = session_dir / "dosbox.conf"
-            config_path.write_text(self._dosbox_config(executable_path, self.audio_rate, game), encoding="utf-8")
+            config_path.write_text(self._dosbox_config(executable_path, self.audio_rate, game, compression), encoding="utf-8")
             audio_path = session_dir / "audio-s16le-stereo.raw"
             audio_mode = self.config["audio_capture"]
             if audio_mode not in ("file", "loopback"):
@@ -180,7 +180,8 @@ class StreamState(VideoMixin):
         return f":{200 + (os.getpid() % 300)}"
 
     @staticmethod
-    def _dosbox_config(executable: PurePosixPath, audio_rate: int, game: GameDefinition | None = None) -> str:
+    def _dosbox_config(executable: PurePosixPath, audio_rate: int, game: GameDefinition | None = None,
+                       compression: str = "") -> str:
         # Archives commonly wrap a game in one directory. DOS programs often
         # load data relative to the current DOS directory, so entering that
         # directory is required before launching the executable.
@@ -188,7 +189,8 @@ class StreamState(VideoMixin):
         change_directory = "cd \\%s\n" % directory if directory else ""
         command = executable.name
         game_config = game.dosbox_conf.read_text(encoding="utf-8") if game and game.dosbox_conf.is_file() else ""
-        return """[sdl]\nfullscreen=false\noutput=surface\nusescancodes=false\n\n[dosbox]\nmachine=ega\nmemsize=8\n\n[cpu]\ncore=normal\ncycles=fixed 3000\n\n[mixer]\nnosound=false\nrate=%d\nblocksize=2048\nprebuffer=100\n\n[speaker]\npcspeaker=true\npcrate=%d\ntandy=off\ndisney=false\n\n[sblaster]\nsbtype=none\n\n[midi]\nmpu401=none\nmididevice=none\n\n%s\n[autoexec]\n@echo off\nmount c .\nc:\n%s%s\nexit\n""" % (audio_rate, audio_rate, game_config, change_directory, command)
+        render_config = "\n[render]\nscaler=normal2x\n" if compression == "zlib-2x" else ""
+        return """[sdl]\nfullscreen=false\noutput=surface\nusescancodes=false\n\n[dosbox]\nmachine=ega\nmemsize=8\n\n[cpu]\ncore=normal\ncycles=fixed 3000\n\n[mixer]\nnosound=false\nrate=%d\nblocksize=2048\nprebuffer=100\n\n[speaker]\npcspeaker=true\npcrate=%d\ntandy=off\ndisney=false\n\n[sblaster]\nsbtype=none\n\n[midi]\nmpu401=none\nmididevice=none\n\n%s%s\n[autoexec]\n@echo off\nmount c .\nc:\n%s%s\nexit\n""" % (audio_rate, audio_rate, game_config, render_config, change_directory, command)
 
     @staticmethod
     def _alsa_capture_config(audio_path: Path) -> str:
@@ -297,7 +299,7 @@ class StreamState(VideoMixin):
         """Separate dense full-screen deltas from requested recovery frames."""
         if len(packet) < 8 or packet[:4] != b"P2V1":
             return
-        if packet[4] == 1:
+        if packet[4] in (1, 4):
             stats["video_full"] += 1
             if forced:
                 stats["video_forced_full"] += 1
