@@ -337,7 +337,6 @@ static int pump_events(void) {
             fprintf(stderr, "presenter: F1 requested quit\n"); fflush(stderr);
             *event_state.quit = 1; return 1;
         }
-        if ((event.type == SDL_KEYDOWN || event.type == SDL_KEYUP) && event.key.keysym.sym == SDLK_F8) { if (event.type == SDL_KEYDOWN) *event_state.overlay = !*event_state.overlay; continue; }
         if ((event.type == SDL_KEYDOWN || event.type == SDL_KEYUP) && (key = dos_key(event.key.keysym.sym))) pressed = event.type == SDL_KEYDOWN;
         if (key) held_update(event_state.held, key, pressed);
         if (event_state.held->revision != before) { event_state.stats->input_events++; changed = 1; }

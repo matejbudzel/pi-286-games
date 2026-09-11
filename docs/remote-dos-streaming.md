@@ -68,15 +68,14 @@ uses its safe Python/XWD path instead.
 
 The Pi presenter authenticates to the token-protected `/v1` endpoints. It
 inherits classic SDL 1.2 fbcon and HDMI ALSA defaults from `pi-games-launcher`
-when that launcher hands it the console. Its normal keyboard keys are
-forwarded directly, apart from F1 which returns to the launcher and F8 which
-toggles the local HUD.
+when that launcher hands it the console. Every normal DOS keyboard key is
+forwarded directly; F1 alone returns to the launcher.
 
 The LXC serves the browser UI itself at its root URL. The browser uses the
 unauthenticated, trusted-LAN `/web/api` namespace on the same origin, so it
 does not receive the bearer token and needs no devbox relay. It provides the
-same keyboard handling and virtual dance pad as the Pi presenter. F1/SELECT
-and F8 remain presenter-local; all other input is sent as raw keyboard or
+same keyboard handling and virtual dance pad as the Pi presenter. F1 and pad
+SELECT remain presenter-local; all other input is sent as raw keyboard or
 dance-pad button state. The server maps dance-pad buttons using the selected
 game's `ddr.conf`.
 
