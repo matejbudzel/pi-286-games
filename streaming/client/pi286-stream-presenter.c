@@ -16,6 +16,7 @@ static void close_input_devices(void) { input_devices_close(&input_devices); }
 #include <sys/socket.h>
 #include <sys/select.h>
 #include <sys/stat.h>
+#include <sys/resource.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -32,11 +33,13 @@ typedef struct {
 static void audio_metrics(Metrics *metrics);
 
 typedef struct {
-    long long started_ms, video_request_total, server_capture_total, audio_queue_total, input_rtt_total;
+    long long started_ms, started_cpu_ms, video_request_total, server_capture_total, audio_queue_total, input_rtt_total;
+    long long input_total, service_total, decode_total, render_total, frame_gap_total, last_presented_ms;
     unsigned long payload_bytes;
     unsigned int video_frames, video_failures, audio_samples, audio_failures, input_events, input_acks, input_failures;
-    unsigned int polls_started, polls_completed, polls_cancelled, polls_stale, polls_failed;
-    int video_request_min, video_request_max, server_capture_min, server_capture_max;
+    unsigned int polls_started, polls_completed, polls_cancelled, polls_stale, polls_failed, input_samples, service_samples, decode_samples, render_samples, frame_gap_samples;
+    int video_request_min, video_request_max, server_capture_min, server_capture_max, input_min, input_max, service_min, service_max;
+    int decode_min, decode_max, render_min, render_max, frame_gap_min, frame_gap_max, frame_gaps[256], frame_gap_used;
     int audio_queue_min, audio_queue_max, input_rtt_min, input_rtt_max;
 } SessionStats;
 
@@ -51,15 +54,52 @@ static long long now_ms(void) {
     return (long long)value.tv_sec * 1000 + value.tv_nsec / 1000000;
 }
 
+static long long cpu_ms(void) {
+    struct rusage usage;
+    getrusage(RUSAGE_SELF, &usage);
+    return (long long)usage.ru_utime.tv_sec * 1000 + usage.ru_utime.tv_usec / 1000 +
+           (long long)usage.ru_stime.tv_sec * 1000 + usage.ru_stime.tv_usec / 1000;
+}
+
 static void range_add(int value, int *minimum, int *maximum, long long *total) {
     if (value < *minimum) *minimum = value;
     if (value > *maximum) *maximum = value;
     *total += value;
 }
 
+static void stage_add(long long started, long long *total, unsigned int *samples, int *minimum, int *maximum) {
+    int elapsed = (int)(now_ms() - started);
+    range_add(elapsed, minimum, maximum, total); (*samples)++;
+}
+
+static int compare_int(const void *left, const void *right) {
+    int a = *(const int *)left, b = *(const int *)right;
+    return (a > b) - (a < b);
+}
+
+static int frame_gap_percentile(const SessionStats *stats, int percentile) {
+    int values[256], index, count = stats->frame_gap_used;
+    if (!count) return 0;
+    for (index = 0; index < count; index++) values[index] = stats->frame_gaps[index];
+    qsort(values, (size_t)count, sizeof(values[0]), compare_int);
+    return values[(count - 1) * percentile / 100];
+}
+
+static void frame_presented(SessionStats *stats) {
+    long long presented = now_ms(); int gap;
+    if (stats->last_presented_ms) {
+        gap = (int)(presented - stats->last_presented_ms);
+        range_add(gap, &stats->frame_gap_min, &stats->frame_gap_max, &stats->frame_gap_total);
+        stats->frame_gaps[stats->frame_gap_samples % 256] = gap;
+        if (stats->frame_gap_used < 256) stats->frame_gap_used++;
+        stats->frame_gap_samples++;
+    }
+    stats->last_presented_ms = presented;
+}
+
 static void write_session_stats(const char *session, const SessionStats *stats, Metrics *metrics) {
     char cache[512], directory[512], last[576], history[576]; const char *home = getenv("HOME"); FILE *file;
-    long long duration = now_ms() - stats->started_ms;
+    long long duration = now_ms() - stats->started_ms, cpu = cpu_ms() - stats->started_cpu_ms;
     audio_metrics(metrics);
     if (!home || !*home) home = "/tmp";
     snprintf(cache, sizeof(cache), "%s/.cache", home);
@@ -68,9 +108,14 @@ static void write_session_stats(const char *session, const SessionStats *stats, 
     mkdir(directory, 0700);
     snprintf(last, sizeof(last), "%s/last-session-stats.txt", directory);
     if ((file = fopen(last, "w"))) {
-        fprintf(file, "session=%s\nduration_ms=%lld\npolls_started=%u\npolls_completed=%u\npolls_cancelled=%u\npolls_stale=%u\npolls_failed=%u\nvideo_frames=%u\nvideo_fps_x10=%lld\nvideo_request_ms_avg=%lld\nvideo_request_ms_min=%d\nvideo_request_ms_max=%d\nserver_capture_ms_avg=%lld\nserver_capture_ms_min=%d\nserver_capture_ms_max=%d\nvideo_failures=%u\naudio_queue_ms_avg=%lld\naudio_queue_ms_min=%d\naudio_queue_ms_max=%d\naudio_underruns=%d\naudio_failures=%u\ninput_events=%u\ninput_acks=%u\ninput_rtt_ms_avg=%lld\ninput_rtt_ms_min=%d\ninput_rtt_ms_max=%d\ninput_failures=%u\npayload_bytes=%lu\npayload_kbytes_per_second=%lld\n",
-                session, duration, stats->polls_started, stats->polls_completed, stats->polls_cancelled, stats->polls_stale, stats->polls_failed,
+        fprintf(file, "session=%s\nduration_ms=%lld\ncpu_ms=%lld\ncpu_percent_x10=%lld\npolls_started=%u\npolls_completed=%u\npolls_cancelled=%u\npolls_stale=%u\npolls_failed=%u\nvideo_frames=%u\nvideo_fps_x10=%lld\nframe_gap_ms_avg=%lld\nframe_gap_ms_p50=%d\nframe_gap_ms_p95=%d\nframe_gap_ms_max=%d\ninput_stage_ms_avg=%lld\ninput_stage_ms_max=%d\ntransport_wait_ms_avg=%lld\ntransport_wait_ms_max=%d\ndecode_audio_ms_avg=%lld\ndecode_audio_ms_max=%d\nrender_flip_ms_avg=%lld\nrender_flip_ms_max=%d\nvideo_request_ms_avg=%lld\nvideo_request_ms_min=%d\nvideo_request_ms_max=%d\nserver_capture_ms_avg=%lld\nserver_capture_ms_min=%d\nserver_capture_ms_max=%d\nvideo_failures=%u\naudio_queue_ms_avg=%lld\naudio_queue_ms_min=%d\naudio_queue_ms_max=%d\naudio_underruns=%d\naudio_failures=%u\ninput_events=%u\ninput_acks=%u\ninput_rtt_ms_avg=%lld\ninput_rtt_ms_min=%d\ninput_rtt_ms_max=%d\ninput_failures=%u\npayload_bytes=%lu\npayload_kbytes_per_second=%lld\n",
+                session, duration, cpu, duration ? cpu * 1000 / duration : 0, stats->polls_started, stats->polls_completed, stats->polls_cancelled, stats->polls_stale, stats->polls_failed,
                 stats->video_frames, duration ? stats->video_frames * 10000 / duration : 0,
+                stats->frame_gap_samples ? stats->frame_gap_total / stats->frame_gap_samples : 0, frame_gap_percentile(stats, 50), frame_gap_percentile(stats, 95), stats->frame_gap_samples ? stats->frame_gap_max : 0,
+                stats->input_samples ? stats->input_total / stats->input_samples : 0, stats->input_samples ? stats->input_max : 0,
+                stats->service_samples ? stats->service_total / stats->service_samples : 0, stats->service_samples ? stats->service_max : 0,
+                stats->decode_samples ? stats->decode_total / stats->decode_samples : 0, stats->decode_samples ? stats->decode_max : 0,
+                stats->render_samples ? stats->render_total / stats->render_samples : 0, stats->render_samples ? stats->render_max : 0,
                 stats->video_frames ? stats->video_request_total / stats->video_frames : 0, stats->video_frames ? stats->video_request_min : 0, stats->video_request_max,
                 stats->video_frames ? stats->server_capture_total / stats->video_frames : 0, stats->video_frames ? stats->server_capture_min : 0, stats->server_capture_max,
                 stats->video_failures, stats->audio_samples ? stats->audio_queue_total / stats->audio_samples : 0,
@@ -452,7 +497,7 @@ int main(int argc, char **argv) {
     const char *host, *port, *token_path, *session, *transport; FILE *file; char token[256], path[256], body[2048];
     unsigned char frame[FRAME], packet[POLL_PACKET_MAX]; SDL_Surface *screen, *canvas; SDL_Event event; SDL_AudioSpec audio, obtained; Metrics metrics = {0}; SessionStats stats = {0}; HeldState held = {0}; int audio_offset = 0, next_offset, n, overlay = 0, video_count = 0, video_seq = 0, audio_length, quit = 0;
     const unsigned char *audio_data; unsigned int poll_revision, input_acked = 0; int diagnostic;
-    long long video_window = now_ms(), network_window = video_window; long long request_started, elapsed; size_t network_bytes = 0;
+    long long video_window = now_ms(), network_window = video_window; long long request_started, stage_started, elapsed; size_t network_bytes = 0;
     input_devices_init(&input_devices);
     fprintf(stderr, "presenter: starting\n"); fflush(stderr);
     if (argc == 2 && !strcmp(argv[1], "--local-pattern")) return local_pattern();
@@ -483,17 +528,19 @@ int main(int argc, char **argv) {
     }
     fprintf(stderr, "presenter: ready\n"); fflush(stderr);
     SDL_PauseAudio(0);
-    stats.started_ms = now_ms();
+    stats.started_ms = now_ms(); stats.started_cpu_ms = cpu_ms();
     stats.video_request_min = stats.server_capture_min = stats.audio_queue_min = stats.input_rtt_min = 1000000;
+    stats.input_min = stats.service_min = stats.decode_min = stats.render_min = stats.frame_gap_min = 1000000;
     if (!strcmp(transport, "websocket")) {
         LwsStream stream; int sent_revision;
         if (poll_body(body, sizeof(body), &held, video_seq, audio_offset) < 0 || !lws_stream_open(&stream, host, port, token, session, body)) { fprintf(stderr, "presenter: websocket connection failed\n"); SDL_CloseAudio(); SDL_FreeSurface(canvas); close_input_devices(); SDL_Quit(); return 1; }
         sent_revision = (int)held.revision;
         for (;;) {
-            lws_service(stream.context, 10);
+            stage_started = now_ms(); lws_service(stream.context, 10);
+            stage_add(stage_started, &stats.service_total, &stats.service_samples, &stats.service_min, &stats.service_max);
             if (stream.ready) {
                 n = (int)stream.length; stream.ready = 0;
-                request_started = now_ms(); metrics.video_last_ms = (int)(now_ms() - request_started);
+                request_started = now_ms(); metrics.video_last_ms = (int)(now_ms() - request_started); stage_started = now_ms();
                 if (apply_poll_packet(frame, stream.packet, (size_t)n, &metrics.video_capture_ms, &video_seq, &audio_data, &audio_length, &next_offset)) {
                     stats.polls_completed++; network_bytes += (size_t)n; video_count++; stats.video_frames++; stats.payload_bytes += (unsigned long)n;
                     range_add(metrics.video_last_ms, &stats.video_request_min, &stats.video_request_max, &stats.video_request_total);
@@ -501,6 +548,7 @@ int main(int argc, char **argv) {
                     elapsed = now_ms() - video_window;
                     if (elapsed >= 1000) { metrics.video_fps_tenths = (int)(video_count * 10000 / elapsed); video_count = 0; video_window = now_ms(); }
                     if (audio_length > 0 && next_offset > audio_offset) { audio_put(audio_data, (size_t)audio_length); audio_offset = next_offset; }
+                    stage_add(stage_started, &stats.decode_total, &stats.decode_samples, &stats.decode_min, &stats.decode_max);
                     if ((unsigned int)sent_revision > input_acked) { metrics.input_last_ms = metrics.video_last_ms; input_acked = (unsigned int)sent_revision; stats.input_acks++; range_add(metrics.input_last_ms, &stats.input_rtt_min, &stats.input_rtt_max, &stats.input_rtt_total); }
                     /* Media acknowledgements carry the latest delta sequence
                      * and PCM offset, even while no key state has changed. */
@@ -508,11 +556,13 @@ int main(int argc, char **argv) {
                     /* Keep the server and audio stream ahead of the expensive
                      * software scale.  The browser likewise sends its control
                      * update before its next paint gets a chance to run. */
-                    if (!stream.failed) lws_service(stream.context, 0);
-                    audio_metrics(&metrics); render(screen, canvas, frame, overlay, &metrics, diagnostic);
+                    if (!stream.failed) { stage_started = now_ms(); lws_service(stream.context, 0); stage_add(stage_started, &stats.service_total, &stats.service_samples, &stats.service_min, &stats.service_max); }
+                    stage_started = now_ms(); audio_metrics(&metrics); render(screen, canvas, frame, overlay, &metrics, diagnostic);
+                    stage_add(stage_started, &stats.render_total, &stats.render_samples, &stats.render_min, &stats.render_max); frame_presented(&stats);
                 } else { fprintf(stderr, "presenter: invalid websocket packet\n"); stream.failed = 1; }
             }
-            if (pump_events()) { /* Send latest held state below without waiting for media. */ }
+            stage_started = now_ms(); if (pump_events()) { /* Send latest held state below without waiting for media. */ }
+            stage_add(stage_started, &stats.input_total, &stats.input_samples, &stats.input_min, &stats.input_max);
             if (!quit && (int)held.revision != sent_revision) {
                 if (poll_body(body, sizeof(body), &held, video_seq, audio_offset) < 0) stream.failed = 1;
                 else { lws_stream_queue(&stream, body); sent_revision = (int)held.revision; }
@@ -546,7 +596,9 @@ int main(int argc, char **argv) {
         request_started = now_ms();
         stats.polls_started++;
         n = request(host, port, token, "POST", path, body, packet, sizeof(packet), NULL, NULL, poll_revision);
+        stage_add(request_started, &stats.service_total, &stats.service_samples, &stats.service_min, &stats.service_max);
         metrics.video_last_ms = (int)(now_ms() - request_started);
+        stage_started = now_ms();
         if (n > 0 && apply_poll_packet(frame, packet, (size_t)n, &metrics.video_capture_ms, &video_seq, &audio_data, &audio_length, &next_offset)) {
             stats.polls_completed++;
             network_bytes += (size_t)n; video_count++; stats.video_frames++; stats.payload_bytes += (unsigned long)n;
@@ -554,9 +606,11 @@ int main(int argc, char **argv) {
             if (metrics.video_capture_ms >= 0) range_add(metrics.video_capture_ms, &stats.server_capture_min, &stats.server_capture_max, &stats.server_capture_total);
             elapsed = now_ms() - video_window;
             if (elapsed >= 1000) { metrics.video_fps_tenths = (int)(video_count * 10000 / elapsed); video_count = 0; video_window = now_ms(); }
-            audio_metrics(&metrics);
-            render(screen, canvas, frame, overlay, &metrics, diagnostic);
             if (audio_length > 0 && next_offset > audio_offset) { audio_put(audio_data, (size_t)audio_length); audio_offset = next_offset; }
+            stage_add(stage_started, &stats.decode_total, &stats.decode_samples, &stats.decode_min, &stats.decode_max);
+            stage_started = now_ms(); audio_metrics(&metrics);
+            render(screen, canvas, frame, overlay, &metrics, diagnostic);
+            stage_add(stage_started, &stats.render_total, &stats.render_samples, &stats.render_min, &stats.render_max); frame_presented(&stats);
             if (poll_revision > input_acked) { metrics.input_last_ms = metrics.video_last_ms; input_acked = poll_revision; stats.input_acks++; range_add(metrics.input_last_ms, &stats.input_rtt_min, &stats.input_rtt_max, &stats.input_rtt_total); }
         } else if (n == -2) {
             /* Input changed while this request was in flight: its response is deliberately irrelevant. */
@@ -572,7 +626,8 @@ int main(int argc, char **argv) {
         range_add(metrics.audio_queued_ms, &stats.audio_queue_min, &stats.audio_queue_max, &stats.audio_queue_total);
         elapsed = now_ms() - network_window;
         if (elapsed >= 1000) { metrics.net_kbytes = (int)(network_bytes * 1000 / elapsed / 1024); network_bytes = 0; network_window = now_ms(); }
-        pump_events();
+        stage_started = now_ms(); pump_events();
+        stage_add(stage_started, &stats.input_total, &stats.input_samples, &stats.input_min, &stats.input_max);
         if (quit) { write_session_stats(session, &stats, &metrics); SDL_CloseAudio(); SDL_FreeSurface(canvas); close_input_devices(); SDL_Quit(); return 0; }
         SDL_Delay(30);
     }

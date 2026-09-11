@@ -96,3 +96,10 @@ summary under `~/.cache/pi286-stream/`; the backend also writes bounded poll
 statistics under `/srv/pi286-stream/runtime/` and emits them to its service
 log. These diagnostics cover media timing, audio queueing and input request
 behaviour.
+
+`last-session-stats.txt` additionally records the Pi process CPU percentage,
+frame-gap average/median/p95/max, and timing for input handling, transport
+wait, packet decode/audio enqueue, and SDL render/flip. Frame percentiles use
+the last 256 presented frames, which makes short hitches visible without
+growing the report. `transport_wait` includes the full HTTP request for poll
+mode or `lws_service` wait/callback work for WebSocket mode.
