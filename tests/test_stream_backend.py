@@ -55,6 +55,9 @@ class StreamBackendTests(unittest.TestCase):
         rgb = backend.StreamState._dosbox_config(backend.safe_relative_path("GP.EXE"), 22050,
                                                  compression="zlib-2x", video_scaling="rgb2x")
         self.assertIn("[render]\naspect=true\nscaler=rgb2x", rgb)
+        advmame = backend.StreamState._dosbox_config(backend.safe_relative_path("GP.EXE"), 22050,
+                                                     compression="zlib-2x", video_scaling="advmame2x")
+        self.assertIn("[render]\naspect=true\nscaler=advmame2x", advmame)
 
     def test_xvfb_uses_a_visual_accepted_by_debian_dosbox(self):
         source = STATE_MODULE.read_text()

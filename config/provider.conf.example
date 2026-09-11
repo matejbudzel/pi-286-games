@@ -5,5 +5,5 @@ remote_dosbox_presenter=/opt/pi286/stream/bin/pi286-stream-presenter
 remote_dosbox_transport=websocket
 # Pi-only native DOSBox 2x stream; requires a current stream server and presenter.
 remote_dosbox_compression=zlib-2x
-# nearest, linear-v, crt-lite, tv2x, or rgb2x (DOSBox filters for zlib-2x only)
+# nearest, linear-v, crt-lite, tv2x, rgb2x, or advmame2x (DOSBox filters for zlib-2x only)
 video_scaling=crt-lite

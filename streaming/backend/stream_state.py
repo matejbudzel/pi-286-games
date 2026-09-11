@@ -189,7 +189,7 @@ class StreamState(VideoMixin):
         change_directory = "cd \\%s\n" % directory if directory else ""
         command = executable.name
         game_config = game.dosbox_conf.read_text(encoding="utf-8") if game and game.dosbox_conf.is_file() else ""
-        scaler = video_scaling if video_scaling in ("tv2x", "rgb2x") else "normal2x"
+        scaler = video_scaling if video_scaling in ("tv2x", "rgb2x", "advmame2x") else "normal2x"
         # Keep the original 320x200 EGA pixel aspect (6:5) on every server
         # session. This comes after game snippets so a game cannot quietly
         # restore the vertically squashed 320x200 presentation.
