@@ -15,6 +15,7 @@ from streaming.backend.stream_models import (VIDEO_BYTES, VIDEO_HEIGHT, VIDEO_KE
 VIDEO_2X_WIDTH = 640
 VIDEO_2X_HEIGHT = 480
 VIDEO_2X_BYTES = VIDEO_2X_WIDTH * VIDEO_2X_HEIGHT * 2
+VIDEO_2X_TILE = 32
 
 
 class VideoMixin:
@@ -55,7 +56,13 @@ class VideoMixin:
                 if item.get("compression") == "zlib-2x":
                     frame = self._scale_frame_2x(frame, item.get("video_scaling", "nearest"))
                     capture_ms = 0
-                    packet = self._video_2x_packet(frame, item["video_sequence"], capture_ms)
+                    keyframe = force_keyframe or not item.get("video_previous") or \
+                        time.monotonic() - item.get("video_last_keyframe", 0.0) >= VIDEO_KEYFRAME_INTERVAL
+                    packet, keyframe = self._video_2x_packet(frame, item.get("video_previous"),
+                                                             item["video_sequence"], capture_ms, keyframe)
+                    item["video_previous"] = frame
+                    if keyframe:
+                        item["video_last_keyframe"] = time.monotonic()
                     return packet, item["video_sequence"], capture_ms
                 keyframe = force_keyframe or not item.get("video_previous") or \
                     time.monotonic() - item.get("video_last_keyframe", 0.0) >= VIDEO_KEYFRAME_INTERVAL
@@ -84,7 +91,14 @@ class VideoMixin:
                 item["video_sequence"] = item.get("video_sequence", 0) + 1
                 capture_ms = int((time.monotonic() - started) * 1000)
                 if two_x:
-                    return self._video_2x_packet(frame, item["video_sequence"], capture_ms), item["video_sequence"], capture_ms
+                    keyframe = force_keyframe or not item.get("video_previous") or \
+                        time.monotonic() - item.get("video_last_keyframe", 0.0) >= VIDEO_KEYFRAME_INTERVAL
+                    packet, keyframe = self._video_2x_packet(frame, item.get("video_previous"),
+                                                             item["video_sequence"], capture_ms, keyframe)
+                    item["video_previous"] = frame
+                    if keyframe:
+                        item["video_last_keyframe"] = time.monotonic()
+                    return packet, item["video_sequence"], capture_ms
                 keyframe = force_keyframe or not item.get("video_previous") or \
                     time.monotonic() - item.get("video_last_keyframe", 0.0) >= VIDEO_KEYFRAME_INTERVAL
                 packet, keyframe = self._video_packet(frame, item.get("video_previous"),
@@ -161,15 +175,37 @@ class VideoMixin:
         return packet[:4] + bytes((3, 0, 0, 0)) + packet[8:16] + compressed
 
     @staticmethod
-    def _video_2x_packet(frame: bytes, sequence: int, capture_ms: int) -> bytes:
-        """Encode the Pi-only native 640x480 stream frame.
+    def _video_2x_packet(frame: bytes, previous: bytes | None, sequence: int, capture_ms: int,
+                         keyframe: bool) -> tuple[bytes, bool]:
+        """Encode a recoverable 2x keyframe or raw 32x32 changed tiles.
 
-        Unlike kind 3 this is never a 320x240 keyframe: its distinct kind
-        keeps older presenters from treating a 2x payload as a normal frame.
+        Kind 4 is a zlib keyframe. Kind 5 has raw tiles: avoiding a 614 KiB
+        inflate for each moving frame is essential on the ARMv6 Pi.
         """
         if len(frame) != VIDEO_2X_BYTES:
             raise ValueError("invalid 2x RGB565 frame size")
-        return struct.pack(">4sBBHII", b"P2V1", 4, 0, 0, sequence, capture_ms) + zlib.compress(frame, 1)
+        if keyframe or previous is None or len(previous) != VIDEO_2X_BYTES:
+            return struct.pack(">4sBBHII", b"P2V1", 4, 0, 0, sequence, capture_ms) + zlib.compress(frame, 1), True
+        tiles = bytearray()
+        count = 0
+        for tile_y in range(VIDEO_2X_HEIGHT // VIDEO_2X_TILE):
+            for tile_x in range(VIDEO_2X_WIDTH // VIDEO_2X_TILE):
+                changed = False
+                for row in range(VIDEO_2X_TILE):
+                    offset = ((tile_y * VIDEO_2X_TILE + row) * VIDEO_2X_WIDTH + tile_x * VIDEO_2X_TILE) * 2
+                    width = VIDEO_2X_TILE * 2
+                    if frame[offset:offset + width] != previous[offset:offset + width]:
+                        changed = True
+                        break
+                if changed:
+                    tiles.extend((tile_x, tile_y))
+                    for row in range(VIDEO_2X_TILE):
+                        offset = ((tile_y * VIDEO_2X_TILE + row) * VIDEO_2X_WIDTH + tile_x * VIDEO_2X_TILE) * 2
+                        tiles.extend(frame[offset:offset + VIDEO_2X_TILE * 2])
+                    count += 1
+        if VIDEO_PACKET_HEADER + len(tiles) >= VIDEO_PACKET_HEADER + VIDEO_2X_BYTES:
+            return struct.pack(">4sBBHII", b"P2V1", 4, 0, 0, sequence, capture_ms) + zlib.compress(frame, 1), True
+        return struct.pack(">4sBBHII", b"P2V1", 5, 0, count, sequence, capture_ms) + tiles, False
 
     @staticmethod
     def _video_packet(frame: bytes, previous: bytes | None, sequence: int, capture_ms: int,

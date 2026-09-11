@@ -111,7 +111,7 @@ static void video_packet_stats(SessionStats *stats, const unsigned char *packet,
     if ((int)video_length < stats->video_packet_min) stats->video_packet_min = (int)video_length;
     if ((int)video_length > stats->video_packet_max) stats->video_packet_max = (int)video_length;
     if (packet[POLL_HEADER + 4] == 1 || packet[POLL_HEADER + 4] == 4) stats->video_keyframes++;
-    else if (packet[POLL_HEADER + 4] == 2) {
+    else if (packet[POLL_HEADER + 4] == 2 || packet[POLL_HEADER + 4] == 5) {
         tiles = ((unsigned int)packet[POLL_HEADER + 6] << 8) | packet[POLL_HEADER + 7];
         stats->video_deltas++; stats->video_delta_tiles += tiles;
         if ((int)tiles > stats->video_delta_tiles_max) stats->video_delta_tiles_max = (int)tiles;

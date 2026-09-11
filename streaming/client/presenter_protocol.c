@@ -13,6 +13,15 @@ static int apply_video_packet(unsigned char *frame, unsigned char *frame2, int *
     if (kind == 1) { if (count || length != VIDEO_HEADER + FRAME) return 0; memcpy(frame, packet + VIDEO_HEADER, FRAME); *is_2x = 0; return 1; }
     if (kind == 3) { unsigned long output = FRAME; if (count || uncompress(frame, &output, packet + VIDEO_HEADER, (unsigned long)(length - VIDEO_HEADER)) != Z_OK || output != FRAME) return 0; *is_2x = 0; return 3; }
     if (kind == 4) { unsigned long output = FRAME2; if (count || uncompress(frame2, &output, packet + VIDEO_HEADER, (unsigned long)(length - VIDEO_HEADER)) != Z_OK || output != FRAME2) return 0; *is_2x = 1; return 4; }
+    if (kind == 5) {
+        if (count > (W2 / TILE2) * (H2 / TILE2) || length != VIDEO_HEADER + count * (2 + TILE2 * TILE2 * 2)) return 0;
+        offset = VIDEO_HEADER;
+        for (tile = 0; tile < count; tile++) {
+            tile_x = packet[offset++]; tile_y = packet[offset++]; if (tile_x >= W2 / TILE2 || tile_y >= H2 / TILE2) return 0;
+            for (row = 0; row < TILE2; row++) { memcpy(frame2 + ((tile_y * TILE2 + row) * W2 + tile_x * TILE2) * 2, packet + offset, TILE2 * 2); offset += TILE2 * 2; }
+        }
+        *is_2x = 1; return 5;
+    }
     if (kind != 2 || count > (W / TILE) * (H / TILE) || length != VIDEO_HEADER + count * (2 + TILE * TILE * 2)) return 0;
     offset = VIDEO_HEADER;
     for (tile = 0; tile < count; tile++) {

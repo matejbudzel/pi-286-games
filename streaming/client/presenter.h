@@ -10,6 +10,7 @@
 #define H2 480
 #define FRAME2 (W2 * H2 * 2)
 #define TILE 16
+#define TILE2 32
 #define VIDEO_HEADER 16
 #define VIDEO_PACKET_MAX (VIDEO_HEADER + FRAME2 + 4096)
 #define POLL_HEADER 16

@@ -385,11 +385,21 @@ class StreamBackendTests(unittest.TestCase):
 
     def test_zlib_2x_packet_is_distinct_and_contains_a_native_frame(self):
         frame = bytes((index * 19) % 256 for index in range(640 * 480 * 2))
-        packet = backend.StreamState._video_2x_packet(frame, 9, 12)
+        packet, keyframe = backend.StreamState._video_2x_packet(frame, None, 9, 12, True)
+        self.assertTrue(keyframe)
         self.assertEqual(packet[:8], b"P2V1\x04\x00\x00\x00")
         self.assertEqual(struct.unpack_from(">II", packet, 8), (9, 12))
         import zlib
         self.assertEqual(zlib.decompress(packet[16:]), frame)
+
+    def test_zlib_2x_delta_encodes_only_changed_32x32_tiles(self):
+        previous = bytes(640 * 480 * 2)
+        frame = bytearray(previous)
+        frame[(32 * 640 + 32) * 2] = 0xff
+        packet, keyframe = backend.StreamState._video_2x_packet(bytes(frame), previous, 10, 13, False)
+        self.assertFalse(keyframe)
+        self.assertEqual(packet[:8], b"P2V1\x05\x00\x00\x01")
+        self.assertEqual(len(packet), backend.VIDEO_PACKET_HEADER + 2 + 32 * 32 * 2)
 
     def test_xwd_2x_conversion_preserves_the_complete_native_root(self):
         header = [100, 7, 2, 24, 640, 480, 0, 0, 32, 0, 8, 24, 640 * 4,

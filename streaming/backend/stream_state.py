@@ -303,7 +303,7 @@ class StreamState(VideoMixin):
             stats["video_full"] += 1
             if forced:
                 stats["video_forced_full"] += 1
-        elif packet[4] == 2:
+        elif packet[4] in (2, 5):
             stats["video_delta"] += 1
             stats["video_delta_tiles"] += struct.unpack_from(">H", packet, 6)[0]
 
