@@ -7,3 +7,5 @@ remote_dosbox_transport=websocket
 remote_dosbox_compression=zlib-2x
 # none or crt-lite; applied after fixed DOSBox normal/normal2x rendering and before delta encoding
 video_filter=none
+# Debug only: cyan exposes physical framebuffer area not covered by the incoming stream.
+remote_dosbox_debug_background=none

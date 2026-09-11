@@ -39,6 +39,13 @@ class ProviderTests(unittest.TestCase):
             self.assertEqual(provider.run("pop", config), 0)
         self.assertNotIn("env", call.call_args.kwargs)
 
+    def test_run_can_enable_the_opt_in_cyan_presenter_background(self):
+        config = {"remote_dosbox_url": "http://stream.test", "remote_dosbox_token_file": "/tmp/token", "remote_dosbox_presenter": str(ROOT / "bin/pi-286-games"), "remote_dosbox_debug_background": "cyan"}
+        remote = type("Remote", (), {"start_session": lambda *args: {"id": "session"}, "stop_session": lambda *args: None})()
+        with patch.object(provider, "backend", return_value=remote), patch.object(provider.os, "access", return_value=True), patch.object(provider.subprocess, "call", return_value=0) as call:
+            self.assertEqual(provider.run("pop", config), 0)
+        self.assertEqual(call.call_args.args[0][-1], "cyan-background")
+
     def test_command_resolves_an_installed_symlink(self):
         with TemporaryDirectory() as directory:
             command = Path(directory) / "pi-286-games"

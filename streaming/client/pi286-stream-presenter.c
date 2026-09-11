@@ -492,10 +492,11 @@ static void draw_overlay(SDL_Surface *canvas, const Metrics *metrics, int diagno
     draw_text(canvas, 4, diagnostic ? 53 : 36, text);
 }
 
-static void render(SDL_Surface *screen, SDL_Surface *canvas, const unsigned char *frame, int overlay, const Metrics *metrics, int diagnostic) {
+static void render(SDL_Surface *screen, SDL_Surface *canvas, const unsigned char *frame, int overlay, const Metrics *metrics, int diagnostic, int cyan_background) {
     int x, y;
+    if (cyan_background) SDL_FillRect(canvas, NULL, SDL_MapRGB(canvas->format, 0, 255, 255));
     SDL_LockSurface(canvas);
-    memset(canvas->pixels, 0, canvas->pitch * canvas->h);
+    if (!cyan_background) memset(canvas->pixels, 0, canvas->pitch * canvas->h);
     for (y = 0; y < H; y++) for (x = 0; x < W; x++) {
         unsigned short pixel = frame[(y * W + x) * 2] | (frame[(y * W + x) * 2 + 1] << 8);
         unsigned short *row0 = (unsigned short *)((unsigned char *)canvas->pixels + (y * 2) * canvas->pitch);
@@ -507,8 +508,9 @@ static void render(SDL_Surface *screen, SDL_Surface *canvas, const unsigned char
     SDL_BlitSurface(canvas, NULL, screen, NULL); SDL_Flip(screen);
 }
 
-static void render_2x(SDL_Surface *screen, const unsigned char *frame, int overlay, const Metrics *metrics, int diagnostic) {
+static void render_2x(SDL_Surface *screen, const unsigned char *frame, int overlay, const Metrics *metrics, int diagnostic, int cyan_background) {
     int y;
+    if (cyan_background) SDL_FillRect(screen, NULL, SDL_MapRGB(screen->format, 0, 255, 255));
     if (SDL_LockSurface(screen) < 0) return;
     for (y = 0; y < H2; y++) memcpy((unsigned char *)screen->pixels + y * screen->pitch, frame + y * W2 * 2, W2 * 2);
     if (overlay) draw_overlay(screen, metrics, diagnostic);
@@ -528,7 +530,7 @@ static int local_pattern(void) {
         size_t offset = (size_t)(y * W + x) * 2;
         frame[offset] = color & 0xff; frame[offset + 1] = color >> 8;
     }
-    render(screen, canvas, frame, 0, NULL, 0);
+    render(screen, canvas, frame, 0, NULL, 0, 0);
     fprintf(stderr, "presenter: local RGB565 pattern ready; press F1 or ESC\n"); fflush(stderr);
     for (;;) {
         while (SDL_PollEvent(&event)) if (event.type == SDL_QUIT ||
@@ -541,16 +543,18 @@ static int local_pattern(void) {
 
 int main(int argc, char **argv) {
     const char *host, *port, *token_path, *session, *transport; FILE *file; char token[256], path[256], body[2048];
-    static unsigned char frame[FRAME], frame2[FRAME2], packet[POLL_PACKET_MAX]; SDL_Surface *screen, *canvas; SDL_Event event; SDL_AudioSpec audio, obtained; Metrics metrics = {0}; SessionStats stats = {0}; HeldState held = {0}; int audio_offset = 0, next_offset, n, overlay = 0, video_count = 0, video_seq = 0, audio_length, quit = 0, is_2x = 0, video_hash_seq = 0; unsigned int video_hash = 0;
+    static unsigned char frame[FRAME], frame2[FRAME2], packet[POLL_PACKET_MAX]; SDL_Surface *screen, *canvas; SDL_Event event; SDL_AudioSpec audio, obtained; Metrics metrics = {0}; SessionStats stats = {0}; HeldState held = {0}; int audio_offset = 0, next_offset, n, overlay = 0, video_count = 0, video_seq = 0, audio_length, quit = 0, is_2x = 0, video_hash_seq = 0, cyan_background = 0; unsigned int video_hash = 0;
     const unsigned char *audio_data; unsigned int poll_revision, input_acked = 0; int diagnostic;
     long long video_window = now_ms(), network_window = video_window, video_hash_at = 0; long long request_started, stage_started, elapsed; size_t network_bytes = 0;
     input_devices_init(&input_devices);
     fprintf(stderr, "presenter: starting\n"); fflush(stderr);
     if (argc == 2 && !strcmp(argv[1], "--local-pattern")) return local_pattern();
-    if (argc != 5 && argc != 6) { fprintf(stderr, "usage: %s HOST PORT TOKEN_FILE SESSION [poll|websocket]\n", argv[0]); return 2; }
+    if (argc != 5 && argc != 6 && argc != 7) { fprintf(stderr, "usage: %s HOST PORT TOKEN_FILE SESSION [poll|websocket] [cyan-background]\n", argv[0]); return 2; }
     host = argv[1]; port = argv[2]; token_path = argv[3]; session = argv[4];
-    transport = argc == 6 ? argv[5] : "poll";
+    transport = argc >= 6 ? argv[5] : "poll";
     if (strcmp(transport, "poll") && strcmp(transport, "websocket")) { fprintf(stderr, "presenter: invalid transport %s\n", transport); return 2; }
+    if (argc == 7 && strcmp(argv[6], "cyan-background")) { fprintf(stderr, "presenter: invalid background mode %s\n", argv[6]); return 2; }
+    cyan_background = argc == 7;
     diagnostic = !strncmp(session, "rainbow-cat-", 12);
     if (diagnostic) overlay = 1;
     if (!(file = fopen(token_path, "r")) || !fgets(token, sizeof(token), file)) { fprintf(stderr, "cannot read token file %s\n", token_path); return 2; }
@@ -606,7 +610,7 @@ int main(int argc, char **argv) {
                      * software scale.  The browser likewise sends its control
                      * update before its next paint gets a chance to run. */
                     if (!stream.failed) { stage_started = now_ms(); lws_service(stream.context, 0); stage_add(stage_started, &stats.service_total, &stats.service_samples, &stats.service_min, &stats.service_max); }
-                    stage_started = now_ms(); audio_metrics(&metrics); if (is_2x) render_2x(screen, frame2, overlay, &metrics, diagnostic); else render(screen, canvas, frame, overlay, &metrics, diagnostic);
+                    stage_started = now_ms(); audio_metrics(&metrics); if (is_2x) render_2x(screen, frame2, overlay, &metrics, diagnostic, cyan_background); else render(screen, canvas, frame, overlay, &metrics, diagnostic, cyan_background);
                     stage_add(stage_started, &stats.render_total, &stats.render_samples, &stats.render_min, &stats.render_max); frame_presented(&stats);
                 } else { fprintf(stderr, "presenter: invalid websocket packet\n"); stream.failed = 1; }
             }
@@ -660,7 +664,7 @@ int main(int argc, char **argv) {
             if (is_2x && now_ms() - video_hash_at >= 2000) { video_hash = frame_crc32(frame2); video_hash_seq = video_seq; video_hash_at = now_ms(); }
             stage_add(stage_started, &stats.decode_total, &stats.decode_samples, &stats.decode_min, &stats.decode_max);
             stage_started = now_ms(); audio_metrics(&metrics);
-            if (is_2x) render_2x(screen, frame2, overlay, &metrics, diagnostic); else render(screen, canvas, frame, overlay, &metrics, diagnostic);
+            if (is_2x) render_2x(screen, frame2, overlay, &metrics, diagnostic, cyan_background); else render(screen, canvas, frame, overlay, &metrics, diagnostic, cyan_background);
             stage_add(stage_started, &stats.render_total, &stats.render_samples, &stats.render_min, &stats.render_max); frame_presented(&stats);
             if (poll_revision > input_acked) { metrics.input_last_ms = metrics.video_last_ms; input_acked = poll_revision; stats.input_acks++; range_add(metrics.input_last_ms, &stats.input_rtt_min, &stats.input_rtt_max, &stats.input_rtt_total); }
         } else if (n == -2) {

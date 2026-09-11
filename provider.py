@@ -37,11 +37,15 @@ def run(game_id, config):
     if transport not in ("poll", "websocket"): raise RuntimeError("Neplatný transport vzdialeného DOSBoxu.")
     parsed = urllib.parse.urlparse(config["remote_dosbox_url"])
     if parsed.scheme != "http" or not parsed.hostname: raise RuntimeError("Neplatná adresa vzdialeného DOSBoxu.")
+    debug_background = config.get("remote_dosbox_debug_background", "none").lower()
+    if debug_background not in ("none", "cyan"): raise RuntimeError("Neplatné ladiace pozadie vzdialeného DOSBoxu.")
     session = remote.start_session(game_id, config.get("video_filter", "none"), transport, config.get("remote_dosbox_compression", ""))
     try:
         # The launcher service supplies the appliance SDL/fbcon and ALSA setup.
         # This provider only owns the DOS stream session and its input protocol.
-        return subprocess.call([str(presenter), parsed.hostname, str(parsed.port or 80), str(Path(config["remote_dosbox_token_file"]).expanduser()), session["id"], transport])
+        command = [str(presenter), parsed.hostname, str(parsed.port or 80), str(Path(config["remote_dosbox_token_file"]).expanduser()), session["id"], transport]
+        if debug_background == "cyan": command.append("cyan-background")
+        return subprocess.call(command)
     finally:
         try: remote.stop_session(session["id"])
         except (RemoteUnavailable, RemoteProtocolError): pass
