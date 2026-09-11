@@ -48,6 +48,9 @@ class StreamBackendTests(unittest.TestCase):
                                                     compression="zlib-2x")
         self.assertNotIn("scaler=normal2x", normal)
         self.assertIn("[render]\nscaler=normal2x", two_x)
+        tv = backend.StreamState._dosbox_config(backend.safe_relative_path("GP.EXE"), 22050,
+                                                compression="zlib-2x", video_scaling="tv2x")
+        self.assertIn("[render]\nscaler=tv2x", tv)
 
     def test_xvfb_uses_a_visual_accepted_by_debian_dosbox(self):
         source = STATE_MODULE.read_text()
