@@ -420,27 +420,27 @@ class StreamBackendTests(unittest.TestCase):
         import zlib
         self.assertEqual(zlib.decompress(packet[16:]), frame)
 
-    def test_zlib_2x_delta_encodes_only_changed_32x32_tiles(self):
+    def test_zlib_2x_delta_encodes_only_changed_16x16_tiles(self):
         previous = bytes(640 * 480 * 2)
         frame = bytearray(previous)
-        frame[(32 * 640 + 32) * 2] = 0xff
+        frame[(16 * 640 + 16) * 2] = 0xff
         packet, keyframe, delivered, _cursor = backend.StreamState._video_2x_packet(bytes(frame), bytearray(previous), 10, 13, False)
         self.assertFalse(keyframe)
         self.assertEqual(delivered, frame)
         self.assertEqual(packet[:8], b"P2V1\x05\x00\x00\x01")
-        self.assertEqual(len(packet), backend.VIDEO_PACKET_HEADER + 2 + 32 * 32 * 2)
+        self.assertEqual(len(packet), backend.VIDEO_PACKET_HEADER + 2 + 16 * 16 * 2)
 
     def test_zlib_2x_delta_is_limited_and_converges_from_delivered_state(self):
         delivered = bytearray(640 * 480 * 2)
         frame = bytearray(delivered)
-        for tile in range(30):
-            tile_x, tile_y = tile % 20, tile // 20
-            frame[((tile_y * 32 * 640 + tile_x * 32) * 2)] = tile + 1
+        for tile in range(120):
+            tile_x, tile_y = tile % 40, tile // 40
+            frame[((tile_y * 16 * 640 + tile_x * 16) * 2)] = tile + 1
         packet, keyframe, delivered, cursor = backend.StreamState._video_2x_packet(bytes(frame), delivered, 11, 0, False)
         self.assertFalse(keyframe)
-        self.assertEqual(struct.unpack_from(">H", packet, 6)[0], 24)
+        self.assertEqual(struct.unpack_from(">H", packet, 6)[0], 112)
         self.assertNotEqual(delivered, frame)
-        self.assertEqual(cursor, 24)
+        self.assertEqual(cursor, 112)
 
     def test_zlib_2x_hash_history_is_bounded(self):
         item = {}

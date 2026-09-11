@@ -15,8 +15,8 @@ from streaming.backend.stream_models import (VIDEO_BYTES, VIDEO_HEIGHT, VIDEO_KE
 VIDEO_2X_WIDTH = 640
 VIDEO_2X_HEIGHT = 480
 VIDEO_2X_BYTES = VIDEO_2X_WIDTH * VIDEO_2X_HEIGHT * 2
-VIDEO_2X_TILE = 32
-VIDEO_2X_MAX_TILES = 24
+VIDEO_2X_TILE = 16
+VIDEO_2X_MAX_TILES = 112
 VIDEO_HASH_HISTORY = 150
 
 
@@ -179,7 +179,7 @@ class VideoMixin:
     @staticmethod
     def _video_2x_packet(frame: bytes, delivered: bytearray | None, sequence: int, capture_ms: int,
                          keyframe: bool, cursor: int = 0) -> tuple[bytes, bool, bytearray, int]:
-        """Encode a recoverable 2x keyframe or raw 32x32 changed tiles.
+        """Encode a recoverable 2x keyframe or raw 16x16 changed tiles.
 
         Kind 4 is a zlib keyframe. Kind 5 has raw tiles: avoiding a 614 KiB
         inflate for each moving frame is essential on the ARMv6 Pi.
