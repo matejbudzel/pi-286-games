@@ -44,22 +44,17 @@ When `audio_capture=loopback`, the Proxmox host—not the LXC—must load
 container. Do this before running the in-container installer; the installer
 checks for the nodes and stops with a clear error if one is missing.
 
-On the Proxmox host, after confirming the Loopback card is card `1` and that
-the LXC service user maps to UID `999` and GID `991`, configure LXC 112 as
-follows:
+On the Proxmox host, run the checked-in setup script as root. It reserves the
+Loopback card at index `0`, requires its three nodes before LXC 112 starts,
+and passes those nodes to the service user (UID `999`, GID `991`):
 
 ```sh
-printf 'snd_aloop\n' >/etc/modules-load.d/snd-aloop.conf
-modprobe snd_aloop
-pct set 112 -dev0 /dev/snd/controlC1,uid=999,gid=991,mode=0660
-pct set 112 -dev1 /dev/snd/pcmC1D0p,uid=999,gid=991,mode=0660
-pct set 112 -dev3 /dev/snd/pcmC1D1c,uid=999,gid=991,mode=0660
-pct reboot 112
+scripts/configure-loopback-proxmox.sh
 ```
 
-`pcmC1D0p` is DOSBox's playback endpoint and `pcmC1D1c` is the paired capture
-endpoint used by `arecord`. The card number is host-dependent; use
-`aplay -l`/`arecord -l` and adjust every `C1` path consistently if it differs.
+`pcmC0D0p` is DOSBox's playback endpoint and `pcmC0D1c` is the paired capture
+endpoint used by `arecord`. The script fails before starting the container if
+the loopback card cannot be loaded or either node is missing.
 
 The server's private game data root is configured with `game_data_root` and
 defaults to `/srv/pi286-games`. Administrators provision game files there in
