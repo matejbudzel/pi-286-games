@@ -13,7 +13,7 @@ import threading
 import time
 from pathlib import Path, PurePosixPath
 
-from streaming.backend.stream_models import (DEFAULTS, KEYS, PCM_CHUNK_BYTES, RAINBOW_CAT_COM, VIDEO_HEIGHT, VIDEO_SCALING_MODES, load_games, safe_relative_path, GameDefinition)
+from streaming.backend.stream_models import (AUDIO_QUEUE_TARGET_MS, DEFAULTS, KEYS, PCM_CHUNK_BYTES, RAINBOW_CAT_COM, VIDEO_HEIGHT, VIDEO_SCALING_MODES, load_games, safe_relative_path, GameDefinition)
 from streaming.backend.stream_video import VideoMixin
 
 
@@ -479,12 +479,15 @@ class StreamState(VideoMixin):
         video_hash_sequence = request.get("video_hash_sequence", 0)
         video_hash = request.get("video_hash", 0)
         audio_offset = request.get("audio_offset", 0)
+        audio_queued_ms = request.get("audio_queued_ms", 0)
         if (not isinstance(revision, int) or revision < 0 or not isinstance(video_seq, int) or video_seq < 0 or
                 not isinstance(video_hash_sequence, int) or video_hash_sequence < 0 or
                 not isinstance(video_hash, int) or video_hash < 0 or video_hash > 0xffffffff):
             raise ValueError("invalid poll revision")
         if not isinstance(audio_offset, int) or audio_offset < 0 or audio_offset % 2:
             raise ValueError("invalid poll audio offset")
+        if not isinstance(audio_queued_ms, int) or audio_queued_ms < 0 or audio_queued_ms > 10000:
+            raise ValueError("invalid queued audio duration")
         if not isinstance(held, list) or len(held) > 64 or any(not isinstance(key, str) or key not in KEYS for key in held):
             raise ValueError("invalid held key state")
         if not isinstance(pad_held, list) or any(not isinstance(button, int) or button < 0 or button > 8 for button in pad_held):
@@ -556,7 +559,10 @@ class StreamState(VideoMixin):
                         self._record_poll(item, revision, input_updated, started, video_started, audio_started, "stale")
                     return None
                 self._record_video_packet(item["poll_stats"], video, force_keyframe)
-            audio, next_audio = self.audio_chunk(session_id, audio_offset)
+            if audio_queued_ms < AUDIO_QUEUE_TARGET_MS:
+                audio, next_audio = self.audio_chunk(session_id, audio_offset)
+            else:
+                audio, next_audio = b"", audio_offset
             with self.lock:
                 item = self.active.get(session_id)
                 if not item or revision < item.get("poll_revision", -1):

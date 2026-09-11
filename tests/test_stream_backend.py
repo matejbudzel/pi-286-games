@@ -214,6 +214,17 @@ class StreamBackendTests(unittest.TestCase):
             self.assertEqual(stats["stale"], 0)
             self.assertEqual(stats["total_ms"]["count"], 1)
 
+    def test_poll_holds_audio_when_the_presenter_jitter_buffer_is_full(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = backend.StreamState(dict(backend.DEFAULTS, state_root=directory), "x" * 32)
+            state.active["one"] = {"dosbox": SimpleNamespace(poll=lambda: None), "held_keys": set(), "video_sequence": 0}
+            state._sync_held_keys = lambda item, keys: item.update(held_keys=keys)
+            state.video_frame = lambda session, force: (b"video", 1, 2)
+            state.audio_chunk = lambda *_args: self.fail("full Pi audio queue must not receive more PCM")
+            packet = state.poll("one", {"input_revision": 1, "video_seq": 0, "audio_offset": 6,
+                                        "audio_queued_ms": 200, "held_keys": []})
+            self.assertEqual(packet, struct.pack(">4sIII", b"P2P1", 5, 0, 6) + b"video")
+
     def test_poll_does_not_force_keyframes_for_an_inflight_acknowledgement(self):
         with tempfile.TemporaryDirectory() as directory:
             state = backend.StreamState(dict(backend.DEFAULTS, state_root=directory), "x" * 32)

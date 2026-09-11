@@ -53,8 +53,8 @@ void pad_update(HeldState *held, int button, int pressed) {
 }
 
 int poll_body(char *body, size_t size, const HeldState *held, int video_seq, int audio_offset,
-              int video_hash_sequence, unsigned int video_hash) {
-    int used, index; used = snprintf(body, size, "{\"input_revision\":%u,\"video_seq\":%d,\"video_hash_sequence\":%d,\"video_hash\":%u,\"audio_offset\":%d,\"keyboard_held\":[", held->revision, video_seq, video_hash_sequence, video_hash, audio_offset);
+              int video_hash_sequence, unsigned int video_hash, int audio_queued_ms) {
+    int used, index; used = snprintf(body, size, "{\"input_revision\":%u,\"video_seq\":%d,\"video_hash_sequence\":%d,\"video_hash\":%u,\"audio_offset\":%d,\"audio_queued_ms\":%d,\"keyboard_held\":[", held->revision, video_seq, video_hash_sequence, video_hash, audio_offset, audio_queued_ms);
     if (used < 0 || (size_t)used >= size) return -1;
     for (index = 0; index < held->count; index++) { int added = snprintf(body + used, size - (size_t)used, "%s\"%s\"", index ? "," : "", held->keys[index]); if (added < 0 || (size_t)added >= size - (size_t)used) return -1; used += added; }
     if ((size_t)used + 20 >= size) return -1;
