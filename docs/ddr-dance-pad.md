@@ -2,12 +2,12 @@
 
 The appliance supports exactly one USB pad: `WiseGroup.,Ltd X-PAD, Extreme
 Dance Pad`. It is a second input path, not a replacement for the keyboard.
-Keyboard and pad controls work at the same time, and the launcher can be used
+Keyboard and pad controls work at the same time, and the generic launcher can be used
 with only the pad attached.
 
-The launcher reads Linux's lightweight joystick interface (`/dev/input/js*`);
-it does not use pygame and does not translate joystick input through a separate
-daemon. The device exposes two axes, ten buttons and no hats. Its axes are
+The generic launcher reads Linux's lightweight joystick interface (`/dev/input/js*`)
+while its menu is active; the DOS presenter opens its own input devices while a
+game runs. Neither uses pygame or an input proxy. The device exposes two axes, ten buttons and no hats. Its axes are
 deliberately ignored: every useful physical panel is a direct button.
 The launcher first matches its exact name and also accepts its fixed 2-axis,
 10-button signature for kernels that present a slightly different USB name.
@@ -32,19 +32,12 @@ position.
 
 In the menu, button 2 moves up, button 1 moves down, button 0 and button 3
 are available as left/right, button 8 confirms, and button 9 goes back.
-Selecting a title first opens its full-screen pad layout. Press keyboard Space
-or button 8 to launch, or Escape/button 9 to return to the menu.
+Press keyboard Space or button 8 to launch, or Escape/button 9 to return to the menu.
 
-The pre-game screen checks the known pad and Linux keyboard handlers. With both
-present it shows the physical pad layout plus the relevant keyboard keys; with
-only one it shows only that device's instructions. If input discovery is
-unavailable or sees neither device, it safely falls back to keyboard-only
-instructions. The pad diagram is not drawn unless the X-PAD is connected.
-
-Button 9 is permanently reserved as SELECT. While a streamed game is running,
-the presenter returns to the launcher. It is never sent to the remote game. F1
-is always available as the keyboard panic control too; it needs no host
-configuration.
+Button 9 is permanently reserved as SELECT by this DOS provider. While a
+streamed game is running, the presenter returns to the generic launcher. It is
+never sent to the remote game. F1 is the provider's keyboard panic control;
+other providers define their own game exit behaviour.
 
 ## Per-game configuration
 
@@ -71,8 +64,8 @@ cannot leak between games.
 
 ## Testing the pad on DietPi
 
-The appliance user must be in the `input` group (the installer already does
-this). After changing groups, reboot or log in again. Confirm the device exists
+The appliance user must be in the `input` group (the generic launcher installer
+does this). After changing groups, reboot or log in again. Confirm the device exists
 with:
 
 ```sh

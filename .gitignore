@@ -1,4 +1,4 @@
-config/host.conf
+config/provider.conf
 pi-286-game-files/
 __pycache__/
 *.pyc
@@ -6,4 +6,3 @@ __pycache__/
 .cache/
 dist/
 streaming/backend/bin/
-config/local-apps/

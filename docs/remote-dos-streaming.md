@@ -72,9 +72,10 @@ uses its safe Python/XWD path instead.
 ## Presenters and input
 
 The Pi presenter authenticates to the token-protected `/v1` endpoints. It
-draws through classic SDL 1.2 fbcon and plays audio locally. Its normal
-keyboard keys are forwarded directly, apart from F1 which returns to the
-launcher and F8 which toggles the local HUD.
+inherits classic SDL 1.2 fbcon and HDMI ALSA defaults from `pi-games-launcher`
+when that launcher hands it the console. Its normal keyboard keys are
+forwarded directly, apart from F1 which returns to the launcher and F8 which
+toggles the local HUD.
 
 The LXC serves the browser UI itself at its root URL. The browser uses the
 unauthenticated, trusted-LAN `/web/api` namespace on the same origin, so it

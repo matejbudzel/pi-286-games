@@ -1,13 +1,16 @@
 #!/bin/sh
 set -eu
 repo=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-sysroot=${PI286_SYSROOT:-$repo/.cache/pi286-sysroot}
-stage=${SDL12_FBCON_STAGE_DIR:-$repo/.cache/sdl12-fbcon-stage}
+# SDL and the target sysroot are appliance concerns.  Reuse the launcher
+# checkout's build artifacts rather than carrying a second SDL toolchain.
+launcher_repo=${PI_GAMES_LAUNCHER_REPO:-$repo/../pi-games-launcher}
+sysroot=${PI286_SYSROOT:-$launcher_repo/.cache/pi286-sysroot}
+stage=${SDL12_FBCON_STAGE_DIR:-$launcher_repo/.cache/sdl12-fbcon-stage}
 out=${STREAM_PRESENTER_OUTPUT:-$repo/dist/pi286-stream-presenter-rpi1-armv6-armhf}
 cc=${CROSS_COMPILE:-arm-linux-gnueabihf-}gcc
 "$repo/scripts/cross-build-libwebsockets.sh"
 lws_stage=${LWS_STAGE_DIR:-$repo/.cache/libwebsockets-armv6-stage}
-test -f "$sysroot/usr/include/alsa/asoundlib.h" && test -f "$stage/opt/sdl12-fbcon/include/SDL/SDL.h" || { echo "missing Pi sysroot or staged SDL" >&2; exit 1; }
+test -f "$sysroot/usr/include/alsa/asoundlib.h" && test -f "$stage/opt/sdl12-fbcon/include/SDL/SDL.h" || { echo "missing launcher Pi sysroot or staged SDL; run pi-games-launcher/scripts/dev-sdl.sh build first" >&2; exit 1; }
 mkdir -p "$(dirname "$out")"
 flags='-O2 -fomit-frame-pointer -marm -march=armv6zk -mtune=arm1176jzf-s -mfpu=vfp -mfloat-abi=hard'
 objects=""
