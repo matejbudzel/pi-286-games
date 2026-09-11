@@ -68,7 +68,7 @@ class VideoMixin:
             temporary = self.runtime / f"{session_id}-video-{secrets.token_hex(4)}.xwd"
             try:
                 two_x = item.get("compression") == "zlib-2x"
-                frame = None if two_x else self._native_frame(item["framebuffer"], item.get("video_scaling", "nearest"))
+                frame = self._native_frame(item["framebuffer"], item.get("video_scaling", "nearest"), two_x)
                 source = None if frame is not None else self._stable_xvfb_frame(item["framebuffer"])
                 if source is None and frame is None:
                     # Direct Xvfb memory reads are much faster than running xwd
@@ -115,17 +115,21 @@ class VideoMixin:
                 return second
         return None
 
-    def _native_frame(self, framebuffer: Path, scaling: str) -> bytes | None:
+    def _native_frame(self, framebuffer: Path, scaling: str, two_x: bool = False) -> bytes | None:
         """Use the optional native server helper, preserving Python fallback."""
         helper = Path(self.config.get("capture_helper", ""))
         if not helper.is_file() or not os.access(helper, os.X_OK):
             return None
         try:
-            result = subprocess.run([str(helper), str(framebuffer), scaling], stdout=subprocess.PIPE,
+            command = [str(helper), str(framebuffer), scaling]
+            if two_x:
+                command.append("2x")
+            result = subprocess.run(command, stdout=subprocess.PIPE,
                                     stderr=subprocess.DEVNULL, timeout=2, check=False)
         except OSError:
             return None
-        if result.returncode == 0 and len(result.stdout) == VIDEO_BYTES:
+        expected = VIDEO_2X_BYTES if two_x else VIDEO_BYTES
+        if result.returncode == 0 and len(result.stdout) == expected:
             return result.stdout
         return None
 

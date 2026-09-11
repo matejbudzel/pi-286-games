@@ -4,6 +4,7 @@ import struct
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 from types import SimpleNamespace
 from pathlib import Path
 
@@ -123,6 +124,18 @@ class StreamBackendTests(unittest.TestCase):
             state = backend.StreamState({**backend.DEFAULTS, "state_root": directory,
                                          "capture_helper": str(Path(directory) / "missing")}, "x" * 32)
             self.assertIsNone(state._native_frame(Path(directory) / "Xvfb_screen0", "nearest"))
+
+    def test_native_capture_helper_uses_2x_output_mode(self):
+        with tempfile.TemporaryDirectory() as directory:
+            helper = Path(directory) / "capture"
+            helper.touch()
+            helper.chmod(0o700)
+            state = backend.StreamState({**backend.DEFAULTS, "state_root": directory,
+                                         "capture_helper": str(helper)}, "x" * 32)
+            result = SimpleNamespace(returncode=0, stdout=bytes(640 * 480 * 2))
+            with patch.object(backend.StreamState._native_frame.__globals__["subprocess"], "run", return_value=result) as run:
+                self.assertEqual(state._native_frame(Path(directory) / "Xvfb_screen0", "crt-lite", True), result.stdout)
+            self.assertEqual(run.call_args.args[0], [str(helper), str(Path(directory) / "Xvfb_screen0"), "crt-lite", "2x"])
 
     def test_frame_names_are_strict_and_do_not_escape_runtime(self):
         with tempfile.TemporaryDirectory() as directory:
