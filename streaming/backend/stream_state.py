@@ -523,11 +523,13 @@ class StreamState(VideoMixin):
                         now = time.monotonic()
                         self._record_poll(item, revision, input_updated, started, now, now, "stale")
                     return None
-                # TCP/WebSocket frames are ordered.  A client that reports an
-                # older frame really missed media and needs a recovery frame;
-                # a newer acknowledgement can only be an in-flight control
-                # update and must not turn every cycle into a 150 KiB frame.
-                force_keyframe = video_seq < item.get("video_sequence", 0)
+                # The stream is reliable and ordered. A control update can
+                # legitimately carry an earlier acknowledgement while a
+                # newer media frame is being painted; forcing a keyframe in
+                # that case creates a self-amplifying 150 KiB-frame backlog.
+                # The first frame and bounded periodic keyframes below retain
+                # recovery, while a reconnect preserves the presenter's frame.
+                force_keyframe = False
             video_started = time.monotonic()
             video, _sequence, _capture_ms = self.video_frame(session_id, force_keyframe)
             audio_started = time.monotonic()
