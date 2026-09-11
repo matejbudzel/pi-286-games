@@ -35,8 +35,10 @@ static void audio_metrics(Metrics *metrics);
 typedef struct {
     long long started_ms, started_cpu_ms, video_request_total, server_capture_total, audio_queue_total, input_rtt_total;
     long long input_total, service_total, decode_total, render_total, frame_gap_total, last_presented_ms;
-    unsigned long payload_bytes;
+    unsigned long payload_bytes, video_payload_bytes;
     unsigned int video_frames, video_failures, audio_samples, audio_failures, input_events, input_acks, input_failures;
+    unsigned int video_keyframes, video_deltas, video_delta_tiles;
+    int video_packet_min, video_packet_max, video_delta_tiles_max;
     unsigned int polls_started, polls_completed, polls_cancelled, polls_stale, polls_failed, input_samples, service_samples, decode_samples, render_samples, frame_gap_samples;
     int video_request_min, video_request_max, server_capture_min, server_capture_max, input_min, input_max, service_min, service_max;
     int decode_min, decode_max, render_min, render_max, frame_gap_min, frame_gap_max, frame_gaps[256], frame_gap_used;
@@ -97,6 +99,25 @@ static void frame_presented(SessionStats *stats) {
     stats->last_presented_ms = presented;
 }
 
+/* The outer poll also carries PCM.  Keep video separately: a growing number
+ * of full frames after a key press is the important streaming diagnosis. */
+static void video_packet_stats(SessionStats *stats, const unsigned char *packet, size_t length) {
+    unsigned int video_length, tiles;
+    if (length < POLL_HEADER + VIDEO_HEADER || memcmp(packet, "P2P1", 4)) return;
+    video_length = ((unsigned int)packet[4] << 24) | ((unsigned int)packet[5] << 16) |
+                   ((unsigned int)packet[6] << 8) | packet[7];
+    if (video_length < VIDEO_HEADER || length < POLL_HEADER + video_length || memcmp(packet + POLL_HEADER, "P2V1", 4)) return;
+    stats->video_payload_bytes += video_length;
+    if ((int)video_length < stats->video_packet_min) stats->video_packet_min = (int)video_length;
+    if ((int)video_length > stats->video_packet_max) stats->video_packet_max = (int)video_length;
+    if (packet[POLL_HEADER + 4] == 1) stats->video_keyframes++;
+    else if (packet[POLL_HEADER + 4] == 2) {
+        tiles = ((unsigned int)packet[POLL_HEADER + 6] << 8) | packet[POLL_HEADER + 7];
+        stats->video_deltas++; stats->video_delta_tiles += tiles;
+        if ((int)tiles > stats->video_delta_tiles_max) stats->video_delta_tiles_max = (int)tiles;
+    }
+}
+
 static void write_session_stats(const char *session, const SessionStats *stats, Metrics *metrics) {
     char cache[512], directory[512], last[576], history[576]; const char *home = getenv("HOME"); FILE *file;
     long long duration = now_ms() - stats->started_ms, cpu = cpu_ms() - stats->started_cpu_ms;
@@ -108,9 +129,11 @@ static void write_session_stats(const char *session, const SessionStats *stats, 
     mkdir(directory, 0700);
     snprintf(last, sizeof(last), "%s/last-session-stats.txt", directory);
     if ((file = fopen(last, "w"))) {
-        fprintf(file, "session=%s\nduration_ms=%lld\ncpu_ms=%lld\ncpu_percent_x10=%lld\npolls_started=%u\npolls_completed=%u\npolls_cancelled=%u\npolls_stale=%u\npolls_failed=%u\nvideo_frames=%u\nvideo_fps_x10=%lld\nframe_gap_ms_avg=%lld\nframe_gap_ms_p50=%d\nframe_gap_ms_p95=%d\nframe_gap_ms_max=%d\ninput_stage_ms_total=%lld\ninput_stage_ms_avg=%lld\ninput_stage_ms_max=%d\ntransport_wait_ms_total=%lld\ntransport_wait_ms_avg=%lld\ntransport_wait_ms_max=%d\ndecode_audio_ms_total=%lld\ndecode_audio_ms_avg=%lld\ndecode_audio_ms_max=%d\nrender_flip_ms_total=%lld\nrender_flip_ms_avg=%lld\nrender_flip_ms_max=%d\nvideo_request_ms_avg=%lld\nvideo_request_ms_min=%d\nvideo_request_ms_max=%d\nserver_capture_ms_avg=%lld\nserver_capture_ms_min=%d\nserver_capture_ms_max=%d\nvideo_failures=%u\naudio_queue_ms_avg=%lld\naudio_queue_ms_min=%d\naudio_queue_ms_max=%d\naudio_underruns=%d\naudio_failures=%u\ninput_events=%u\ninput_acks=%u\ninput_rtt_ms_avg=%lld\ninput_rtt_ms_min=%d\ninput_rtt_ms_max=%d\ninput_failures=%u\npayload_bytes=%lu\npayload_kbytes_per_second=%lld\n",
+        fprintf(file, "session=%s\nduration_ms=%lld\ncpu_ms=%lld\ncpu_percent_x10=%lld\npolls_started=%u\npolls_completed=%u\npolls_cancelled=%u\npolls_stale=%u\npolls_failed=%u\nvideo_frames=%u\nvideo_fps_x10=%lld\nvideo_keyframes=%u\nvideo_deltas=%u\nvideo_delta_tiles=%u\nvideo_delta_tiles_max=%d\nvideo_packet_bytes_avg=%lu\nvideo_packet_bytes_min=%d\nvideo_packet_bytes_max=%d\nframe_gap_ms_avg=%lld\nframe_gap_ms_p50=%d\nframe_gap_ms_p95=%d\nframe_gap_ms_max=%d\ninput_stage_ms_total=%lld\ninput_stage_ms_avg=%lld\ninput_stage_ms_max=%d\ntransport_wait_ms_total=%lld\ntransport_wait_ms_avg=%lld\ntransport_wait_ms_max=%d\ndecode_audio_ms_total=%lld\ndecode_audio_ms_avg=%lld\ndecode_audio_ms_max=%d\nrender_flip_ms_total=%lld\nrender_flip_ms_avg=%lld\nrender_flip_ms_max=%d\nvideo_request_ms_avg=%lld\nvideo_request_ms_min=%d\nvideo_request_ms_max=%d\nserver_capture_ms_avg=%lld\nserver_capture_ms_min=%d\nserver_capture_ms_max=%d\nvideo_failures=%u\naudio_queue_ms_avg=%lld\naudio_queue_ms_min=%d\naudio_queue_ms_max=%d\naudio_underruns=%d\naudio_failures=%u\ninput_events=%u\ninput_acks=%u\ninput_rtt_ms_avg=%lld\ninput_rtt_ms_min=%d\ninput_rtt_ms_max=%d\ninput_failures=%u\npayload_bytes=%lu\npayload_kbytes_per_second=%lld\n",
                 session, duration, cpu, duration ? cpu * 1000 / duration : 0, stats->polls_started, stats->polls_completed, stats->polls_cancelled, stats->polls_stale, stats->polls_failed,
                 stats->video_frames, duration ? stats->video_frames * 10000 / duration : 0,
+                stats->video_keyframes, stats->video_deltas, stats->video_delta_tiles, stats->video_delta_tiles_max,
+                stats->video_frames ? stats->video_payload_bytes / stats->video_frames : 0, stats->video_frames ? stats->video_packet_min : 0, stats->video_packet_max,
                 stats->frame_gap_samples ? stats->frame_gap_total / stats->frame_gap_samples : 0, frame_gap_percentile(stats, 50), frame_gap_percentile(stats, 95), stats->frame_gap_samples ? stats->frame_gap_max : 0,
                 stats->input_total, stats->input_samples ? stats->input_total / stats->input_samples : 0, stats->input_samples ? stats->input_max : 0,
                 stats->service_total, stats->service_samples ? stats->service_total / stats->service_samples : 0, stats->service_samples ? stats->service_max : 0,
@@ -383,7 +406,10 @@ static int pump_events(void) {
             *event_state.quit = 1; return 1;
         }
         if ((event.type == SDL_KEYDOWN || event.type == SDL_KEYUP) && (key = dos_key(event.key.keysym.sym))) pressed = event.type == SDL_KEYDOWN;
-        if (key) held_update(event_state.held, key, pressed);
+        if (key) {
+            fprintf(stderr, "presenter: SDL key %s %s\n", key, pressed ? "down" : "up"); fflush(stderr);
+            held_update(event_state.held, key, pressed);
+        }
         if (event_state.held->revision != before) { event_state.stats->input_events++; changed = 1; }
     }
     if (input_devices_poll(&input_devices, event_state.held, event_state.quit, now_ms())) {
@@ -529,7 +555,7 @@ int main(int argc, char **argv) {
     fprintf(stderr, "presenter: ready\n"); fflush(stderr);
     SDL_PauseAudio(0);
     stats.started_ms = now_ms(); stats.started_cpu_ms = cpu_ms();
-    stats.video_request_min = stats.server_capture_min = stats.audio_queue_min = stats.input_rtt_min = 1000000;
+    stats.video_request_min = stats.server_capture_min = stats.audio_queue_min = stats.input_rtt_min = stats.video_packet_min = 1000000;
     stats.input_min = stats.service_min = stats.decode_min = stats.render_min = stats.frame_gap_min = 1000000;
     if (!strcmp(transport, "websocket")) {
         LwsStream stream; int sent_revision;
@@ -543,6 +569,7 @@ int main(int argc, char **argv) {
                 request_started = now_ms(); metrics.video_last_ms = (int)(now_ms() - request_started); stage_started = now_ms();
                 if (apply_poll_packet(frame, stream.packet, (size_t)n, &metrics.video_capture_ms, &video_seq, &audio_data, &audio_length, &next_offset)) {
                     stats.polls_completed++; network_bytes += (size_t)n; video_count++; stats.video_frames++; stats.payload_bytes += (unsigned long)n;
+                    video_packet_stats(&stats, stream.packet, (size_t)n);
                     range_add(metrics.video_last_ms, &stats.video_request_min, &stats.video_request_max, &stats.video_request_total);
                     if (metrics.video_capture_ms >= 0) range_add(metrics.video_capture_ms, &stats.server_capture_min, &stats.server_capture_max, &stats.server_capture_total);
                     elapsed = now_ms() - video_window;
@@ -602,6 +629,7 @@ int main(int argc, char **argv) {
         if (n > 0 && apply_poll_packet(frame, packet, (size_t)n, &metrics.video_capture_ms, &video_seq, &audio_data, &audio_length, &next_offset)) {
             stats.polls_completed++;
             network_bytes += (size_t)n; video_count++; stats.video_frames++; stats.payload_bytes += (unsigned long)n;
+            video_packet_stats(&stats, packet, (size_t)n);
             range_add(metrics.video_last_ms, &stats.video_request_min, &stats.video_request_max, &stats.video_request_total);
             if (metrics.video_capture_ms >= 0) range_add(metrics.video_capture_ms, &stats.server_capture_min, &stats.server_capture_max, &stats.server_capture_total);
             elapsed = now_ms() - video_window;

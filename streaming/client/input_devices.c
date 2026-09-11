@@ -132,6 +132,7 @@ int input_devices_poll(InputDevices *devices, HeldState *held, int *quit, long l
                 if (events[j].type != EV_KEY) continue;
                 if (events[j].code == KEY_F1) { if (events[j].value == 1) *quit = 1; continue; }
                 key = linux_dos_key(events[j].code);
+                if (key && events[j].value != 2) fprintf(stderr, "presenter: raw key %s %s\n", key, events[j].value ? "down" : "up");
                 if (key && events[j].value != 2) held_update(held, key, events[j].value != 0);
             }
         } else if (count == 0 || (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)) {
