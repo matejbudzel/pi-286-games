@@ -41,7 +41,7 @@ export function createVirtualControls({keyName, active, stop, toggleHud, changed
     for (const button of document.querySelectorAll("[data-pad-button]")) button.classList.remove("active");
   }
   function show(caps) { document.querySelector("#virtual-keys").hidden = !caps.keyboard; document.querySelector("#virtual-pad").hidden = !caps.dancePad; }
-  addEventListener("keydown", event => { if (!active() || event.target === entry) return; if (event.key === "F1") { event.preventDefault(); stop(); return; } if (event.key === "F8") { event.preventDefault(); toggleHud(); return; } const key = keyName(event); if (key) { setHeldSource(`keyboard:${key}`, [key]); event.preventDefault(); } });
+  addEventListener("keydown", event => { if (!active() || event.target === entry) return; if (event.key === "F1") { event.preventDefault(); stop(); return; } const key = keyName(event); if (key) { setHeldSource(`keyboard:${key}`, [key]); event.preventDefault(); } });
   addEventListener("keyup", event => { if (event.target === entry) return; const key = keyName(event); if (key) { setHeldSource(`keyboard:${key}`, []); event.preventDefault(); } });
   document.querySelector("#panic").addEventListener("click", stop);
   document.querySelector("#pad-select").addEventListener("click", stop);

@@ -20,10 +20,12 @@ class StreamPresenterSourceTests(unittest.TestCase):
 
     def test_raw_keyboard_forwards_dos_keys_except_the_local_f1_panic(self):
         source = (Path(__file__).parents[1] / "streaming/client/input_devices.c").read_text()
+        web = (Path(__file__).parents[1] / "streaming/web/static/virtual-controls.js").read_text()
         for key in ("KEY_ESC", "KEY_F8", "KEY_KPENTER", "KEY_LEFTMETA"):
             self.assertIn(key, source)
         self.assertIn('events[j].code == KEY_F1', source)
         self.assertIn('if (key && events[j].value != 2) held_update', source)
+        self.assertNotIn('event.key === "F8"', web)
 
     def test_native_presenter_uses_the_same_normalized_input_schema_as_web(self):
         source = (Path(__file__).parents[1] / "streaming/client/presenter_protocol.c").read_text()

@@ -90,8 +90,8 @@ so game definitions do not use DOSBox `mapperfile` mappings.
 
 ## Diagnostics and session history
 
-The Pi HUD is local and is toggled with F8. Dúhová mačka starts with its HUD
-enabled. When the presenter leaves a session with F1 or SELECT it records a
+The browser HUD is toggled with its on-screen button. Dúhová mačka starts with
+its HUD enabled. When the presenter leaves a session with F1 or SELECT it records a
 summary under `~/.cache/pi286-stream/`; the backend also writes bounded poll
 statistics under `/srv/pi286-stream/runtime/` and emits them to its service
 log. These diagnostics cover media timing, audio queueing and input request
