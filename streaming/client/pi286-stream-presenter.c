@@ -108,21 +108,21 @@ static void write_session_stats(const char *session, const SessionStats *stats, 
     mkdir(directory, 0700);
     snprintf(last, sizeof(last), "%s/last-session-stats.txt", directory);
     if ((file = fopen(last, "w"))) {
-        fprintf(file, "session=%s\nduration_ms=%lld\ncpu_ms=%lld\ncpu_percent_x10=%lld\npolls_started=%u\npolls_completed=%u\npolls_cancelled=%u\npolls_stale=%u\npolls_failed=%u\nvideo_frames=%u\nvideo_fps_x10=%lld\nframe_gap_ms_avg=%lld\nframe_gap_ms_p50=%d\nframe_gap_ms_p95=%d\nframe_gap_ms_max=%d\ninput_stage_ms_avg=%lld\ninput_stage_ms_max=%d\ntransport_wait_ms_avg=%lld\ntransport_wait_ms_max=%d\ndecode_audio_ms_avg=%lld\ndecode_audio_ms_max=%d\nrender_flip_ms_avg=%lld\nrender_flip_ms_max=%d\nvideo_request_ms_avg=%lld\nvideo_request_ms_min=%d\nvideo_request_ms_max=%d\nserver_capture_ms_avg=%lld\nserver_capture_ms_min=%d\nserver_capture_ms_max=%d\nvideo_failures=%u\naudio_queue_ms_avg=%lld\naudio_queue_ms_min=%d\naudio_queue_ms_max=%d\naudio_underruns=%d\naudio_failures=%u\ninput_events=%u\ninput_acks=%u\ninput_rtt_ms_avg=%lld\ninput_rtt_ms_min=%d\ninput_rtt_ms_max=%d\ninput_failures=%u\npayload_bytes=%lu\npayload_kbytes_per_second=%lld\n",
+        fprintf(file, "session=%s\nduration_ms=%lld\ncpu_ms=%lld\ncpu_percent_x10=%lld\npolls_started=%u\npolls_completed=%u\npolls_cancelled=%u\npolls_stale=%u\npolls_failed=%u\nvideo_frames=%u\nvideo_fps_x10=%lld\nframe_gap_ms_avg=%lld\nframe_gap_ms_p50=%d\nframe_gap_ms_p95=%d\nframe_gap_ms_max=%d\ninput_stage_ms_total=%lld\ninput_stage_ms_avg=%lld\ninput_stage_ms_max=%d\ntransport_wait_ms_total=%lld\ntransport_wait_ms_avg=%lld\ntransport_wait_ms_max=%d\ndecode_audio_ms_total=%lld\ndecode_audio_ms_avg=%lld\ndecode_audio_ms_max=%d\nrender_flip_ms_total=%lld\nrender_flip_ms_avg=%lld\nrender_flip_ms_max=%d\nvideo_request_ms_avg=%lld\nvideo_request_ms_min=%d\nvideo_request_ms_max=%d\nserver_capture_ms_avg=%lld\nserver_capture_ms_min=%d\nserver_capture_ms_max=%d\nvideo_failures=%u\naudio_queue_ms_avg=%lld\naudio_queue_ms_min=%d\naudio_queue_ms_max=%d\naudio_underruns=%d\naudio_failures=%u\ninput_events=%u\ninput_acks=%u\ninput_rtt_ms_avg=%lld\ninput_rtt_ms_min=%d\ninput_rtt_ms_max=%d\ninput_failures=%u\npayload_bytes=%lu\npayload_kbytes_per_second=%lld\n",
                 session, duration, cpu, duration ? cpu * 1000 / duration : 0, stats->polls_started, stats->polls_completed, stats->polls_cancelled, stats->polls_stale, stats->polls_failed,
                 stats->video_frames, duration ? stats->video_frames * 10000 / duration : 0,
                 stats->frame_gap_samples ? stats->frame_gap_total / stats->frame_gap_samples : 0, frame_gap_percentile(stats, 50), frame_gap_percentile(stats, 95), stats->frame_gap_samples ? stats->frame_gap_max : 0,
-                stats->input_samples ? stats->input_total / stats->input_samples : 0, stats->input_samples ? stats->input_max : 0,
-                stats->service_samples ? stats->service_total / stats->service_samples : 0, stats->service_samples ? stats->service_max : 0,
-                stats->decode_samples ? stats->decode_total / stats->decode_samples : 0, stats->decode_samples ? stats->decode_max : 0,
-                stats->render_samples ? stats->render_total / stats->render_samples : 0, stats->render_samples ? stats->render_max : 0,
+                stats->input_total, stats->input_samples ? stats->input_total / stats->input_samples : 0, stats->input_samples ? stats->input_max : 0,
+                stats->service_total, stats->service_samples ? stats->service_total / stats->service_samples : 0, stats->service_samples ? stats->service_max : 0,
+                stats->decode_total, stats->decode_samples ? stats->decode_total / stats->decode_samples : 0, stats->decode_samples ? stats->decode_max : 0,
+                stats->render_total, stats->render_samples ? stats->render_total / stats->render_samples : 0, stats->render_samples ? stats->render_max : 0,
                 stats->video_frames ? stats->video_request_total / stats->video_frames : 0, stats->video_frames ? stats->video_request_min : 0, stats->video_request_max,
                 stats->video_frames ? stats->server_capture_total / stats->video_frames : 0, stats->video_frames ? stats->server_capture_min : 0, stats->server_capture_max,
                 stats->video_failures, stats->audio_samples ? stats->audio_queue_total / stats->audio_samples : 0,
                 stats->audio_samples ? stats->audio_queue_min : 0, stats->audio_queue_max, metrics->audio_underruns, stats->audio_failures,
                 stats->input_events, stats->input_acks, stats->input_acks ? stats->input_rtt_total / stats->input_acks : 0,
                 stats->input_acks ? stats->input_rtt_min : 0, stats->input_rtt_max, stats->input_failures, stats->payload_bytes,
-                duration ? stats->payload_bytes * 1000 / duration / 1024 : 0);
+                duration ? (long long)stats->payload_bytes * 1000 / duration / 1024 : 0);
         fclose(file);
     }
     snprintf(history, sizeof(history), "%s/session-history.tsv", directory);

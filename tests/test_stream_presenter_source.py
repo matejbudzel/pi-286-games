@@ -35,7 +35,8 @@ class StreamPresenterSourceTests(unittest.TestCase):
 
     def test_native_presenter_records_post_session_stage_and_frame_timing(self):
         source = (Path(__file__).parents[1] / "streaming/client/pi286-stream-presenter.c").read_text()
-        for field in ("cpu_percent_x10", "frame_gap_ms_p95", "input_stage_ms_avg",
-                      "transport_wait_ms_avg", "decode_audio_ms_avg", "render_flip_ms_avg"):
+        for field in ("cpu_percent_x10", "frame_gap_ms_p95", "input_stage_ms_total", "input_stage_ms_avg",
+                      "transport_wait_ms_total", "transport_wait_ms_avg", "decode_audio_ms_total", "decode_audio_ms_avg",
+                      "render_flip_ms_total", "render_flip_ms_avg"):
             self.assertIn(field, source)
         self.assertIn("frame_presented(&stats)", source)
