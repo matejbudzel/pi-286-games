@@ -539,6 +539,7 @@ int main(int argc, char **argv) {
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_EVENTTHREAD) < 0) { fprintf(stderr, "SDL_Init failed: %s\n", SDL_GetError()); return 1; }
     fprintf(stderr, "presenter: SDL initialized; opening framebuffer\n"); fflush(stderr);
     if (!(screen = SDL_SetVideoMode(640, 480, 16, SDL_FULLSCREEN))) { fprintf(stderr, "SDL_SetVideoMode failed: %s\n", SDL_GetError()); close_input_devices(); SDL_Quit(); return 1; }
+    SDL_ShowCursor(SDL_DISABLE);
     if (!(canvas = create_canvas(screen))) { fprintf(stderr, "SDL_CreateRGBSurface failed: %s\n", SDL_GetError()); close_input_devices(); SDL_Quit(); return 1; }
     fprintf(stderr, "presenter: surface %dx%d pitch=%d logical-pitch=%d bpp=%d bytes=%d masks=%08x/%08x/%08x\n",
             screen->w, screen->h, screen->pitch,

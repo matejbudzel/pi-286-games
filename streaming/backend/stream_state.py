@@ -506,7 +506,11 @@ class StreamState(VideoMixin):
                         now = time.monotonic()
                         self._record_poll(item, revision, input_updated, started, now, now, "stale")
                     return None
-                force_keyframe = video_seq != item.get("video_sequence", 0)
+                # TCP/WebSocket frames are ordered.  A client that reports an
+                # older frame really missed media and needs a recovery frame;
+                # a newer acknowledgement can only be an in-flight control
+                # update and must not turn every cycle into a 150 KiB frame.
+                force_keyframe = video_seq < item.get("video_sequence", 0)
             video_started = time.monotonic()
             video, _sequence, _capture_ms = self.video_frame(session_id, force_keyframe)
             audio_started = time.monotonic()

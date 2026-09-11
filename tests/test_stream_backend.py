@@ -194,6 +194,17 @@ class StreamBackendTests(unittest.TestCase):
             self.assertEqual(stats["stale"], 0)
             self.assertEqual(stats["total_ms"]["count"], 1)
 
+    def test_poll_only_recovers_with_a_keyframe_when_client_video_is_behind(self):
+        with tempfile.TemporaryDirectory() as directory:
+            state = backend.StreamState(dict(backend.DEFAULTS, state_root=directory), "x" * 32)
+            state.active["one"] = {"dosbox": SimpleNamespace(poll=lambda: None), "held_keys": set(), "video_sequence": 7}
+            requested = []
+            state.video_frame = lambda session, force: (requested.append(force) or (b"video", 8, 2))
+            state.audio_chunk = lambda session, offset: (b"", offset)
+            state.poll("one", {"input_revision": 1, "video_seq": 8, "audio_offset": 0, "held_keys": []})
+            state.poll("one", {"input_revision": 2, "video_seq": 6, "audio_offset": 0, "held_keys": []})
+            self.assertEqual(requested, [False, True])
+
     def test_idle_session_reaper_stops_only_expired_sessions(self):
         with tempfile.TemporaryDirectory() as directory:
             state = backend.StreamState({**backend.DEFAULTS, "state_root": directory,
