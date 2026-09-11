@@ -270,7 +270,8 @@ class StreamState(VideoMixin):
         return {"started_at": time.time(), "last_arrival": None, "requests": 0,
                 "responses": 0, "stale": 0, "input_updates": 0, "failed": 0,
                 "total_ms": [], "video_ms": [], "audio_ms": [], "arrival_gap_ms": [],
-                "trace": []}
+                "video_full": 0, "video_delta": 0, "video_delta_tiles": 0,
+                "video_forced_full": 0, "trace": []}
 
     @staticmethod
     def _poll_stats_snapshot(stats: dict) -> dict:
@@ -282,7 +283,23 @@ class StreamState(VideoMixin):
                 "stale": stats["stale"], "input_updates": stats["input_updates"],
                 "failed": stats["failed"], "total_ms": timing("total_ms"),
                 "video_ms": timing("video_ms"), "audio_ms": timing("audio_ms"),
+                "video_full": stats["video_full"], "video_delta": stats["video_delta"],
+                "video_delta_tiles": stats["video_delta_tiles"],
+                "video_forced_full": stats["video_forced_full"],
                 "arrival_gap_ms": timing("arrival_gap_ms"), "recent": list(stats["trace"])}
+
+    @staticmethod
+    def _record_video_packet(stats: dict, packet: bytes, forced: bool) -> None:
+        """Separate dense full-screen deltas from requested recovery frames."""
+        if len(packet) < 8 or packet[:4] != b"P2V1":
+            return
+        if packet[4] == 1:
+            stats["video_full"] += 1
+            if forced:
+                stats["video_forced_full"] += 1
+        elif packet[4] == 2:
+            stats["video_delta"] += 1
+            stats["video_delta_tiles"] += struct.unpack_from(">H", packet, 6)[0]
 
     def _record_poll(self, item: dict, revision: int, input_updated: bool,
                      started: float, video_started: float, audio_started: float,
@@ -521,6 +538,7 @@ class StreamState(VideoMixin):
                         # Do not generate PCM for a response the client has already superseded.
                         self._record_poll(item, revision, input_updated, started, video_started, audio_started, "stale")
                     return None
+                self._record_video_packet(item["poll_stats"], video, force_keyframe)
             audio, next_audio = self.audio_chunk(session_id, audio_offset)
             with self.lock:
                 item = self.active.get(session_id)

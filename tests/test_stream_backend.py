@@ -205,6 +205,15 @@ class StreamBackendTests(unittest.TestCase):
             state.poll("one", {"input_revision": 2, "video_seq": 6, "audio_offset": 0, "held_keys": []})
             self.assertEqual(requested, [False, True])
 
+    def test_poll_stats_distinguish_forced_and_dense_full_video_packets(self):
+        stats = backend.StreamState._new_poll_stats()
+        full = struct.pack(">4sBBHII", b"P2V1", 1, 0, 0, 1, 0)
+        delta = struct.pack(">4sBBHII", b"P2V1", 2, 0, 3, 2, 0)
+        backend.StreamState._record_video_packet(stats, full, False)
+        backend.StreamState._record_video_packet(stats, full, True)
+        backend.StreamState._record_video_packet(stats, delta, False)
+        self.assertEqual((stats["video_full"], stats["video_forced_full"], stats["video_delta_tiles"]), (2, 1, 3))
+
     def test_idle_session_reaper_stops_only_expired_sessions(self):
         with tempfile.TemporaryDirectory() as directory:
             state = backend.StreamState({**backend.DEFAULTS, "state_root": directory,
