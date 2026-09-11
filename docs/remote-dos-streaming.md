@@ -26,7 +26,7 @@ Only one DOSBox session may be active at once. It uses headless Xvfb and sends
 320×240 RGB565 video packets (or native 640×480 for `zlib-2x`) plus 22050 Hz
 mono PCM audio. Video begins with a keyframe and normally uses changed 16×16
 tiles thereafter. DOSBox output is always normalized with `aspect=true` and
-the matching `normal` or `normal2x` scaler. The client may then request the
+the unscaled `none` renderer. The client may then request the
 `none` or `crt-lite` video filter; filters are applied server-side before tile
 comparison. Sessions use either HTTP polling or a WebSocket transport; neither
 transport silently falls back to the other.

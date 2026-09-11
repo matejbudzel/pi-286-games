@@ -43,12 +43,12 @@ class StreamBackendTests(unittest.TestCase):
         self.assertIn("[render]\naspect=true", config)
         self.assertNotIn("mapperfile", config)
 
-    def test_dosbox_output_is_always_normalized_before_video_filtering(self):
+    def test_dosbox_output_uses_a_fixed_unscaled_render_target(self):
         normal = backend.StreamState._dosbox_config(backend.safe_relative_path("GP.EXE"), 22050)
         two_x = backend.StreamState._dosbox_config(backend.safe_relative_path("GP.EXE"), 22050,
                                                     compression="zlib-2x")
-        self.assertIn("[render]\naspect=true\nscaler=normal", normal)
-        self.assertIn("[render]\naspect=true\nscaler=normal2x", two_x)
+        self.assertIn("[render]\naspect=true\nscaler=none", normal)
+        self.assertIn("[render]\naspect=true\nscaler=none", two_x)
 
     def test_xvfb_uses_a_visual_accepted_by_debian_dosbox(self):
         source = STATE_MODULE.read_text()
