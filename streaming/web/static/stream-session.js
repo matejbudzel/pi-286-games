@@ -73,7 +73,7 @@ export function createSession({input, textStatus, showGame, showList}) {
     if (starting || session) return; starting = true; textStatus("Pripravujem hru…");
     try {
       audioContext = new AudioContext(); await audioContext.resume(); audioNext = audioContext.currentTime;
-      const response = await fetch("/web/api/sessions", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({game_id: gameId, video_scaling: options.videoScaling, transport: options.transport})});
+      const response = await fetch("/web/api/sessions", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({game_id: gameId, video_filter: options.videoFilter, transport: options.transport})});
       if (!response.ok) { textStatus("Štart zlyhal: " + await response.text()); await audioContext.close(); audioContext = null; return; }
       session = (await response.json()).id; videoSeq = audioOffset = 0; statsReported = false; clientStats = {transport: options.transport, startedAt: new Date().toISOString(), startedAtMs: performance.now(), lastFrameAt: 0, frames: 0, frameIntervals: newMetric(), captureMs: newMetric(), decodeDrawMs: newMetric(), videoBytes: newMetric(), audioBytes: newMetric()}; frame.fill(0); draw(); updateHud(); player.hidden = false; showGame(options); if (options.transport === "websocket") websocketStart(); else poll();
     } finally { starting = false; }

@@ -16,7 +16,7 @@ from streaming.backend.stream_http import WEB_FILES, WEB_STATIC, StreamHTTPServe
 from streaming.backend.stream_models import (DEFAULTS, KEYS, PCM_CHUNK_BYTES, POLL_HEADER,
                                              RAINBOW_CAT_COM, SESSION_RE, VIDEO_BYTES, VIDEO_HEIGHT,
                                              VIDEO_KEYFRAME_INTERVAL, VIDEO_PACKET_HEADER,
-                                             VIDEO_SCALING_MODES, VIDEO_TILE, VIDEO_WIDTH,
+                                             VIDEO_FILTERS, VIDEO_TILE, VIDEO_WIDTH,
                                              GameDefinition, PurePosixPath, read_config,
                                              safe_relative_path)
 from streaming.backend.stream_state import StreamState

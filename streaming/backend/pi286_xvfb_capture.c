@@ -53,11 +53,7 @@ static int stable_frame(const char *path, unsigned char **frame, size_t *size) {
     return 75;
 }
 
-static unsigned char blend(unsigned char current, unsigned char following, int remainder) {
-    return (unsigned char)((current * (OUTPUT_HEIGHT - remainder) + following * remainder) / OUTPUT_HEIGHT);
-}
-
-static int convert(const unsigned char *source, size_t source_size, const char *scaling, int native_2x,
+static int convert(const unsigned char *source, size_t source_size, const char *video_filter, int native_2x,
                    unsigned char output[NATIVE_BYTES]) {
     if (source_size < 100) return -1;
     uint32_t header_size = be32(source), width = be32(source + 16), height = be32(source + 20);
@@ -66,8 +62,7 @@ static int convert(const unsigned char *source, size_t source_size, const char *
     size_t pixels = (size_t)header_size + (size_t)colors * 12;
     if (width != 640 || height != 480 || byte_order != 0 || bits_per_pixel != 32 || bytes_per_line != 2560 ||
         pixels > source_size || source_size - pixels < (size_t)bytes_per_line * height) return -1;
-    int linear = !strcmp(scaling, "linear-v") || !strcmp(scaling, "crt-lite");
-    int crt = !strcmp(scaling, "crt-lite");
+    int crt = !strcmp(video_filter, "crt-lite");
     size_t destination = 0;
     if (native_2x) {
         for (int y = 0; y < NATIVE_HEIGHT; ++y) {
@@ -86,18 +81,10 @@ static int convert(const unsigned char *source, size_t source_size, const char *
     }
     for (int y = 0; y < OUTPUT_HEIGHT; ++y) {
         int source_y = y * 200 / OUTPUT_HEIGHT;
-        int remainder = (y * 200) % OUTPUT_HEIGHT;
         const unsigned char *row = source + pixels + (size_t)(40 + 2 * source_y) * bytes_per_line;
-        const unsigned char *next = source + pixels + (size_t)(40 + 2 * (source_y < 199 ? source_y + 1 : 199)) * bytes_per_line;
         for (int x = 0; x < OUTPUT_WIDTH; ++x) {
             const unsigned char *pixel = row + x * 8;
             unsigned char blue = pixel[0], green = pixel[1], red = pixel[2];
-            if (linear && remainder) {
-                const unsigned char *following = next + x * 8;
-                blue = blend(blue, following[0], remainder);
-                green = blend(green, following[1], remainder);
-                red = blend(red, following[2], remainder);
-            }
             uint16_t color = (uint16_t)(((red & 0xf8) << 8) | ((green & 0xfc) << 3) | (blue >> 3));
             if (crt && (y & 1)) color = (uint16_t)((((color & 0xf800) * 7 / 8) & 0xf800) |
                                                     (((color & 0x07e0) * 7 / 8) & 0x07e0) |
@@ -111,7 +98,7 @@ static int convert(const unsigned char *source, size_t source_size, const char *
 
 int main(int argc, char **argv) {
     int native_2x = argc == 4 && !strcmp(argv[3], "2x");
-    if (argc != 3 && !native_2x) { fprintf(stderr, "usage: %s Xvfb_screen0 nearest|linear-v|crt-lite|tv2x|rgb2x|advmame2x|scan2x [2x]\n", argv[0]); return 64; }
+    if (argc != 3 && !native_2x) { fprintf(stderr, "usage: %s Xvfb_screen0 none|crt-lite [2x]\n", argv[0]); return 64; }
     unsigned char *source = NULL, output[NATIVE_BYTES];
     size_t source_size = 0;
     int result = stable_frame(argv[1], &source, &source_size);

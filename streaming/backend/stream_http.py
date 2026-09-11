@@ -277,7 +277,7 @@ def make_handler(state: StreamState):
                 if self.path == "/v1/sessions":
                     self._json(HTTPStatus.CREATED, state.start_session(request))
                 elif self.path == "/v1/diagnostics/rainbow-cat":
-                    self._json(HTTPStatus.CREATED, state.start_rainbow_cat(request.get("video_scaling", "nearest")))
+                    self._json(HTTPStatus.CREATED, state.start_rainbow_cat(request.get("video_filter", "none")))
                 elif re.fullmatch(r"/v1/sessions/[^/]+/frames", self.path):
                     self._json(HTTPStatus.CREATED, state.capture_frame(self.path.split("/")[3]))
                 elif re.fullmatch(r"/v1/sessions/[^/]+/input", self.path):

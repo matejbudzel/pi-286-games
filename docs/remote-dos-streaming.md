@@ -14,7 +14,7 @@ Browser              -- same-origin /web/api and WebSocket --> LXC DOSBox
 The LXC owns the already-extracted private game directories in
 `/srv/pi286-games`. Game definitions, DOSBox configurations, mapper files and
 dance-pad mappings live in `games/` in the repository. At session start the
-presenter supplies a game ID, selected transport, scaling mode and complete
+presenter supplies a game ID, selected transport, video filter and complete
 input snapshots; it does not upload, download or interpret game assets.
 
 The server validates that the selected game's `data_dir` and executable are
@@ -23,9 +23,11 @@ presenter displays to the user. Archive wrapper directories are supported when
 they contain exactly one configured executable.
 
 Only one DOSBox session may be active at once. It uses headless Xvfb and sends
-320×240 RGB565 video packets plus 22050 Hz mono PCM audio. Video begins with a
-keyframe and normally uses changed 16×16 tiles thereafter. `nearest`,
-`linear-v`, and `crt-lite` scaling are applied server-side before tile
+320×240 RGB565 video packets (or native 640×480 for `zlib-2x`) plus 22050 Hz
+mono PCM audio. Video begins with a keyframe and normally uses changed 16×16
+tiles thereafter. DOSBox output is always normalized with `aspect=true` and
+the matching `normal` or `normal2x` scaler. The client may then request the
+`none` or `crt-lite` video filter; filters are applied server-side before tile
 comparison. Sessions use either HTTP polling or a WebSocket transport; neither
 transport silently falls back to the other.
 

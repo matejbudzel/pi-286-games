@@ -43,24 +43,12 @@ class StreamBackendTests(unittest.TestCase):
         self.assertIn("[render]\naspect=true", config)
         self.assertNotIn("mapperfile", config)
 
-    def test_zlib_2x_config_makes_only_that_session_use_dosbox_scaling(self):
+    def test_dosbox_output_is_always_normalized_before_video_filtering(self):
         normal = backend.StreamState._dosbox_config(backend.safe_relative_path("GP.EXE"), 22050)
         two_x = backend.StreamState._dosbox_config(backend.safe_relative_path("GP.EXE"), 22050,
                                                     compression="zlib-2x")
-        self.assertNotIn("scaler=normal2x", normal)
+        self.assertIn("[render]\naspect=true\nscaler=normal", normal)
         self.assertIn("[render]\naspect=true\nscaler=normal2x", two_x)
-        tv = backend.StreamState._dosbox_config(backend.safe_relative_path("GP.EXE"), 22050,
-                                                compression="zlib-2x", video_scaling="tv2x")
-        self.assertIn("[render]\naspect=true\nscaler=tv2x", tv)
-        rgb = backend.StreamState._dosbox_config(backend.safe_relative_path("GP.EXE"), 22050,
-                                                 compression="zlib-2x", video_scaling="rgb2x")
-        self.assertIn("[render]\naspect=true\nscaler=rgb2x", rgb)
-        advmame = backend.StreamState._dosbox_config(backend.safe_relative_path("GP.EXE"), 22050,
-                                                     compression="zlib-2x", video_scaling="advmame2x")
-        self.assertIn("[render]\naspect=true\nscaler=advmame2x", advmame)
-        scan = backend.StreamState._dosbox_config(backend.safe_relative_path("GP.EXE"), 22050,
-                                                  compression="zlib-2x", video_scaling="scan2x")
-        self.assertIn("[render]\naspect=true\nscaler=scan2x", scan)
 
     def test_xvfb_uses_a_visual_accepted_by_debian_dosbox(self):
         source = STATE_MODULE.read_text()
@@ -395,18 +383,16 @@ class StreamBackendTests(unittest.TestCase):
         converted = backend.StreamState._xwd_to_rgb565(struct.pack(">25I", *header) + pixels)
         self.assertEqual(converted[:4], bytes((0x1f, 0x00, 0xe0, 0x07)))
 
-    def test_video_scaling_is_deterministic_before_tile_encoding(self):
+    def test_video_filter_is_deterministic_before_tile_encoding(self):
         header = [100, 7, 2, 24, 640, 480, 0, 0, 32, 0, 8, 24, 640 * 4,
                   4, 0x00ff0000, 0x0000ff00, 0x000000ff, 8, 256, 0, 0, 640, 480, 0, 0]
         pixels = bytearray(640 * 480 * 4)
         pixels[40 * 640 * 4:40 * 640 * 4 + 3] = bytes((0, 0, 255))
         pixels[42 * 640 * 4:42 * 640 * 4 + 3] = bytes((0, 255, 0))
         source = struct.pack(">25I", *header) + pixels
-        nearest = backend.StreamState._xwd_to_rgb565(source, "nearest")
-        linear = backend.StreamState._xwd_to_rgb565(source, "linear-v")
+        unfiltered = backend.StreamState._xwd_to_rgb565(source, "none")
         crt = backend.StreamState._xwd_to_rgb565(source, "crt-lite")
-        self.assertNotEqual(nearest[320 * 2:320 * 2 + 2], linear[320 * 2:320 * 2 + 2])
-        self.assertNotEqual(linear[320 * 2:320 * 2 + 2], crt[320 * 2:320 * 2 + 2])
+        self.assertNotEqual(unfiltered[320 * 2:320 * 2 + 2], crt[320 * 2:320 * 2 + 2])
         self.assertEqual(crt, backend.StreamState._xwd_to_rgb565(source, "crt-lite"))
 
     def test_video_tiles_encode_only_changed_16x16_regions_and_recover_with_keyframe(self):

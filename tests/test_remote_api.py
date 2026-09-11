@@ -11,18 +11,18 @@ class RemoteApiTests(unittest.TestCase):
         backend.json = lambda method, path, payload=None: calls.append((method, path, payload)) or {"id": "diagnostic"}
         self.assertEqual(backend.start_rainbow_cat(), {"id": "diagnostic"})
         self.assertEqual(calls, [("POST", "/v1/diagnostics/rainbow-cat",
-                                  {"video_scaling": "nearest", "transport": "poll"})])
+                                  {"video_filter": "none", "transport": "poll"})])
 
-    def test_session_and_diagnostic_send_the_requested_scaling(self):
+    def test_session_and_diagnostic_send_the_requested_filter(self):
         backend = RemoteBackend("http://example.test", "token")
         calls = []
         backend.json = lambda method, path, payload=None: calls.append((method, path, payload)) or {"id": "session"}
         backend.start_session("gp", "crt-lite")
-        backend.start_rainbow_cat("linear-v")
-        self.assertEqual(calls[0][2]["video_scaling"], "crt-lite")
+        backend.start_rainbow_cat("none")
+        self.assertEqual(calls[0][2]["video_filter"], "crt-lite")
         self.assertEqual(calls[0][2]["transport"], "poll")
-        self.assertEqual(calls[1][2]["video_scaling"], "linear-v")
-        self.assertEqual(calls[0][2], {"game_id": "gp", "video_scaling": "crt-lite", "transport": "poll"})
+        self.assertEqual(calls[1][2]["video_filter"], "none")
+        self.assertEqual(calls[0][2], {"game_id": "gp", "video_filter": "crt-lite", "transport": "poll"})
 
     def test_session_stop_uses_a_shutdown_timeout_longer_than_health_checks(self):
         backend = RemoteBackend("http://example.test", "token")

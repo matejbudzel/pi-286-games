@@ -52,17 +52,17 @@ class RemoteBackend:
     def games(self, keyboard: bool, dance_pad: bool):
         return self.json("GET", "/v1/games?keyboard=%d&dance_pad=%d" % (keyboard, dance_pad))
 
-    def start_session(self, game_id: str, video_scaling: str = "nearest", transport: str = "poll", compression: str = ""):
-        payload = {"game_id": game_id, "video_scaling": video_scaling, "transport": transport}
+    def start_session(self, game_id: str, video_filter: str = "none", transport: str = "poll", compression: str = ""):
+        payload = {"game_id": game_id, "video_filter": video_filter, "transport": transport}
         if compression:
             payload["compression"] = compression
         return self.json("POST", "/v1/sessions", payload)
 
-    def start_rainbow_cat(self, video_scaling: str = "nearest", transport: str = "poll"):
+    def start_rainbow_cat(self, video_filter: str = "none", transport: str = "poll"):
         """Start the server's asset-free video/audio/input transport check."""
         # The small server parses every POST body as JSON, including this
         # asset-free endpoint which otherwise needs no request fields.
-        return self.json("POST", "/v1/diagnostics/rainbow-cat", {"video_scaling": video_scaling,
+        return self.json("POST", "/v1/diagnostics/rainbow-cat", {"video_filter": video_filter,
                                                                        "transport": transport})
 
     def stop_session(self, session_id: str):

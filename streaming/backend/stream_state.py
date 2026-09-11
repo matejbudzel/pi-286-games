@@ -13,7 +13,7 @@ import threading
 import time
 from pathlib import Path, PurePosixPath
 
-from streaming.backend.stream_models import (AUDIO_QUEUE_TARGET_MS, DEFAULTS, KEYS, PCM_CHUNK_BYTES, RAINBOW_CAT_COM, VIDEO_HEIGHT, VIDEO_SCALING_MODES, load_games, safe_relative_path, GameDefinition)
+from streaming.backend.stream_models import (AUDIO_QUEUE_TARGET_MS, DEFAULTS, KEYS, PCM_CHUNK_BYTES, RAINBOW_CAT_COM, VIDEO_FILTERS, VIDEO_HEIGHT, load_games, safe_relative_path, GameDefinition)
 from streaming.backend.stream_video import VideoMixin
 
 
@@ -55,11 +55,11 @@ class StreamState(VideoMixin):
 
     def start_session(self, request: dict) -> dict:
         game_id = request.get("game_id")
-        video_scaling = request.get("video_scaling", "nearest")
+        video_filter = request.get("video_filter", "none")
         transport = request.get("transport", "poll")
         compression = request.get("compression", "")
-        if video_scaling not in VIDEO_SCALING_MODES:
-            video_scaling = "nearest"
+        if video_filter not in VIDEO_FILTERS:
+            video_filter = "none"
         if transport not in ("poll", "websocket"):
             raise ValueError("transport must be poll or websocket")
         if compression not in ("", "zlib", "zlib-2x"):
@@ -88,7 +88,7 @@ class StreamState(VideoMixin):
             session_dir = self.sessions / session_id
             session_dir.mkdir(parents=True)
             config_path = session_dir / "dosbox.conf"
-            config_path.write_text(self._dosbox_config(executable_path, self.audio_rate, game, compression, video_scaling), encoding="utf-8")
+            config_path.write_text(self._dosbox_config(executable_path, self.audio_rate, game, compression), encoding="utf-8")
             audio_path = session_dir / "audio-s16le-stereo.raw"
             audio_mode = self.config["audio_capture"]
             if audio_mode not in ("file", "loopback"):
@@ -141,7 +141,7 @@ class StreamState(VideoMixin):
                                             "game": game,
                                             "diagnostic": diagnostic,
                                             "poll_stats": self._new_poll_stats(),
-                                            "video_scaling": video_scaling,
+                                            "video_filter": video_filter,
                                             "transport": transport,
                                             "compression": compression,
                                             "last_client_activity": time.monotonic(),
@@ -171,9 +171,9 @@ class StreamState(VideoMixin):
             return None
         return PurePosixPath(matches[0].relative_to(game_dir).as_posix())
 
-    def start_rainbow_cat(self, video_scaling: str = "nearest", transport: str = "poll") -> dict:
+    def start_rainbow_cat(self, video_filter: str = "none", transport: str = "poll") -> dict:
         """Launch the built-in asset-free stream transport diagnostic."""
-        return self.start_session({"game_id": "rainbow-cat", "video_scaling": video_scaling,
+        return self.start_session({"game_id": "rainbow-cat", "video_filter": video_filter,
                                    "transport": transport})
 
     def _next_display(self) -> str:
@@ -181,7 +181,7 @@ class StreamState(VideoMixin):
 
     @staticmethod
     def _dosbox_config(executable: PurePosixPath, audio_rate: int, game: GameDefinition | None = None,
-                       compression: str = "", video_scaling: str = "nearest") -> str:
+                       compression: str = "") -> str:
         # Archives commonly wrap a game in one directory. DOS programs often
         # load data relative to the current DOS directory, so entering that
         # directory is required before launching the executable.
@@ -189,13 +189,10 @@ class StreamState(VideoMixin):
         change_directory = "cd \\%s\n" % directory if directory else ""
         command = executable.name
         game_config = game.dosbox_conf.read_text(encoding="utf-8") if game and game.dosbox_conf.is_file() else ""
-        scaler = video_scaling if video_scaling in ("tv2x", "rgb2x", "advmame2x", "scan2x") else "normal2x"
         # Keep the original 320x200 EGA pixel aspect (6:5) on every server
         # session. This comes after game snippets so a game cannot quietly
         # restore the vertically squashed 320x200 presentation.
-        render_config = "\n[render]\naspect=true\n"
-        if compression == "zlib-2x":
-            render_config += "scaler=%s\n" % scaler
+        render_config = "\n[render]\naspect=true\nscaler=%s\n" % ("normal2x" if compression == "zlib-2x" else "normal")
         return """[sdl]\nfullscreen=false\noutput=surface\nusescancodes=false\n\n[dosbox]\nmachine=ega\nmemsize=8\n\n[cpu]\ncore=normal\ncycles=fixed 3000\n\n[mixer]\nnosound=false\nrate=%d\nblocksize=2048\nprebuffer=100\n\n[speaker]\npcspeaker=true\npcrate=%d\ntandy=off\ndisney=false\n\n[sblaster]\nsbtype=none\n\n[midi]\nmpu401=none\nmididevice=none\n\n%s%s\n[autoexec]\n@echo off\nmount c .\nc:\n%s%s\nexit\n""" % (audio_rate, audio_rate, game_config, render_config, change_directory, command)
 
     @staticmethod
@@ -250,7 +247,7 @@ class StreamState(VideoMixin):
                     "pid": item["dosbox"].pid, "frames": len(item["frames"]),
                     "audio_bytes": item["audio"].stat().st_size if item["audio"].exists() else 0,
                     "held_keys": sorted(item["held_keys"]),
-                    "video_scaling": item.get("video_scaling", "nearest"),
+                    "video_filter": item.get("video_filter", "none"),
                     "transport": item.get("transport", "poll"),
                     "audio": f"/v1/sessions/{session_id}/audio?offset=0",
                     "log": f"/v1/sessions/{session_id}/log",

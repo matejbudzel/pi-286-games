@@ -6,7 +6,7 @@ export function createMenu({start}) {
   function showList() { menu.hidden = false; preGame.hidden = true; games.hidden = false; options.hidden = false; }
   function showPreGame() { games.hidden = true; preGame.hidden = false; options.hidden = true; }
   function showGame() { menu.hidden = true; }
-  function launchOptions() { return {transport: document.querySelector("#transport").value, videoScaling: document.querySelector("#scaling").value, capabilities: capabilities()}; }
+  function launchOptions() { return {transport: document.querySelector("#transport").value, videoFilter: document.querySelector("#filter").value, capabilities: capabilities()}; }
   function showPadMap(game) {
     const labels = game.pre_game.pad_labels, keys = game.pre_game.pad_keys;
     const legend = document.querySelector("#pre-game-pad"); legend.replaceChildren(); legend.hidden = !capabilities().dancePad;
