@@ -69,9 +69,9 @@ VIDEO_KEYFRAME_INTERVAL = 2.0
 POLL_HEADER = 16
 PCM_CHUNK_BYTES = 4096
 AUDIO_QUEUE_TARGET_MS = 200
-# tv2x/rgb2x/advmame2x are DOSBox render scalers for the native 2x Pi stream.
+# tv2x/rgb2x/advmame2x/scan2x are DOSBox render scalers for the native 2x Pi stream.
 # The other modes are applied during server-side RGB565 conversion.
-VIDEO_SCALING_MODES = ("nearest", "linear-v", "crt-lite", "tv2x", "rgb2x", "advmame2x")
+VIDEO_SCALING_MODES = ("nearest", "linear-v", "crt-lite", "tv2x", "rgb2x", "advmame2x", "scan2x")
 
 
 class GameDefinition:

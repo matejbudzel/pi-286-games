@@ -111,7 +111,7 @@ static int convert(const unsigned char *source, size_t source_size, const char *
 
 int main(int argc, char **argv) {
     int native_2x = argc == 4 && !strcmp(argv[3], "2x");
-    if (argc != 3 && !native_2x) { fprintf(stderr, "usage: %s Xvfb_screen0 nearest|linear-v|crt-lite|tv2x|rgb2x|advmame2x [2x]\n", argv[0]); return 64; }
+    if (argc != 3 && !native_2x) { fprintf(stderr, "usage: %s Xvfb_screen0 nearest|linear-v|crt-lite|tv2x|rgb2x|advmame2x|scan2x [2x]\n", argv[0]); return 64; }
     unsigned char *source = NULL, output[NATIVE_BYTES];
     size_t source_size = 0;
     int result = stable_frame(argv[1], &source, &source_size);
