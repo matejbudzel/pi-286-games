@@ -40,6 +40,7 @@ class StreamBackendTests(unittest.TestCase):
         self.assertIn("mount c .", config)
         self.assertIn("cd \\GP", config)
         self.assertIn("\nGP.EXE\nexit", config)
+        self.assertIn("[render]\naspect=true", config)
         self.assertNotIn("mapperfile", config)
 
     def test_zlib_2x_config_makes_only_that_session_use_dosbox_scaling(self):
@@ -47,10 +48,10 @@ class StreamBackendTests(unittest.TestCase):
         two_x = backend.StreamState._dosbox_config(backend.safe_relative_path("GP.EXE"), 22050,
                                                     compression="zlib-2x")
         self.assertNotIn("scaler=normal2x", normal)
-        self.assertIn("[render]\nscaler=normal2x", two_x)
+        self.assertIn("[render]\naspect=true\nscaler=normal2x", two_x)
         tv = backend.StreamState._dosbox_config(backend.safe_relative_path("GP.EXE"), 22050,
                                                 compression="zlib-2x", video_scaling="tv2x")
-        self.assertIn("[render]\nscaler=tv2x", tv)
+        self.assertIn("[render]\naspect=true\nscaler=tv2x", tv)
 
     def test_xvfb_uses_a_visual_accepted_by_debian_dosbox(self):
         source = STATE_MODULE.read_text()

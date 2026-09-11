@@ -190,7 +190,12 @@ class StreamState(VideoMixin):
         command = executable.name
         game_config = game.dosbox_conf.read_text(encoding="utf-8") if game and game.dosbox_conf.is_file() else ""
         scaler = "tv2x" if video_scaling == "tv2x" else "normal2x"
-        render_config = "\n[render]\nscaler=%s\n" % scaler if compression == "zlib-2x" else ""
+        # Keep the original 320x200 EGA pixel aspect (6:5) on every server
+        # session. This comes after game snippets so a game cannot quietly
+        # restore the vertically squashed 320x200 presentation.
+        render_config = "\n[render]\naspect=true\n"
+        if compression == "zlib-2x":
+            render_config += "scaler=%s\n" % scaler
         return """[sdl]\nfullscreen=false\noutput=surface\nusescancodes=false\n\n[dosbox]\nmachine=ega\nmemsize=8\n\n[cpu]\ncore=normal\ncycles=fixed 3000\n\n[mixer]\nnosound=false\nrate=%d\nblocksize=2048\nprebuffer=100\n\n[speaker]\npcspeaker=true\npcrate=%d\ntandy=off\ndisney=false\n\n[sblaster]\nsbtype=none\n\n[midi]\nmpu401=none\nmididevice=none\n\n%s%s\n[autoexec]\n@echo off\nmount c .\nc:\n%s%s\nexit\n""" % (audio_rate, audio_rate, game_config, render_config, change_directory, command)
 
     @staticmethod
